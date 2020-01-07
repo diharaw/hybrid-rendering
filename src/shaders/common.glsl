@@ -8,3 +8,17 @@ struct RayPayload
 {
     vec4 color_dist;
 };
+
+struct IndirectionInfo
+{
+    ivec2 idx;
+};
+
+struct Vertex
+{
+    vec4 position;
+    vec4 tex_coord;
+    vec4 normal;
+    vec4 tangent;
+    vec4 bitangent;
+};

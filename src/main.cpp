@@ -67,7 +67,7 @@ protected:
             dw::profiler::ui();
 
             // Update camera.
-            m_main_camera->update();
+            update_camera();
 
             // Update uniforms.
             update_uniforms(cmd_buf);
@@ -104,6 +104,63 @@ protected:
         // Unload assets.
         m_scene.reset();
         m_mesh.reset();
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void key_pressed(int code) override
+    {
+        // Handle forward movement.
+        if (code == GLFW_KEY_W)
+            m_heading_speed = m_camera_speed;
+        else if (code == GLFW_KEY_S)
+            m_heading_speed = -m_camera_speed;
+
+        // Handle sideways movement.
+        if (code == GLFW_KEY_A)
+            m_sideways_speed = -m_camera_speed;
+        else if (code == GLFW_KEY_D)
+            m_sideways_speed = m_camera_speed;
+
+        if (code == GLFW_KEY_SPACE)
+            m_mouse_look = true;
+
+        if (code == GLFW_KEY_G)
+            m_debug_gui = !m_debug_gui;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void key_released(int code) override
+    {
+        // Handle forward movement.
+        if (code == GLFW_KEY_W || code == GLFW_KEY_S)
+            m_heading_speed = 0.0f;
+
+        // Handle sideways movement.
+        if (code == GLFW_KEY_A || code == GLFW_KEY_D)
+            m_sideways_speed = 0.0f;
+
+        if (code == GLFW_KEY_SPACE)
+            m_mouse_look = false;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void mouse_pressed(int code) override
+    {
+        // Enable mouse look.
+        if (code == GLFW_MOUSE_BUTTON_RIGHT)
+            m_mouse_look = true;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void mouse_released(int code) override
+    {
+        // Disable mouse look.
+        if (code == GLFW_MOUSE_BUTTON_RIGHT)
+            m_mouse_look = false;
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -301,6 +358,8 @@ private:
         dw::vk::PipelineLayout::Desc pl_desc;
 
         pl_desc.add_descriptor_set_layout(m_ray_tracing_layout);
+        pl_desc.add_descriptor_set_layout(m_scene->ray_tracing_geometry_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
 
         m_raytracing_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
 
@@ -313,13 +372,13 @@ private:
 
     bool load_mesh()
     {
-        m_mesh = dw::Mesh::load(m_vk_backend, "teapot.obj");
+        m_mesh = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
         m_mesh->initialize_for_ray_tracing(m_vk_backend);
 
         m_scene = dw::Scene::create();
         m_scene->add_instance(m_mesh, glm::mat4(1.0f));
 
-        m_scene->build_acceleration_structure(m_vk_backend);
+        m_scene->initialize_for_ray_tracing(m_vk_backend);
 
         return m_mesh != nullptr;
     }
@@ -355,6 +414,8 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 0, 1, &m_ray_tracing_ds->handle(), 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 1, 1, &m_scene->ray_tracing_geometry_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 2, 1, &m_scene->material_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
 
         vkCmdTraceRaysNV(cmd_buf->handle(),
                          m_raytracing_pipeline->shader_binding_table_buffer()->handle(),
@@ -455,6 +516,38 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void update_camera()
+    {
+        dw::Camera* current = m_main_camera.get();
+
+        float forward_delta = m_heading_speed * m_delta;
+        float right_delta   = m_sideways_speed * m_delta;
+
+        current->set_translation_delta(current->m_forward, forward_delta);
+        current->set_translation_delta(current->m_right, right_delta);
+
+        m_camera_x = m_mouse_delta_x * m_camera_sensitivity;
+        m_camera_y = m_mouse_delta_y * m_camera_sensitivity;
+
+        if (m_mouse_look)
+        {
+            // Activate Mouse Look
+            current->set_rotatation_delta(glm::vec3((float)(m_camera_y),
+                                                    (float)(m_camera_x),
+                                                    (float)(0.0f)));
+        }
+        else
+        {
+            current->set_rotatation_delta(glm::vec3((float)(0),
+                                                    (float)(0),
+                                                    (float)(0)));
+        }
+
+        current->update();
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
 private:
     // GPU resources.
     size_t m_ubo_size;
@@ -475,6 +568,19 @@ private:
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
+
+    // Camera controls.
+    bool  m_mouse_look         = false;
+    float m_heading_speed      = 0.0f;
+    float m_sideways_speed     = 0.0f;
+    float m_camera_sensitivity = 0.05f;
+    float m_camera_speed       = 0.05f;
+    float m_offset             = 0.1f;
+    bool  m_debug_gui          = true;
+
+    // Camera orientation.
+    float m_camera_x;
+    float m_camera_y;
 
     // Assets.
     dw::Mesh::Ptr  m_mesh;
