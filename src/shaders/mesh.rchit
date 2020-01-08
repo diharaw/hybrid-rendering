@@ -14,60 +14,66 @@ layout (set = 1, binding = 0) readonly buffer MaterialBuffer
     uint id[];
 } Material[];
 
-layout (set = 1, binding = 1, std430) readonly buffer IndirectionBuffer 
-{
-    IndirectionInfo infos[];
-} IndirectionArray;
-
-layout (set = 1, binding = 2, std430) readonly buffer VertexBuffer 
+layout (set = 1, binding = 1, std430) readonly buffer VertexBuffer 
 {
     Vertex vertices[];
 } VertexArray[];
 
-layout (set = 1, binding = 3) readonly buffer IndexBuffer 
+layout (set = 1, binding = 2) readonly buffer IndexBuffer 
 {
     uint indices[];
 } IndexArray[];
 
 layout(set = 2, binding = 0) uniform sampler2D s_Albedo[];
-layout(set = 2, binding = 1) uniform sampler2D s_Normal[];
-layout(set = 2, binding = 2) uniform sampler2D s_Roughness[];
-layout(set = 2, binding = 3) uniform sampler2D s_Metallic[];
+
+layout(set = 3, binding = 0) uniform sampler2D s_Normal[];
+
+layout(set = 4, binding = 0) uniform sampler2D s_Roughness[];
+
+layout(set = 5, binding = 0) uniform sampler2D s_Metallic[];
 
 Vertex get_vertex(uint mesh_idx, uint vertex_idx)
 {
     return VertexArray[nonuniformEXT(mesh_idx)].vertices[vertex_idx];
 }
 
-Vertex interpolated_attribs(uint mesh_idx)
+Triangle fetch_triangle(uint mesh_idx)
 {
-    uvec3 idx = ivec3(IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID], 
+    Triangle tri;
+
+    uvec3 idx = uvec3(IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID], 
                       IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID + 1],
                       IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID + 2]);
 
-    Vertex v0 = get_vertex(mesh_idx, idx.x);
-    Vertex v1 = get_vertex(mesh_idx, idx.y);
-    Vertex v2 = get_vertex(mesh_idx, idx.z);
+    tri.v0 = get_vertex(mesh_idx, idx.x);
+    tri.v1 = get_vertex(mesh_idx, idx.y);
+    tri.v2 = get_vertex(mesh_idx, idx.z);
 
+    tri.mat_idx = Material[nonuniformEXT(mesh_idx)].id[uint(tri.v0.position.w)];
+
+    return tri;
+}
+
+Vertex interpolated_vertex(in Triangle tri)
+{
     const vec3 barycentrics = vec3(1.0 - hit_attribs.x - hit_attribs.y, hit_attribs.x, hit_attribs.y);
 
     Vertex o;
 
-    o.position.xyz = v0.position.xyz * barycentrics.x + v1.position.xyz * barycentrics.y + v2.position.xyz * barycentrics.z;
-    o.tex_coord.xy = v0.tex_coord.xy * barycentrics.x + v1.tex_coord.xy * barycentrics.y + v2.tex_coord.xy * barycentrics.z;
-    o.normal.xyz = normalize(v0.normal.xyz * barycentrics.x + v1.normal.xyz * barycentrics.y + v2.normal.xyz * barycentrics.z);
-    o.tangent.xyz = normalize(v0.tangent.xyz * barycentrics.x + v1.tangent.xyz * barycentrics.y + v2.tangent.xyz * barycentrics.z);
-    o.bitangent.xyz = normalize(v0.bitangent.xyz * barycentrics.x + v1.bitangent.xyz * barycentrics.y + v2.bitangent.xyz * barycentrics.z);
+    o.position.xyz = tri.v0.position.xyz * barycentrics.x + tri.v1.position.xyz * barycentrics.y + tri.v2.position.xyz * barycentrics.z;
+    o.tex_coord.xy = tri.v0.tex_coord.xy * barycentrics.x + tri.v1.tex_coord.xy * barycentrics.y + tri.v2.tex_coord.xy * barycentrics.z;
+    o.normal.xyz = normalize(tri.v0.normal.xyz * barycentrics.x + tri.v1.normal.xyz * barycentrics.y + tri.v2.normal.xyz * barycentrics.z);
+    o.tangent.xyz = normalize(tri.v0.tangent.xyz * barycentrics.x + tri.v1.tangent.xyz * barycentrics.y + tri.v2.tangent.xyz * barycentrics.z);
+    o.bitangent.xyz = normalize(tri.v0.bitangent.xyz * barycentrics.x + tri.v1.bitangent.xyz * barycentrics.y + tri.v2.bitangent.xyz * barycentrics.z);
 
     return o;
 }
 
 void main()
 {
-    const uint mat_idx = Material[0].id[3 * gl_PrimitiveID];
+    const Triangle tri = fetch_triangle(gl_InstanceCustomIndexNV);
+    const Vertex v = interpolated_vertex(tri);
 
-    Vertex v = interpolated_attribs(gl_InstanceCustomIndexNV);
-
-    vec3 color = textureLod(s_Albedo[nonuniformEXT(mat_idx)], v.tex_coord.xy, 0.0).rgb;
+    vec3 color = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0).rgb;
     hit_value = color;
 }

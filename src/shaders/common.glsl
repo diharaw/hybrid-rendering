@@ -22,3 +22,11 @@ struct Vertex
     vec4 tangent;
     vec4 bitangent;
 };
+
+struct Triangle
+{
+    Vertex v0;
+    Vertex v1;
+    Vertex v2;
+    uint mat_idx;
+};

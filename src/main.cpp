@@ -172,7 +172,7 @@ protected:
 
         settings.width       = 1280;
         settings.height      = 720;
-        settings.title       = "Hello dwSampleFramework (Vulkan)";
+        settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
 
         return settings;
@@ -360,6 +360,9 @@ private:
         pl_desc.add_descriptor_set_layout(m_ray_tracing_layout);
         pl_desc.add_descriptor_set_layout(m_scene->ray_tracing_geometry_descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
 
         m_raytracing_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
 
@@ -415,7 +418,10 @@ private:
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 0, 1, &m_ray_tracing_ds->handle(), 1, &dynamic_offset);
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 1, 1, &m_scene->ray_tracing_geometry_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 2, 1, &m_scene->material_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 2, 1, &m_scene->albedo_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 3, 1, &m_scene->normal_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 4, 1, &m_scene->roughness_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_raytracing_pipeline_layout->handle(), 5, 1, &m_scene->metallic_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
 
         vkCmdTraceRaysNV(cmd_buf->handle(),
                          m_raytracing_pipeline->shader_binding_table_buffer()->handle(),
@@ -565,7 +571,7 @@ private:
     dw::vk::Image::Ptr               m_output_image;
     dw::vk::ImageView::Ptr           m_output_view;
     dw::vk::ShaderBindingTable::Ptr  m_sbt;
-
+    
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
 
