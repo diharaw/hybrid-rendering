@@ -1,7 +1,7 @@
 #version 460
 #extension GL_NV_ray_tracing : require
-#extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 #include "common.glsl"
 
@@ -9,10 +9,10 @@ layout (location = 0) rayPayloadInNV vec3 hit_value;
 
 hitAttributeNV vec3 hit_attribs;
 
-layout (set = 1, binding = 0) readonly buffer MaterialIDBuffer 
+layout (set = 1, binding = 0) readonly buffer MaterialBuffer 
 {
     uint id[];
-} MaterialID[];
+} Material[];
 
 layout (set = 1, binding = 1, std430) readonly buffer IndirectionBuffer 
 {
@@ -29,10 +29,10 @@ layout (set = 1, binding = 3) readonly buffer IndexBuffer
     uint indices[];
 } IndexArray[];
 
-layout(set = 2, binding = 0) uniform sampler2D[] s_Albedo;
-layout(set = 2, binding = 1) uniform sampler2D[] s_Normal;
-layout(set = 2, binding = 2) uniform sampler2D[] s_Roughness;
-layout(set = 2, binding = 3) uniform sampler2D[] s_Metallic;
+layout(set = 2, binding = 0) uniform sampler2D s_Albedo[];
+layout(set = 2, binding = 1) uniform sampler2D s_Normal[];
+layout(set = 2, binding = 2) uniform sampler2D s_Roughness[];
+layout(set = 2, binding = 3) uniform sampler2D s_Metallic[];
 
 Vertex get_vertex(uint mesh_idx, uint vertex_idx)
 {
@@ -59,18 +59,15 @@ Vertex interpolated_attribs(uint mesh_idx)
     o.tangent.xyz = normalize(v0.tangent.xyz * barycentrics.x + v1.tangent.xyz * barycentrics.y + v2.tangent.xyz * barycentrics.z);
     o.bitangent.xyz = normalize(v0.bitangent.xyz * barycentrics.x + v1.bitangent.xyz * barycentrics.y + v2.bitangent.xyz * barycentrics.z);
 
-    o.position.w = MaterialID[nonuniformEXT(mesh_idx)].id[floatBitsToInt(v0.position.w)];
-
     return o;
 }
 
 void main()
 {
-    IndirectionInfo info = IndirectionArray.infos[gl_InstanceCustomIndexNV];
-    uint mesh_idx = info.idx.x;
+    const uint mat_idx = Material[0].id[3 * gl_PrimitiveID];
 
-    Vertex v = interpolated_attribs(mesh_idx);
+    Vertex v = interpolated_attribs(gl_InstanceCustomIndexNV);
 
-    vec3 color = texture(s_Albedo[nonuniformEXT(floatBitsToInt(v.position.w))], v.tex_coord.xy).rgb;
+    vec3 color = textureLod(s_Albedo[nonuniformEXT(mat_idx)], v.tex_coord.xy, 0.0).rgb;
     hit_value = color;
 }
