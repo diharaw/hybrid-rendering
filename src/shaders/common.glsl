@@ -9,6 +9,11 @@ struct RayPayload
     vec4 color_dist;
 };
 
+struct ShadowRayPayload
+{
+    float dist;
+};
+
 struct IndirectionInfo
 {
     ivec2 idx;

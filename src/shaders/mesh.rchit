@@ -5,7 +5,7 @@
 
 #include "common.glsl"
 
-layout (location = 0) rayPayloadInNV vec3 hit_value;
+layout (location = 0) rayPayloadInNV RayPayload ray_payload;
 
 hitAttributeNV vec3 hit_attribs;
 
@@ -75,5 +75,5 @@ void main()
     const Vertex v = interpolated_vertex(tri);
 
     vec3 color = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0).rgb;
-    hit_value = color;
+    ray_payload.color_dist = vec4(color, gl_HitTNV);
 }

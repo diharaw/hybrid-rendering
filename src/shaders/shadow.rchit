@@ -4,9 +4,9 @@
 
 #include "common.glsl"
 
-layout (location = 0) rayPayloadInNV RayPayload ray_payload;
+layout (location = 1) rayPayloadInNV ShadowRayPayload shadow_ray_payload;
 
 void main()
 {
-    ray_payload.color_dist = vec4(0.0f, 0.0f, 0.2f, -1.0f);
+    shadow_ray_payload.dist = gl_HitTNV;
 }

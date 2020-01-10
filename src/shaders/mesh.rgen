@@ -1,5 +1,8 @@
 #version 460
 #extension GL_NV_ray_tracing : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "common.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureNV topLevelAS;
 layout(set = 0, binding = 1, rgba8) uniform image2D image;
@@ -9,7 +12,8 @@ layout(set = 0, binding = 2) uniform CameraProperties
 	mat4 projInverse;
 } cam;
 
-layout(location = 0) rayPayloadNV vec3 hitValue;
+layout (location = 0) rayPayloadNV RayPayload ray_payload;
+layout (location = 1) rayPayloadNV ShadowRayPayload shadow_ray_payload;
 
 void main() 
 {
@@ -28,5 +32,5 @@ void main()
 
 	traceNV(topLevelAS, rayFlags, cullMask, 0, 0, 0, origin.xyz, tmin, direction.xyz, tmax, 0);
 
-	imageStore(image, ivec2(gl_LaunchIDNV.xy), vec4(hitValue, 0.0));
+	imageStore(image, ivec2(gl_LaunchIDNV.xy), vec4(ray_payload.color_dist.rgb, 0.0));
 }

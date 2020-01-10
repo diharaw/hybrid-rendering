@@ -184,6 +184,45 @@ protected:
     {
         // Override window resized method to update camera projection.
         m_main_camera->update_projection(60.0f, 0.1f, 1000.0f, float(m_width) / float(m_height));
+
+        m_vk_backend->wait_idle();
+
+        m_output_image.reset();
+        m_output_view.reset();
+
+        m_output_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_image_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_output_view  = dw::vk::ImageView::create(m_vk_backend, m_output_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        VkDescriptorImageInfo image_info;
+
+        image_info.sampler     = dw::Material::common_sampler()->handle();
+        image_info.imageView   = m_output_view->handle();
+        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo output_image;
+        output_image.sampler     = VK_NULL_HANDLE;
+        output_image.imageView   = m_output_view->handle();
+        output_image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write_data[2];
+        DW_ZERO_MEMORY(write_data[0]);
+        DW_ZERO_MEMORY(write_data[1]);
+
+        write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data[0].descriptorCount = 1;
+        write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data[0].pImageInfo      = &image_info;
+        write_data[0].dstBinding      = 0;
+        write_data[0].dstSet          = m_copy_ds->handle();
+
+        write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data[1].descriptorCount = 1;
+        write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data[1].pImageInfo      = &output_image;
+        write_data[1].dstBinding      = 1;
+        write_data[1].dstSet          = m_ray_tracing_ds->handle();
+
+        vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -337,12 +376,16 @@ private:
         dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/mesh.rgen.spv");
         dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/mesh.rchit.spv");
         dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/mesh.rmiss.spv");
+        dw::vk::ShaderModule::Ptr shadow_rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
+        dw::vk::ShaderModule::Ptr shadow_rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
 
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
         sbt_desc.add_ray_gen_group(rgen, "main");
         sbt_desc.add_hit_group(rchit, "main");
+        sbt_desc.add_hit_group(shadow_rchit, "main");
         sbt_desc.add_miss_group(rmiss, "main");
+        sbt_desc.add_miss_group(shadow_rmiss, "main");
 
         m_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
 
