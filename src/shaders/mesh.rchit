@@ -6,8 +6,11 @@
 #include "common.glsl"
 
 layout (location = 0) rayPayloadInNV RayPayload ray_payload;
+layout (location = 1) rayPayloadInNV ShadowRayPayload shadow_ray_payload;
 
 hitAttributeNV vec3 hit_attribs;
+
+layout(set = 0, binding = 0) uniform accelerationStructureNV topLevelAS;
 
 layout (set = 1, binding = 0) readonly buffer MaterialBuffer 
 {
@@ -69,11 +72,37 @@ Vertex interpolated_vertex(in Triangle tri)
     return o;
 }
 
+const float kShadowRayBias = 0.1f;
+
+float get_shadow()
+{
+    uint ray_flags = gl_RayFlagsTerminateOnFirstHitNV | gl_RayFlagsOpaqueNV;
+    uint cull_mask = 0xff;
+    float tmin = 0.0;
+    float tmax = 10000.0;
+    vec3 light_dir = normalize(vec3(0.5f, 0.9770f, 0.5000f));
+
+    vec3 origin = gl_WorldRayOriginNV + gl_WorldRayDirectionNV * gl_HitTNV;
+
+    // Add shadow ray offset
+    origin += light_dir * kShadowRayBias;
+
+	traceNV(topLevelAS, ray_flags, cull_mask, 1, 1, 1, origin, tmin, light_dir, tmax, 1);
+
+    float visible = 1.0;
+
+    if (shadow_ray_payload.dist > 0.0)
+        visible = 0.0f;
+
+    return visible;
+}
+
 void main()
 {
     const Triangle tri = fetch_triangle(gl_InstanceCustomIndexNV);
     const Vertex v = interpolated_vertex(tri);
 
     vec3 color = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0).rgb;
-    ray_payload.color_dist = vec4(color, gl_HitTNV);
+
+    ray_payload.color_dist = vec4(max(get_shadow(), 0.1f) * color, gl_HitTNV);
 }
