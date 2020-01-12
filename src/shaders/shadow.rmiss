@@ -4,9 +4,10 @@
 
 #include "common.glsl"
 
-layout (location = 1) rayPayloadInNV ShadowRayPayload shadow_ray_payload;
+layout (location = 0) rayPayloadInNV ShadowRayPayload shadow_ray_payload;
 
 void main()
 {
-    shadow_ray_payload.dist = -1.0f;
+    // Is in light
+    shadow_ray_payload.dist = 1.0f;
 }
