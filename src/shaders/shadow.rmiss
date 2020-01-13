@@ -4,7 +4,7 @@
 
 #include "common.glsl"
 
-layout (location = 0) rayPayloadInNV ShadowRayPayload shadow_ray_payload;
+layout(location = 0) rayPayloadInNV ShadowRayPayload shadow_ray_payload;
 
 void main()
 {
