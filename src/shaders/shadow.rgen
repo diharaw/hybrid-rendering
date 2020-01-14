@@ -8,38 +8,39 @@ layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
 layout(set = 0, binding = 1, r8) uniform image2D i_LightMask;
 
-layout (set = 1, binding = 0) uniform PerFrameUBO 
+layout(set = 1, binding = 0) uniform PerFrameUBO
 {
-	mat4 view_inverse;
-	mat4 proj_inverse;
-	mat4 model;
-	mat4 view;
-	mat4 projection;
+    mat4 view_inverse;
+    mat4 proj_inverse;
+    mat4 model;
+    mat4 view;
+    mat4 projection;
     vec4 cam_pos;
     vec4 light_dir;
-} ubo;
+}
+ubo;
 
-layout (set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout (set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout (set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
 
-layout (location = 0) rayPayloadNV ShadowRayPayload shadow_ray_payload;
+layout(location = 0) rayPayloadNV ShadowRayPayload shadow_ray_payload;
 
-void main() 
+void main()
 {
-	const vec2 pixel_center = vec2(gl_LaunchIDNV.xy) + vec2(0.5);
-	const vec2 tex_coord = pixel_center/vec2(gl_LaunchSizeNV.xy);
-	vec2 d = tex_coord * 2.0 - 1.0;
+    const vec2 pixel_center = vec2(gl_LaunchIDNV.xy) + vec2(0.5);
+    const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeNV.xy);
+    vec2       d            = tex_coord * 2.0 - 1.0;
 
-	vec3 position = texture(s_GBuffer3, tex_coord).rgb;
-	vec3 normal = texture(s_GBuffer2, tex_coord).rgb;
+    vec3 position = texture(s_GBuffer3, tex_coord).rgb;
+    vec3 normal   = texture(s_GBuffer2, tex_coord).rgb;
 
-	uint ray_flags = gl_RayFlagsOpaqueNV;
-	uint cull_mask = 0xff;
-	float tmin = 0.001;
-	float tmax = 10000.0;
+    uint  ray_flags = gl_RayFlagsOpaqueNV;
+    uint  cull_mask = 0xff;
+    float tmin      = 0.001;
+    float tmax      = 10000.0;
 
-	traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, ubo.light_dir.xyz, tmax, 0);
+    traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, ubo.light_dir.xyz, tmax, 0);
 
-	imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_ray_payload.dist, 0.0, 0.0, 0.0));
+    imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_ray_payload.dist, 0.0, 0.0, 0.0));
 }
