@@ -17,13 +17,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp)
 
-set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/mesh.vert
-                   ${PROJECT_SOURCE_DIR}/src/shaders/mesh.frag
+set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
+                   ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/copy.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/triangle.vert
-                   ${PROJECT_SOURCE_DIR}/src/shaders/mesh.rgen
-                   ${PROJECT_SOURCE_DIR}/src/shaders/mesh.rmiss
-                   ${PROJECT_SOURCE_DIR}/src/shaders/mesh.rchit
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rgen
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rchit)
 

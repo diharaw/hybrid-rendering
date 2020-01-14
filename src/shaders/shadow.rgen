@@ -8,9 +8,20 @@ layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
 layout(set = 0, binding = 1, r8) uniform image2D i_LightMask;
 
-layout (set = 1, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout (set = 1, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout (set = 1, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout (set = 1, binding = 0) uniform PerFrameUBO 
+{
+	mat4 view_inverse;
+	mat4 proj_inverse;
+	mat4 model;
+	mat4 view;
+	mat4 projection;
+    vec4 cam_pos;
+    vec4 light_dir;
+} ubo;
+
+layout (set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout (set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout (set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
 
 layout (location = 0) rayPayloadNV ShadowRayPayload shadow_ray_payload;
 
@@ -28,7 +39,7 @@ void main()
 	float tmin = 0.001;
 	float tmax = 10000.0;
 
-	traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, normal, tmax, 0);
+	traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, ubo.light_dir.xyz, tmax, 0);
 
 	imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_ray_payload.dist, 0.0, 0.0, 0.0));
 }

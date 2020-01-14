@@ -16,6 +16,12 @@ struct Transforms
     DW_ALIGNED(16)
     glm::mat4 proj_inverse;
     DW_ALIGNED(16)
+    glm::mat4 model;
+    DW_ALIGNED(16)
+    glm::mat4 view;
+    DW_ALIGNED(16)
+    glm::mat4 proj;
+    DW_ALIGNED(16)
     glm::vec4 cam_pos;
     DW_ALIGNED(16)
     glm::vec4 light_dir;
@@ -37,7 +43,10 @@ protected:
 
         // Load mesh.
         if (!load_mesh())
+        {
+            DW_LOG_INFO("Failed to load mesh");
             return false;
+        }
 
         create_output_images();
         create_render_passes();
@@ -50,6 +59,8 @@ protected:
 
         // Create camera.
         create_camera();
+
+        m_light_direction = glm::normalize(glm::vec3(0.5f, 0.9770f, 0.5000f));
 
         return true;
     }
@@ -95,6 +106,35 @@ protected:
 
     void shutdown() override
     {
+        m_copy_ds.reset();
+        m_per_frame_ds.reset();
+        m_g_buffer_ds.reset();
+        m_shadow_mask_ds.reset();
+        m_per_frame_ds_layout.reset();
+        m_g_buffer_ds_layout.reset();
+        m_shadow_mask_ds_layout.reset();
+        m_shadow_mask_pipeline_layout.reset();
+        m_g_buffer_pipeline_layout.reset();
+        m_copy_layout.reset();
+        m_copy_pipeline_layout.reset();
+        m_ubo.reset();
+        m_copy_pipeline.reset();
+        m_shadow_mask_pipeline.reset();
+        m_g_buffer_pipeline.reset();
+        m_g_buffer_fbo.reset();
+        m_g_buffer_rp.reset();
+        m_shadow_mask_view.reset();
+        m_g_buffer_1_view.reset();
+        m_g_buffer_2_view.reset();
+        m_g_buffer_3_view.reset();
+        m_g_buffer_depth_view.reset();
+        m_shadow_mask_image.reset();
+        m_g_buffer_1.reset();
+        m_g_buffer_2.reset();
+        m_g_buffer_3.reset();
+        m_g_buffer_depth.reset();
+        m_shadow_mask_sbt.reset();
+
         // Unload assets.
         m_scene.reset();
         m_mesh.reset();
@@ -204,7 +244,7 @@ private:
         m_g_buffer_1     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_2     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_3     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
 
         m_g_buffer_1_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_2_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -270,7 +310,7 @@ private:
         gbuffer_references[2].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         VkAttachmentReference depth_reference;
-        depth_reference.attachment = 1;
+        depth_reference.attachment = 3;
         depth_reference.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         std::vector<VkSubpassDescription> subpass_description(1);
@@ -413,7 +453,7 @@ private:
         }
 
         {
-            m_shadow_mask_ds = m_vk_backend->allocate_descriptor_set(m_shadow_mask_ds_layout);
+            m_g_buffer_ds = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
 
             VkDescriptorImageInfo image_info[3];
 
@@ -439,21 +479,21 @@ private:
             write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[0].pImageInfo      = &image_info[0];
             write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_shadow_mask_ds->handle();
+            write_data[0].dstSet          = m_g_buffer_ds->handle();
 
             write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[1].descriptorCount = 1;
             write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[1].pImageInfo      = &image_info[1];
             write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_shadow_mask_ds->handle();
+            write_data[1].dstSet          = m_g_buffer_ds->handle();
 
             write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[2].descriptorCount = 1;
             write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[2].pImageInfo      = &image_info[2];
             write_data[2].dstBinding      = 2;
-            write_data[2].dstSet          = m_shadow_mask_ds->handle();
+            write_data[2].dstSet          = m_g_buffer_ds->handle();
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
         }
@@ -464,7 +504,6 @@ private:
             VkWriteDescriptorSet write_data[2];
             DW_ZERO_MEMORY(write_data[0]);
             DW_ZERO_MEMORY(write_data[1]);
-            DW_ZERO_MEMORY(write_data[2]);
 
             VkWriteDescriptorSetAccelerationStructureNV descriptor_as;
 
@@ -552,7 +591,7 @@ private:
         dw::vk::PipelineLayout::Desc pl_desc;
 
         pl_desc.add_descriptor_set_layout(m_shadow_mask_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_scene->ray_tracing_geometry_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
 
         m_shadow_mask_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
@@ -617,7 +656,7 @@ private:
             .set_polygon_mode(VK_POLYGON_MODE_FILL)
             .set_line_width(1.0f)
             .set_cull_mode(VK_CULL_MODE_BACK_BIT)
-            .set_front_face(VK_FRONT_FACE_COUNTER_CLOCKWISE)
+            .set_front_face(VK_FRONT_FACE_CLOCKWISE)
             .set_depth_bias(VK_FALSE);
 
         pso_desc.set_rasterization_state(rs_state);
@@ -661,6 +700,8 @@ private:
         blend_state.set_logic_op_enable(VK_FALSE)
             .set_logic_op(VK_LOGIC_OP_COPY)
             .set_blend_constants(0.0f, 0.0f, 0.0f, 0.0f)
+            .add_attachment(blend_att_desc)
+            .add_attachment(blend_att_desc)
             .add_attachment(blend_att_desc);
 
         pso_desc.set_color_blend_state(blend_state);
@@ -738,7 +779,12 @@ private:
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline->handle());
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 0, 1, &m_shadow_mask_ds->handle(), 0, nullptr);
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 1, 1, &m_scene->ray_tracing_geometry_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        
+        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 1, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 2, 1, &m_g_buffer_ds->handle(), 0, VK_NULL_HANDLE);
 
         vkCmdTraceRaysNV(cmd_buf->handle(),
                          m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
@@ -771,17 +817,27 @@ private:
     {
         DW_SCOPED_SAMPLE("render_gbuffer", cmd_buf);
 
-        VkClearValue clear_values[2];
+        VkClearValue clear_values[4];
 
         clear_values[0].color.float32[0] = 0.0f;
         clear_values[0].color.float32[1] = 0.0f;
         clear_values[0].color.float32[2] = 0.0f;
         clear_values[0].color.float32[3] = 1.0f;
 
-        clear_values[1].color.float32[0] = 1.0f;
-        clear_values[1].color.float32[1] = 1.0f;
-        clear_values[1].color.float32[2] = 1.0f;
+        clear_values[1].color.float32[0] = 0.0f;
+        clear_values[1].color.float32[1] = 0.0f;
+        clear_values[1].color.float32[2] = 0.0f;
         clear_values[1].color.float32[3] = 1.0f;
+
+        clear_values[2].color.float32[0] = 0.0f;
+        clear_values[2].color.float32[1] = 0.0f;
+        clear_values[2].color.float32[2] = 0.0f;
+        clear_values[2].color.float32[3] = 1.0f;
+
+        clear_values[3].color.float32[0] = 1.0f;
+        clear_values[3].color.float32[1] = 1.0f;
+        clear_values[3].color.float32[2] = 1.0f;
+        clear_values[3].color.float32[3] = 1.0f;
 
         VkRenderPassBeginInfo info    = {};
         info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -789,7 +845,7 @@ private:
         info.framebuffer              = m_g_buffer_fbo->handle();
         info.renderArea.extent.width  = m_width;
         info.renderArea.extent.height = m_height;
-        info.clearValueCount          = 2;
+        info.clearValueCount          = 4;
         info.pClearValues             = &clear_values[0];
 
         vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
@@ -797,9 +853,9 @@ private:
         VkViewport vp;
 
         vp.x        = 0.0f;
-        vp.y        = (float)m_height;
+        vp.y        = 0.0f;
         vp.width    = (float)m_width;
-        vp.height   = -(float)m_height;
+        vp.height   = (float)m_height;
         vp.minDepth = 0.0f;
         vp.maxDepth = 1.0f;
 
@@ -816,6 +872,10 @@ private:
 
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline->handle());
 
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &m_mesh->vertex_buffer()->handle(), &offset);
+        vkCmdBindIndexBuffer(cmd_buf->handle(), m_mesh->index_buffer()->handle(), 0, VK_INDEX_TYPE_UINT32);
+
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 0, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
@@ -824,11 +884,14 @@ private:
         {
             dw::SubMesh& submesh = m_mesh->sub_meshes()[i];
 
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 1, 1, &submesh.mat->pbr_descriptor_set()->handle(), 0, nullptr);
+            if (submesh.mat->pbr_descriptor_set())
+                vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 1, 1, &submesh.mat->pbr_descriptor_set()->handle(), 0, nullptr);
 
             // Issue draw call.
             vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, 1, submesh.base_index, submesh.base_vertex, 0);
         }
+
+        vkCmdEndRenderPass(cmd_buf->handle());
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -898,6 +961,11 @@ private:
 
         m_transforms.proj_inverse = glm::inverse(m_main_camera->m_projection);
         m_transforms.view_inverse = glm::inverse(m_main_camera->m_view);
+        m_transforms.proj = m_main_camera->m_projection;
+        m_transforms.view = m_main_camera->m_view;
+        m_transforms.model = glm::mat4(1.0f);
+        m_transforms.cam_pos      = glm::vec4(m_main_camera->m_position, 0.0f);
+        m_transforms.light_dir    = glm::vec4(m_light_direction, 0.0f);
 
         uint8_t* ptr = (uint8_t*)m_ubo->mapped_ptr();
         memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_transforms, sizeof(Transforms));
@@ -988,6 +1056,7 @@ private:
     float m_camera_speed       = 0.05f;
     float m_offset             = 0.1f;
     bool  m_debug_gui          = true;
+    glm::vec3 m_light_direction    = glm::vec3(0.0f);
 
     // Camera orientation.
     float m_camera_x;
