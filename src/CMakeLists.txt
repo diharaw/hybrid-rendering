@@ -23,7 +23,10 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/triangle.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rgen
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rmiss
-                   ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rchit)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rchit
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rgen
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rmiss
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rchit)
 
 
 if(APPLE)

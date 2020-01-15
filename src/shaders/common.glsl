@@ -4,6 +4,8 @@
 
 #define PRIMARY_RAY_PAYLOAD_LOC 0
 
+#define kPI 3.14159265359
+
 struct RayPayload
 {
     vec4 color_dist;
