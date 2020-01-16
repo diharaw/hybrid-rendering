@@ -48,6 +48,7 @@ protected:
             return false;
         }
 
+        load_blue_noise();
         create_output_images();
         create_render_passes();
         create_framebuffers();
@@ -56,6 +57,7 @@ protected:
         create_copy_pipeline();
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
+        create_reflection_ray_tracing_pipeline();
 
         // Create camera.
         create_camera();
@@ -112,8 +114,10 @@ protected:
         m_shadow_mask_ds.reset();
         m_per_frame_ds_layout.reset();
         m_g_buffer_ds_layout.reset();
+        m_reflection_ds_layout.reset();
         m_shadow_mask_ds_layout.reset();
         m_shadow_mask_pipeline_layout.reset();
+        m_reflection_pipeline_layout.reset();
         m_g_buffer_pipeline_layout.reset();
         m_copy_layout.reset();
         m_copy_pipeline_layout.reset();
@@ -121,19 +125,25 @@ protected:
         m_copy_pipeline.reset();
         m_shadow_mask_pipeline.reset();
         m_g_buffer_pipeline.reset();
+        m_reflection_pipeline.reset();
         m_g_buffer_fbo.reset();
         m_g_buffer_rp.reset();
+        m_reflection_view.reset();
         m_shadow_mask_view.reset();
         m_g_buffer_1_view.reset();
         m_g_buffer_2_view.reset();
         m_g_buffer_3_view.reset();
+        m_blue_noise_view.reset();
         m_g_buffer_depth_view.reset();
         m_shadow_mask_image.reset();
+        m_reflection_image.reset();
+        m_blue_noise.reset();
         m_g_buffer_1.reset();
         m_g_buffer_2.reset();
         m_g_buffer_3.reset();
         m_g_buffer_depth.reset();
         m_shadow_mask_sbt.reset();
+        m_reflection_sbt.reset();
 
         // Unload assets.
         m_scene.reset();
@@ -240,6 +250,9 @@ private:
     {
         m_shadow_mask_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_SNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_shadow_mask_view  = dw::vk::ImageView::create(m_vk_backend, m_shadow_mask_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        m_reflection_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_reflection_view  = dw::vk::ImageView::create(m_vk_backend, m_reflection_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
         m_g_buffer_1     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_2     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
@@ -379,9 +392,9 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
 
             m_g_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -391,6 +404,16 @@ private:
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+
+            m_shadow_mask_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+        }
+
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
 
             m_shadow_mask_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -533,6 +556,55 @@ private:
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
         }
+
+        {
+            m_reflection_ds = m_vk_backend->allocate_descriptor_set(m_reflection_ds_layout);
+
+            VkWriteDescriptorSet write_data[3];
+            DW_ZERO_MEMORY(write_data[0]);
+            DW_ZERO_MEMORY(write_data[1]);
+            DW_ZERO_MEMORY(write_data[2]);
+
+            VkWriteDescriptorSetAccelerationStructureNV descriptor_as;
+
+            descriptor_as.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_NV;
+            descriptor_as.pNext                      = nullptr;
+            descriptor_as.accelerationStructureCount = 1;
+            descriptor_as.pAccelerationStructures    = &m_scene->acceleration_structure()->handle();
+
+            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[0].pNext           = &descriptor_as;
+            write_data[0].descriptorCount = 1;
+            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV;
+            write_data[0].dstBinding      = 0;
+            write_data[0].dstSet          = m_reflection_ds->handle();
+
+            VkDescriptorImageInfo output_image;
+            output_image.sampler     = VK_NULL_HANDLE;
+            output_image.imageView   = m_reflection_view->handle();
+            output_image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[1].descriptorCount = 1;
+            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data[1].pImageInfo      = &output_image;
+            write_data[1].dstBinding      = 1;
+            write_data[1].dstSet          = m_reflection_ds->handle();
+
+            VkDescriptorImageInfo blue_noise_image;
+            blue_noise_image.sampler = dw::Material::common_sampler()->handle();
+            blue_noise_image.imageView = m_blue_noise_view->handle();
+            blue_noise_image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[2].descriptorCount = 1;
+            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data[2].pImageInfo      = &blue_noise_image;
+            write_data[2].dstBinding      = 2;
+            write_data[2].dstSet          = m_reflection_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -599,6 +671,53 @@ private:
         desc.set_pipeline_layout(m_shadow_mask_pipeline_layout);
 
         m_shadow_mask_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_reflection_ray_tracing_pipeline()
+    {
+        // ---------------------------------------------------------------------------
+        // Create shader modules
+        // ---------------------------------------------------------------------------
+
+        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rgen.spv");
+        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rmiss.spv");
+
+        dw::vk::ShaderBindingTable::Desc sbt_desc;
+
+        sbt_desc.add_ray_gen_group(rgen, "main");
+        sbt_desc.add_hit_group(rchit, "main");
+        sbt_desc.add_miss_group(rmiss, "main");
+
+        m_reflection_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
+
+        dw::vk::RayTracingPipeline::Desc desc;
+
+        desc.set_recursion_depth(1);
+        desc.set_shader_binding_table(m_reflection_sbt);
+
+        // ---------------------------------------------------------------------------
+        // Create pipeline layout
+        // ---------------------------------------------------------------------------
+
+        dw::vk::PipelineLayout::Desc pl_desc;
+
+        pl_desc.add_descriptor_set_layout(m_reflection_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_scene->ray_tracing_geometry_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+
+        m_reflection_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
+
+        desc.set_pipeline_layout(m_reflection_pipeline_layout);
+
+        m_reflection_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -752,6 +871,14 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void load_blue_noise()
+    {
+        m_blue_noise      = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
+        m_blue_noise_view = dw::vk::ImageView::create(m_vk_backend, m_blue_noise, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void create_camera()
     {
         m_main_camera = std::make_unique<dw::Camera>(
@@ -779,7 +906,7 @@ private:
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline->handle());
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 0, 1, &m_shadow_mask_ds->handle(), 0, nullptr);
-        
+
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 1, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
@@ -806,6 +933,63 @@ private:
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
             m_shadow_mask_image->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        DW_SCOPED_SAMPLE("ray-tracing-reflections", cmd_buf);
+
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        // Transition ray tracing output image back to general layout
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reflection_image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        auto& rt_props = m_vk_backend->ray_tracing_properties();
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline->handle());
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 0, 1, &m_reflection_ds->handle(), 0, nullptr);
+
+        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 1, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 2, 1, &m_g_buffer_ds->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 3, 1, &m_scene->ray_tracing_geometry_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 4, 1, &m_scene->albedo_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 5, 1, &m_scene->normal_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 6, 1, &m_scene->roughness_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 7, 1, &m_scene->metallic_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+
+        vkCmdTraceRaysNV(cmd_buf->handle(),
+                         m_reflection_pipeline->shader_binding_table_buffer()->handle(),
+                         0,
+                         m_reflection_pipeline->shader_binding_table_buffer()->handle(),
+                         m_reflection_sbt->miss_group_offset(),
+                         rt_props.shaderGroupHandleSize,
+                         m_reflection_pipeline->shader_binding_table_buffer()->handle(),
+                         m_reflection_sbt->hit_group_offset(),
+                         rt_props.shaderGroupHandleSize,
+                         VK_NULL_HANDLE,
+                         0,
+                         0,
+                         m_width,
+                         m_height,
+                         1);
+
+        // Prepare ray tracing output image as transfer source
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reflection_image->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
@@ -961,9 +1145,9 @@ private:
 
         m_transforms.proj_inverse = glm::inverse(m_main_camera->m_projection);
         m_transforms.view_inverse = glm::inverse(m_main_camera->m_view);
-        m_transforms.proj = m_main_camera->m_projection;
-        m_transforms.view = m_main_camera->m_view;
-        m_transforms.model = glm::mat4(1.0f);
+        m_transforms.proj         = m_main_camera->m_projection;
+        m_transforms.view         = m_main_camera->m_view;
+        m_transforms.model        = glm::mat4(1.0f);
         m_transforms.cam_pos      = glm::vec4(m_main_camera->m_position, 0.0f);
         m_transforms.light_dir    = glm::vec4(m_light_direction, 0.0f);
 
@@ -1015,6 +1199,8 @@ private:
     dw::vk::DescriptorSet::Ptr       m_g_buffer_ds;
     dw::vk::DescriptorSetLayout::Ptr m_g_buffer_ds_layout;
     dw::vk::Buffer::Ptr              m_ubo;
+    dw::vk::Image::Ptr               m_blue_noise;
+    dw::vk::ImageView::Ptr           m_blue_noise_view;
 
     // Shadow mask pass
     dw::vk::DescriptorSet::Ptr       m_shadow_mask_ds;
@@ -1024,6 +1210,15 @@ private:
     dw::vk::Image::Ptr               m_shadow_mask_image;
     dw::vk::ImageView::Ptr           m_shadow_mask_view;
     dw::vk::ShaderBindingTable::Ptr  m_shadow_mask_sbt;
+
+    // Reflection pass
+    dw::vk::DescriptorSet::Ptr       m_reflection_ds;
+    dw::vk::DescriptorSetLayout::Ptr m_reflection_ds_layout;
+    dw::vk::RayTracingPipeline::Ptr  m_reflection_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_reflection_pipeline_layout;
+    dw::vk::Image::Ptr               m_reflection_image;
+    dw::vk::ImageView::Ptr           m_reflection_view;
+    dw::vk::ShaderBindingTable::Ptr  m_reflection_sbt;
 
     // Copy pass
     dw::vk::GraphicsPipeline::Ptr    m_copy_pipeline;
@@ -1049,13 +1244,13 @@ private:
     std::unique_ptr<dw::Camera> m_main_camera;
 
     // Camera controls.
-    bool  m_mouse_look         = false;
-    float m_heading_speed      = 0.0f;
-    float m_sideways_speed     = 0.0f;
-    float m_camera_sensitivity = 0.05f;
-    float m_camera_speed       = 0.05f;
-    float m_offset             = 0.1f;
-    bool  m_debug_gui          = true;
+    bool      m_mouse_look         = false;
+    float     m_heading_speed      = 0.0f;
+    float     m_sideways_speed     = 0.0f;
+    float     m_camera_sensitivity = 0.05f;
+    float     m_camera_speed       = 0.05f;
+    float     m_offset             = 0.1f;
+    bool      m_debug_gui          = true;
     glm::vec3 m_light_direction    = glm::vec3(0.0f);
 
     // Camera orientation.

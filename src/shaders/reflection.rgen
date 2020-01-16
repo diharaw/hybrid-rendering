@@ -8,7 +8,11 @@
 
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
-layout(set = 0, binding = 1, r8) uniform image2D i_LightMask;
+layout(set = 0, binding = 1, r16g16b16a16f) uniform image2D i_Reflections;
+
+layout(set = 0, binding = 2) uniform sampler2D s_BlueNoise;
+
+
 
 layout(set = 1, binding = 0) uniform PerFrameUBO
 {
@@ -21,6 +25,8 @@ layout(set = 1, binding = 0) uniform PerFrameUBO
     vec4 light_dir;
 }
 ubo;
+
+
 
 layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
@@ -79,7 +85,7 @@ void main()
     {
         for (int i = 0; i < REFLECTION_RAYS; i++)
         {
-            vec3 H = importance_sample_ggx(vec2(0.0), N, roughness).xyz;
+            vec3 H = importance_sample_ggx(vec2(float(i)/float(REFLECTION_RAYS), sin(float(i))), N, roughness).xyz;
             vec3 R = reflect(V, H.xyz);
             traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, P, tmin, R, tmax, 0);
             color += ray_payload.color_dist;
@@ -88,5 +94,5 @@ void main()
         color /= float(REFLECTION_RAYS);
     }
     
-    imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), color);
+    imageStore(i_Reflections, ivec2(gl_LaunchIDNV.xy), color);
 }

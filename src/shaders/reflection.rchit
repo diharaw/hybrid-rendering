@@ -25,23 +25,23 @@ layout (set = 3, binding = 0) readonly buffer MaterialBuffer
     uint id[];
 } Material[];
 
-layout (set = 4, binding = 1, std430) readonly buffer VertexBuffer 
+layout (set = 3, binding = 1, std430) readonly buffer VertexBuffer 
 {
     Vertex vertices[];
 } VertexArray[];
 
-layout (set = 5, binding = 2) readonly buffer IndexBuffer 
+layout (set = 3, binding = 2) readonly buffer IndexBuffer 
 {
     uint indices[];
 } IndexArray[];
 
-layout(set = 6, binding = 0) uniform sampler2D s_Albedo[];
+layout(set = 4, binding = 0) uniform sampler2D s_Albedo[];
 
-layout(set = 7, binding = 0) uniform sampler2D s_Normal[];
+layout(set = 5, binding = 0) uniform sampler2D s_Normal[];
 
-layout(set = 8, binding = 0) uniform sampler2D s_Roughness[];
+layout(set = 6, binding = 0) uniform sampler2D s_Roughness[];
 
-layout(set = 9, binding = 0) uniform sampler2D s_Metallic[];
+layout(set = 7, binding = 0) uniform sampler2D s_Metallic[];
 
 Vertex get_vertex(uint mesh_idx, uint vertex_idx)
 {
