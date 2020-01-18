@@ -54,7 +54,7 @@ protected:
         create_framebuffers();
         create_descriptor_set_layouts();
         create_descriptor_sets();
-        create_copy_pipeline();
+        create_deferred_pipeline();
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
         create_reflection_ray_tracing_pipeline();
@@ -62,7 +62,7 @@ protected:
         // Create camera.
         create_camera();
 
-        m_light_direction = glm::normalize(glm::vec3(0.5f, 0.9770f, 0.5000f));
+        m_light_direction = glm::normalize(glm::vec3(0.2f, 0.9770f, 0.2f));
 
         return true;
     }
@@ -84,7 +84,7 @@ protected:
             DW_SCOPED_SAMPLE("update", cmd_buf);
 
             // Render profiler.
-            dw::profiler::ui();
+            //dw::profiler::ui();
 
             // Update camera.
             update_camera();
@@ -95,6 +95,7 @@ protected:
             // Render.
             render_gbuffer(cmd_buf);
             ray_trace_shadow_mask(cmd_buf);
+            ray_trace_reflection(cmd_buf);
 
             render(cmd_buf);
         }
@@ -108,7 +109,10 @@ protected:
 
     void shutdown() override
     {
-        m_copy_ds.reset();
+        m_blue_noise.reset();
+        m_blue_noise_view.reset();
+        m_reflection_ds.reset();
+        m_deferred_ds.reset();
         m_per_frame_ds.reset();
         m_g_buffer_ds.reset();
         m_shadow_mask_ds.reset();
@@ -119,10 +123,10 @@ protected:
         m_shadow_mask_pipeline_layout.reset();
         m_reflection_pipeline_layout.reset();
         m_g_buffer_pipeline_layout.reset();
-        m_copy_layout.reset();
-        m_copy_pipeline_layout.reset();
+        m_deferred_layout.reset();
+        m_deferred_pipeline_layout.reset();
         m_ubo.reset();
-        m_copy_pipeline.reset();
+        m_deferred_pipeline.reset();
         m_shadow_mask_pipeline.reset();
         m_g_buffer_pipeline.reset();
         m_reflection_pipeline.reset();
@@ -214,8 +218,8 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 1280;
-        settings.height      = 720;
+        settings.width       = 1920;
+        settings.height      = 1080;
         settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
 
@@ -227,7 +231,7 @@ protected:
     void window_resized(int width, int height) override
     {
         // Override window resized method to update camera projection.
-        m_main_camera->update_projection(60.0f, 0.1f, 1000.0f, float(m_width) / float(m_height));
+        m_main_camera->update_projection(60.0f, 0.1f, 10000.0f, float(m_width) / float(m_height));
 
         m_vk_backend->wait_idle();
 
@@ -385,8 +389,12 @@ private:
             dw::vk::DescriptorSetLayout::Desc desc;
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
 
-            m_copy_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_deferred_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
 
         {
@@ -413,9 +421,9 @@ private:
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
 
-            m_shadow_mask_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_reflection_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
 
         {
@@ -432,25 +440,73 @@ private:
     void create_descriptor_sets()
     {
         {
-            m_copy_ds = m_vk_backend->allocate_descriptor_set(m_copy_layout);
+            m_deferred_ds = m_vk_backend->allocate_descriptor_set(m_deferred_layout);
 
-            VkDescriptorImageInfo image_info;
+            VkDescriptorImageInfo image_info[5];
 
-            image_info.sampler     = dw::Material::common_sampler()->handle();
-            image_info.imageView   = m_shadow_mask_view->handle();
-            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info[0].sampler     = dw::Material::common_sampler()->handle();
+            image_info[0].imageView   = m_shadow_mask_view->handle();
+            image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
+            image_info[1].sampler     = dw::Material::common_sampler()->handle();
+            image_info[1].imageView   = m_reflection_view->handle();
+            image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_copy_ds->handle();
+            image_info[2].sampler     = dw::Material::common_sampler()->handle();
+            image_info[2].imageView   = m_g_buffer_1_view->handle();
+            image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+            image_info[3].sampler     = dw::Material::common_sampler()->handle();
+            image_info[3].imageView   = m_g_buffer_2_view->handle();
+            image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_info[4].sampler     = dw::Material::common_sampler()->handle();
+            image_info[4].imageView   = m_g_buffer_3_view->handle();
+            image_info[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet write_data[5];
+            DW_ZERO_MEMORY(write_data[0]);
+            DW_ZERO_MEMORY(write_data[1]);
+            DW_ZERO_MEMORY(write_data[2]);
+            DW_ZERO_MEMORY(write_data[3]);
+            DW_ZERO_MEMORY(write_data[4]);
+
+            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[0].descriptorCount = 1;
+            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[0].pImageInfo      = &image_info[0];
+            write_data[0].dstBinding      = 0;
+            write_data[0].dstSet          = m_deferred_ds->handle();
+
+            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[1].descriptorCount = 1;
+            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[1].pImageInfo      = &image_info[1];
+            write_data[1].dstBinding      = 1;
+            write_data[1].dstSet          = m_deferred_ds->handle();
+
+            write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[2].descriptorCount = 1;
+            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[2].pImageInfo      = &image_info[2];
+            write_data[2].dstBinding      = 2;
+            write_data[2].dstSet          = m_deferred_ds->handle();
+
+            write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[3].descriptorCount = 1;
+            write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[3].pImageInfo      = &image_info[3];
+            write_data[3].dstBinding      = 3;
+            write_data[3].dstSet          = m_deferred_ds->handle();
+
+            write_data[4].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[4].descriptorCount = 1;
+            write_data[4].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[4].pImageInfo      = &image_info[4];
+            write_data[4].dstBinding      = 4;
+            write_data[4].dstSet          = m_deferred_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 5, &write_data[0], 0, nullptr);
         }
 
         {
@@ -594,11 +650,11 @@ private:
             VkDescriptorImageInfo blue_noise_image;
             blue_noise_image.sampler = dw::Material::common_sampler()->handle();
             blue_noise_image.imageView = m_blue_noise_view->handle();
-            blue_noise_image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            blue_noise_image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[2].descriptorCount = 1;
-            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[2].pImageInfo      = &blue_noise_image;
             write_data[2].dstBinding      = 2;
             write_data[2].dstSet          = m_reflection_ds->handle();
@@ -609,26 +665,15 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void create_copy_pipeline()
+    void create_deferred_pipeline()
     {
         dw::vk::PipelineLayout::Desc desc;
 
-        desc.add_descriptor_set_layout(m_copy_layout);
+        desc.add_descriptor_set_layout(m_deferred_layout);
+        desc.add_descriptor_set_layout(m_per_frame_ds_layout);
 
-        m_copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
-        m_copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/copy.frag.spv", m_copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_shading_pipeline()
-    {
-        dw::vk::PipelineLayout::Desc desc;
-
-        desc.add_descriptor_set_layout(m_copy_layout);
-
-        m_copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
-        m_copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/copy.frag.spv", m_copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
+        m_deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+        m_deferred_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_deferred_pipeline_layout, m_vk_backend->swapchain_render_pass());
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -882,7 +927,7 @@ private:
     void create_camera()
     {
         m_main_camera = std::make_unique<dw::Camera>(
-            60.0f, 0.1f, 1000.0f, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+            60.0f, 0.1f, 10000.0f, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1127,8 +1172,12 @@ private:
 
         vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
 
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_copy_pipeline->handle());
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_copy_pipeline_layout->handle(), 0, 1, &m_copy_ds->handle(), 0, nullptr);
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline->handle());
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline_layout->handle(), 0, 1, &m_deferred_ds->handle(), 0, nullptr);
+        
+        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline_layout->handle(), 1, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
@@ -1220,11 +1269,11 @@ private:
     dw::vk::ImageView::Ptr           m_reflection_view;
     dw::vk::ShaderBindingTable::Ptr  m_reflection_sbt;
 
-    // Copy pass
-    dw::vk::GraphicsPipeline::Ptr    m_copy_pipeline;
-    dw::vk::PipelineLayout::Ptr      m_copy_pipeline_layout;
-    dw::vk::DescriptorSet::Ptr       m_copy_ds;
-    dw::vk::DescriptorSetLayout::Ptr m_copy_layout;
+    // Deferred pass
+    dw::vk::GraphicsPipeline::Ptr    m_deferred_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_deferred_pipeline_layout;
+    dw::vk::DescriptorSet::Ptr       m_deferred_ds;
+    dw::vk::DescriptorSetLayout::Ptr m_deferred_layout;
 
     // G-Buffer pass
     dw::vk::Image::Ptr            m_g_buffer_1; // RGB: Albedo, A: Metallic

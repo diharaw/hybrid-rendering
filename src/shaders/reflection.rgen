@@ -4,15 +4,13 @@
 
 #include "common.glsl"
 
-#define REFLECTION_RAYS 16
+#define REFLECTION_RAYS 4
 
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
-layout(set = 0, binding = 1, r16g16b16a16f) uniform image2D i_Reflections;
+layout(set = 0, binding = 1, rgba16f) uniform image2D i_Reflections;
 
 layout(set = 0, binding = 2) uniform sampler2D s_BlueNoise;
-
-
 
 layout(set = 1, binding = 0) uniform PerFrameUBO
 {
@@ -25,8 +23,6 @@ layout(set = 1, binding = 0) uniform PerFrameUBO
     vec4 light_dir;
 }
 ubo;
-
-
 
 layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
@@ -69,10 +65,10 @@ void main()
     const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeNV.xy);
     vec2       d            = tex_coord * 2.0 - 1.0;
 
-    vec3 roughness = texture(s_GBuffer1, tex_coord).a;
+    float roughness = texture(s_GBuffer1, tex_coord).a;
     vec3 P = texture(s_GBuffer3, tex_coord).rgb;
     vec3 N   = texture(s_GBuffer2, tex_coord).rgb;
-    vec3 V = reflect(P.xyz - ubo.cam_pos.xyz); 
+    vec3 V = normalize(P.xyz - ubo.cam_pos.xyz); 
 
     uint  ray_flags = gl_RayFlagsOpaqueNV;
     uint  cull_mask = 0xff;
@@ -81,12 +77,13 @@ void main()
 
     vec4 color = vec4(0.0);
 
-    if (roughness < 1.0f)
+    if (roughness == 0.0f)
     {
         for (int i = 0; i < REFLECTION_RAYS; i++)
         {
             vec3 H = importance_sample_ggx(vec2(float(i)/float(REFLECTION_RAYS), sin(float(i))), N, roughness).xyz;
             vec3 R = reflect(V, H.xyz);
+            //vec3 R = reflect(V, N.xyz);
             traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, P, tmin, R, tmax, 0);
             color += ray_payload.color_dist;
         }

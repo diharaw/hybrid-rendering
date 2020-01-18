@@ -1,6 +1,7 @@
 #version 460
 #extension GL_NV_ray_tracing : require
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 #include "common.glsl"
 
@@ -106,9 +107,9 @@ void main()
     vec3 B = normal_mat * v.bitangent.xyz;
 
     vec3 albedo = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0).rgb;
-    vec3 normal = get_normal_from_map(T, B, N, v.tex_coord, tri.mat_idx);
+    vec3 normal = get_normal_from_map(T, B, N, v.tex_coord.xy, tri.mat_idx);
 
-    vec3 color = albedo * max(dot(normal, -ubo.light_dir.xyz), 0.0);
+    vec3 color = albedo * max(dot(normal, ubo.light_dir.xyz), 0.0);
 
     ray_payload.color_dist = vec4(color, gl_HitTNV);
 }
