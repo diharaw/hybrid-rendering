@@ -31,8 +31,13 @@ vec3 get_normal_from_map(vec3 tangent, vec3 bitangent, vec3 normal, vec2 tex_coo
 
 void main()
 {
+    vec4 albedo = texture(s_Diffuse, FS_IN_Texcoord);
+
+    if (albedo.a < 0.1)
+        discard;
+
     // Albedo
-    FS_OUT_GBuffer1.rgb = texture(s_Diffuse, FS_IN_Texcoord).rgb;
+    FS_OUT_GBuffer1.rgb = albedo.rgb;
 
     // Normal.
     FS_OUT_GBuffer2.rgb = get_normal_from_map(FS_IN_Tangent, FS_IN_Bitangent, FS_IN_Normal, FS_IN_Texcoord, s_Normal);

@@ -4,6 +4,8 @@
 
 #include "common.glsl"
 
+#define SHADOW_RAY_BIAS 0.1
+
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
 layout(set = 0, binding = 1, r8) uniform image2D i_LightMask;
@@ -39,6 +41,9 @@ void main()
     uint  cull_mask = 0xff;
     float tmin      = 0.001;
     float tmax      = 10000.0;
+
+    // Ray bias
+    position += ubo.light_dir.xyz * SHADOW_RAY_BIAS;
 
     traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, ubo.light_dir.xyz, tmax, 0);
 

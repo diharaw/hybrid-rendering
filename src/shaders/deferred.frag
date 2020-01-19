@@ -31,5 +31,11 @@ void main()
 
     vec3 color = shadow * albedo * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo * 0.1 + reflection;
 
+    // Reinhard tone mapping
+    color = color / (1.0 + color);
+
+    // Gamma correction
+    color = pow(color, vec3(1.0/2.2));
+
     outFragColor = vec4(color, 1.0);
 }

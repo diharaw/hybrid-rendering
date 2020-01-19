@@ -54,6 +54,7 @@ protected:
         create_framebuffers();
         create_descriptor_set_layouts();
         create_descriptor_sets();
+        write_descriptor_sets();
         create_deferred_pipeline();
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
@@ -236,6 +237,8 @@ protected:
         m_vk_backend->wait_idle();
 
         create_output_images();
+        create_framebuffers();
+        write_descriptor_sets();
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -252,6 +255,19 @@ private:
 
     void create_output_images()
     {
+        m_shadow_mask_image.reset();
+        m_shadow_mask_view.reset();
+        m_reflection_image.reset();
+        m_reflection_view.reset();
+        m_g_buffer_1.reset();
+        m_g_buffer_2.reset();
+        m_g_buffer_3.reset();
+        m_g_buffer_depth.reset();
+        m_g_buffer_1_view.reset();
+        m_g_buffer_2_view.reset();
+        m_g_buffer_3_view.reset();
+        m_g_buffer_depth_view.reset();
+
         m_shadow_mask_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_SNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_shadow_mask_view  = dw::vk::ImageView::create(m_vk_backend, m_shadow_mask_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
@@ -368,6 +384,7 @@ private:
 
     void create_framebuffers()
     {
+        m_g_buffer_fbo.reset();
         m_g_buffer_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_g_buffer_rp, { m_g_buffer_1_view, m_g_buffer_2_view, m_g_buffer_3_view, m_g_buffer_depth_view }, m_width, m_height, 1);
     }
 
@@ -439,9 +456,18 @@ private:
 
     void create_descriptor_sets()
     {
-        {
-            m_deferred_ds = m_vk_backend->allocate_descriptor_set(m_deferred_layout);
+        m_deferred_ds = m_vk_backend->allocate_descriptor_set(m_deferred_layout);
+        m_per_frame_ds = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
+        m_g_buffer_ds = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
+        m_shadow_mask_ds = m_vk_backend->allocate_descriptor_set(m_shadow_mask_ds_layout);
+        m_reflection_ds  = m_vk_backend->allocate_descriptor_set(m_reflection_ds_layout);
+    }
 
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void write_descriptor_sets()
+    {
+        {
             VkDescriptorImageInfo image_info[5];
 
             image_info[0].sampler     = dw::Material::common_sampler()->handle();
@@ -510,8 +536,6 @@ private:
         }
 
         {
-            m_per_frame_ds = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
-
             VkDescriptorBufferInfo buffer_info;
 
             buffer_info.range  = VK_WHOLE_SIZE;
@@ -532,8 +556,6 @@ private:
         }
 
         {
-            m_g_buffer_ds = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
-
             VkDescriptorImageInfo image_info[3];
 
             image_info[0].sampler     = dw::Material::common_sampler()->handle();
@@ -578,8 +600,6 @@ private:
         }
 
         {
-            m_shadow_mask_ds = m_vk_backend->allocate_descriptor_set(m_shadow_mask_ds_layout);
-
             VkWriteDescriptorSet write_data[2];
             DW_ZERO_MEMORY(write_data[0]);
             DW_ZERO_MEMORY(write_data[1]);
@@ -614,8 +634,6 @@ private:
         }
 
         {
-            m_reflection_ds = m_vk_backend->allocate_descriptor_set(m_reflection_ds_layout);
-
             VkWriteDescriptorSet write_data[3];
             DW_ZERO_MEMORY(write_data[0]);
             DW_ZERO_MEMORY(write_data[1]);
@@ -648,8 +666,8 @@ private:
             write_data[1].dstSet          = m_reflection_ds->handle();
 
             VkDescriptorImageInfo blue_noise_image;
-            blue_noise_image.sampler = dw::Material::common_sampler()->handle();
-            blue_noise_image.imageView = m_blue_noise_view->handle();
+            blue_noise_image.sampler     = dw::Material::common_sampler()->handle();
+            blue_noise_image.imageView   = m_blue_noise_view->handle();
             blue_noise_image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1111,10 +1129,11 @@ private:
 
         for (uint32_t i = 0; i < m_mesh->sub_mesh_count(); i++)
         {
-            dw::SubMesh& submesh = m_mesh->sub_meshes()[i];
+            auto& submesh = m_mesh->sub_meshes()[i];
+            auto& mat     = m_mesh->material(submesh.mat_idx);
 
-            if (submesh.mat->pbr_descriptor_set())
-                vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 1, 1, &submesh.mat->pbr_descriptor_set()->handle(), 0, nullptr);
+            if (mat->pbr_descriptor_set())
+                vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 1, 1, &mat->pbr_descriptor_set()->handle(), 0, nullptr);
 
             // Issue draw call.
             vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, 1, submesh.base_index, submesh.base_vertex, 0);
@@ -1174,7 +1193,7 @@ private:
 
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline->handle());
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline_layout->handle(), 0, 1, &m_deferred_ds->handle(), 0, nullptr);
-        
+
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline_layout->handle(), 1, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);

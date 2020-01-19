@@ -106,10 +106,17 @@ void main()
     vec3 T = normal_mat * v.tangent.xyz;
     vec3 B = normal_mat * v.bitangent.xyz;
 
-    vec3 albedo = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0).rgb;
+    vec4 albedo = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0);
     vec3 normal = get_normal_from_map(T, B, N, v.tex_coord.xy, tri.mat_idx);
 
-    vec3 color = albedo * max(dot(normal, ubo.light_dir.xyz), 0.0);
+    vec3 color = albedo.rgb * max(dot(normal, ubo.light_dir.xyz), 0.0);
+    float hit_distance = gl_HitTNV;
 
-    ray_payload.color_dist = vec4(color, gl_HitTNV);
+    if (albedo.a < 0.1)
+    {
+        color = vec3(0.0);
+        hit_distance = 0;
+    }
+
+    ray_payload.color_dist = vec4(color, hit_distance);
 }

@@ -4,8 +4,6 @@
 
 #include "common.glsl"
 
-#define REFLECTION_RAYS 4
-
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
 layout(set = 0, binding = 1, rgba16f) uniform image2D i_Reflections;
@@ -79,16 +77,9 @@ void main()
 
     if (roughness == 0.0f)
     {
-        for (int i = 0; i < REFLECTION_RAYS; i++)
-        {
-            vec3 H = importance_sample_ggx(vec2(float(i)/float(REFLECTION_RAYS), sin(float(i))), N, roughness).xyz;
-            vec3 R = reflect(V, H.xyz);
-            //vec3 R = reflect(V, N.xyz);
-            traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, P, tmin, R, tmax, 0);
-            color += ray_payload.color_dist;
-        }
-
-        color /= float(REFLECTION_RAYS);
+        vec3 R = reflect(V, N.xyz);
+        traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, P, tmin, R, tmax, 0);
+        color = vec4(ray_payload.color_dist.rgb, 1.0);      
     }
     
     imageStore(i_Reflections, ivec2(gl_LaunchIDNV.xy), color);
