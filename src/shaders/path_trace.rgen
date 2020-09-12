@@ -1,0 +1,85 @@
+#version 460
+#extension GL_NV_ray_tracing : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "common.glsl"
+#include "sampling.glsl"
+
+layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
+layout(set = 0, binding = 1, rgba32f) readonly uniform image2D i_PreviousColor;
+layout(set = 0, binding = 2, rgba32f) writeonly uniform image2D i_CurrentColor;
+
+layout(set = 1, binding = 0) uniform PerFrameUBO
+{
+    mat4 view_inverse;
+    mat4 proj_inverse;
+    mat4 model;
+    mat4 view;
+    mat4 projection;
+    vec4 cam_pos;
+    vec4 light_dir;
+} u_PerFrameUBO;
+
+layout(push_constant) uniform PathTraceConsts
+{
+    float accumulation;
+    uint num_frames;
+} u_PathTraceConsts;
+
+layout(location = 0) rayPayloadNV PathTracePayload ray_payload;
+
+void main()
+{
+    // Init Payload
+    ray_payload.color = vec3(0.0f);
+    ray_payload.attenuation = vec3(1.0);
+    ray_payload.hit_distance = 0.0f;
+    ray_payload.depth = 0;
+    ray_payload.rng = rng_init(gl_LaunchIDNV.xy, u_PathTraceConsts.num_frames);
+
+    // Compute Pixel Coordinates
+    const vec2 pixel_coord = vec2(gl_LaunchIDNV.xy) + vec2(0.5);
+    const vec2 jittered_coord = pixel_coord + vec2(next_float(ray_payload.rng), next_float(ray_payload.rng)); 
+    const vec2 tex_coord    = jittered_coord / vec2(gl_LaunchSizeNV.xy);
+    const vec2 tex_coord_neg_to_pos = tex_coord * 2.0 - 1.0;
+
+    // Compute Ray Direction and Origin
+    vec4 clip_pos = vec4(tex_coord_neg_to_pos.x, tex_coord_neg_to_pos.y, -1.0, 1.0);
+    vec4 view_pos = u_PerFrameUBO.proj_inverse * clip_pos;
+
+    vec3 ray_direction = vec3(u_PerFrameUBO.view_inverse * vec4(view_pos.x, view_pos.y, -1.0, 0.0));
+    ray_direction = normalize(ray_direction);
+
+    vec4 ray_origin = u_PerFrameUBO.view_inverse * vec4(0.0, 0.0, 0.0, 1.0);
+    ray_origin.xyz /= ray_origin.w;
+
+    uint  ray_flags = gl_RayFlagsOpaqueNV;
+    uint  cull_mask = 0xff;
+    float tmin      = 0.001;
+    float tmax      = 10000.0;
+
+    // Trace Ray
+    traceNV(u_TopLevelAS, 
+            ray_flags, 
+            cull_mask, 
+            PATH_TRACE_RAY_GEN_SHADER_IDX, 
+            PATH_TRACE_CLOSEST_HIT_SHADER_IDX, 
+            PATH_TRACE_MISS_SHADER_IDX, 
+            ray_origin.xyz, 
+            tmin, 
+            ray_direction, 
+            tmax, 
+            0);
+
+    // Blend current frames' result with the previous frame
+    if (u_PathTraceConsts.num_frames == 0)
+        imageStore(i_CurrentColor, ivec2(gl_LaunchIDNV.xy), vec4(ray_payload.color, 1.0));
+    else
+    {
+        vec3 prev_color = imageLoad(i_PreviousColor, ivec2(gl_LaunchIDNV.xy)).rgb;
+
+        vec3 accumulated_color = mix(ray_payload.color, prev_color, u_PathTraceConsts.accumulation); 
+        
+        imageStore(i_CurrentColor, ivec2(gl_LaunchIDNV.xy), vec4(accumulated_color, 1.0));
+    }
+}

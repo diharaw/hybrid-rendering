@@ -33,7 +33,7 @@ vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
     float a = Roughness * Roughness;
     float m2 = a * a;
 
-    float phi      = 2.0f * kPI * E.x;
+    float phi      = 2.0f * M_PI * E.x;
     float cosTheta = sqrt((1.0f - E.y) / (1.0f + (m2 - 1.0f) * E.y));
     float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
 
@@ -44,7 +44,7 @@ vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
     H.z = cosTheta;
 
     float d = (cosTheta * m2 - cosTheta) * cosTheta + 1;
-    float D = m2 / (kPI * d * d);
+    float D = m2 / (M_PI * d * d);
 
     float PDF = D * cosTheta;
 

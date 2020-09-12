@@ -34,10 +34,6 @@ protected:
 
     bool init(int argc, const char* argv[]) override
     {
-        // Create GPU resources.
-        if (!create_shaders())
-            return false;
-
         if (!create_uniform_buffer())
             return false;
 
@@ -59,6 +55,8 @@ protected:
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
         create_reflection_ray_tracing_pipeline();
+        create_path_trace_ray_tracing_pipeline();
+        create_tone_map_pipeline();
 
         // Create camera.
         create_camera();
@@ -86,6 +84,11 @@ protected:
 
             // Render profiler.
             //dw::profiler::ui();
+            if (m_debug_gui)
+            {
+                ImGui::Checkbox("Path Trace Mode", &m_path_trace_mode);
+                ImGui::InputInt("Max Samples", &m_max_samples);
+            }
 
             // Update camera.
             update_camera();
@@ -94,11 +97,31 @@ protected:
             update_uniforms(cmd_buf);
 
             // Render.
-            render_gbuffer(cmd_buf);
-            ray_trace_shadow_mask(cmd_buf);
-            ray_trace_reflection(cmd_buf);
+            if (m_path_trace_mode)
+            {
+                check_camera_movement();
 
-            render(cmd_buf);
+                if (m_camera_moved)
+                    m_num_frames = 0;
+
+                if (m_num_frames < m_max_samples)
+                    path_trace(cmd_buf);
+
+                tone_map(cmd_buf);
+
+                if (m_num_frames < m_max_samples)                    
+                    m_ping_pong = !m_ping_pong;
+
+                m_num_frames++;
+            }
+            else
+            {
+                render_gbuffer(cmd_buf);
+                ray_trace_shadow_mask(cmd_buf);
+                ray_trace_reflection(cmd_buf);
+
+                render(cmd_buf);
+            }
         }
 
         vkEndCommandBuffer(cmd_buf->handle());
@@ -110,6 +133,21 @@ protected:
 
     void shutdown() override
     {
+        m_tone_map_ds[0].reset();
+        m_tone_map_ds[1].reset();
+        m_tone_map_layout.reset();
+        m_tone_map_pipeline.reset();
+        m_tone_map_pipeline_layout.reset();
+        m_path_trace_ds[0].reset();
+        m_path_trace_ds[1].reset();
+        m_path_trace_ds_layout.reset();
+        m_path_trace_pipeline_layout.reset();
+        m_path_trace_pipeline.reset();
+        m_path_trace_sbt.reset();
+        m_path_trace_image_views[0].reset();
+        m_path_trace_image_views[1].reset();
+        m_path_trace_images[0].reset();
+        m_path_trace_images[1].reset();
         m_blue_noise.reset();
         m_blue_noise_view.reset();
         m_reflection_ds.reset();
@@ -246,13 +284,6 @@ protected:
 private:
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    bool create_shaders()
-    {
-        return true;
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void create_output_images()
     {
         m_shadow_mask_image.reset();
@@ -283,6 +314,15 @@ private:
         m_g_buffer_2_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_3_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+        for (int i = 0; i < 2; i++)
+        {
+            m_path_trace_image_views[i].reset();
+            m_path_trace_images[i].reset();
+
+            m_path_trace_images[i]      = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_path_trace_image_views[i] = dw::vk::ImageView::create(m_vk_backend, m_path_trace_images[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -446,9 +486,27 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+
+            m_path_trace_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+        }
+
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
 
             m_per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+        }
+
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+
+            m_tone_map_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
     }
 
@@ -456,11 +514,17 @@ private:
 
     void create_descriptor_sets()
     {
-        m_deferred_ds = m_vk_backend->allocate_descriptor_set(m_deferred_layout);
-        m_per_frame_ds = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
-        m_g_buffer_ds = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
+        m_deferred_ds    = m_vk_backend->allocate_descriptor_set(m_deferred_layout);
+        m_per_frame_ds   = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
+        m_g_buffer_ds    = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
         m_shadow_mask_ds = m_vk_backend->allocate_descriptor_set(m_shadow_mask_ds_layout);
         m_reflection_ds  = m_vk_backend->allocate_descriptor_set(m_reflection_ds_layout);
+
+        for (int i = 0; i < 2; i++)
+        {
+            m_path_trace_ds[i] = m_vk_backend->allocate_descriptor_set(m_path_trace_ds_layout);
+            m_tone_map_ds[i]   = m_vk_backend->allocate_descriptor_set(m_tone_map_layout);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -679,6 +743,80 @@ private:
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
         }
+
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                bool ping_pong = (bool)i;
+
+                VkWriteDescriptorSet write_data[3];
+                DW_ZERO_MEMORY(write_data[0]);
+                DW_ZERO_MEMORY(write_data[1]);
+                DW_ZERO_MEMORY(write_data[2]);
+
+                VkWriteDescriptorSetAccelerationStructureNV descriptor_as;
+
+                descriptor_as.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_NV;
+                descriptor_as.pNext                      = nullptr;
+                descriptor_as.accelerationStructureCount = 1;
+                descriptor_as.pAccelerationStructures    = &m_scene->acceleration_structure()->handle();
+
+                write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[0].pNext           = &descriptor_as;
+                write_data[0].descriptorCount = 1;
+                write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV;
+                write_data[0].dstBinding      = 0;
+                write_data[0].dstSet          = m_path_trace_ds[i]->handle();
+
+                VkDescriptorImageInfo output_image_0;
+                output_image_0.sampler     = VK_NULL_HANDLE;
+                output_image_0.imageView   = m_path_trace_image_views[!ping_pong]->handle();
+                output_image_0.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[1].descriptorCount = 1;
+                write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data[1].pImageInfo      = &output_image_0;
+                write_data[1].dstBinding      = 1;
+                write_data[1].dstSet          = m_path_trace_ds[i]->handle();
+
+                VkDescriptorImageInfo output_image_1;
+                output_image_1.sampler     = VK_NULL_HANDLE;
+                output_image_1.imageView   = m_path_trace_image_views[i]->handle();
+                output_image_1.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[2].descriptorCount = 1;
+                write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data[2].pImageInfo      = &output_image_1;
+                write_data[2].dstBinding      = 2;
+                write_data[2].dstSet          = m_path_trace_ds[i]->handle();
+
+                vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
+            }
+        }
+
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo image;
+                image.sampler     = dw::Material::common_sampler()->handle();
+                image.imageView   = m_path_trace_image_views[i]->handle();
+                image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image;
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_tone_map_ds[i]->handle();
+
+                vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+            }
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -692,6 +830,18 @@ private:
 
         m_deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_deferred_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_deferred_pipeline_layout, m_vk_backend->swapchain_render_pass());
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_tone_map_pipeline()
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_tone_map_layout);
+
+        m_tone_map_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+        m_tone_map_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_tone_map_pipeline_layout, m_vk_backend->swapchain_render_pass());
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -781,6 +931,54 @@ private:
         desc.set_pipeline_layout(m_reflection_pipeline_layout);
 
         m_reflection_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_path_trace_ray_tracing_pipeline()
+    {
+        // ---------------------------------------------------------------------------
+        // Create shader modules
+        // ---------------------------------------------------------------------------
+
+        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/path_trace.rgen.spv");
+        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/path_trace.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/path_trace.rmiss.spv");
+
+        dw::vk::ShaderBindingTable::Desc sbt_desc;
+
+        sbt_desc.add_ray_gen_group(rgen, "main");
+        sbt_desc.add_hit_group(rchit, "main");
+        sbt_desc.add_miss_group(rmiss, "main");
+
+        m_path_trace_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
+
+        dw::vk::RayTracingPipeline::Desc desc;
+
+        desc.set_recursion_depth(1);
+        desc.set_shader_binding_table(m_path_trace_sbt);
+
+        // ---------------------------------------------------------------------------
+        // Create pipeline layout
+        // ---------------------------------------------------------------------------
+
+        dw::vk::PipelineLayout::Desc pl_desc;
+
+        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_NV, 0, sizeof(float) * 2);
+
+        pl_desc.add_descriptor_set_layout(m_path_trace_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_scene->ray_tracing_geometry_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
+
+        m_path_trace_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
+
+        desc.set_pipeline_layout(m_path_trace_pipeline_layout);
+
+        m_path_trace_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -950,6 +1148,16 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void check_camera_movement()
+    {
+        if (m_mouse_look && (m_mouse_delta_x != 0 || m_mouse_delta_y != 0) || m_heading_speed != 0.0f || m_sideways_speed != 0.0f)
+            m_camera_moved = true;
+        else
+            m_camera_moved = false;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void ray_trace_shadow_mask(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("ray-tracing-shadows", cmd_buf);
@@ -981,10 +1189,10 @@ private:
                          0,
                          m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
                          m_shadow_mask_sbt->miss_group_offset(),
-                         rt_props.shaderGroupHandleSize,
+                         rt_props.shaderGroupBaseAlignment,
                          m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
                          m_shadow_mask_sbt->hit_group_offset(),
-                         rt_props.shaderGroupHandleSize,
+                         rt_props.shaderGroupBaseAlignment,
                          VK_NULL_HANDLE,
                          0,
                          0,
@@ -1038,10 +1246,10 @@ private:
                          0,
                          m_reflection_pipeline->shader_binding_table_buffer()->handle(),
                          m_reflection_sbt->miss_group_offset(),
-                         rt_props.shaderGroupHandleSize,
+                         rt_props.shaderGroupBaseAlignment,
                          m_reflection_pipeline->shader_binding_table_buffer()->handle(),
                          m_reflection_sbt->hit_group_offset(),
-                         rt_props.shaderGroupHandleSize,
+                         rt_props.shaderGroupBaseAlignment,
                          VK_NULL_HANDLE,
                          0,
                          0,
@@ -1140,6 +1348,150 @@ private:
         }
 
         vkCmdEndRenderPass(cmd_buf->handle());
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void path_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        const uint32_t write_index = (uint32_t)m_ping_pong;
+        const uint32_t read_index  = (uint32_t)!m_ping_pong;
+
+        // Transition ray tracing output image back to general layout
+        if (m_first_frame)
+        {
+            m_first_frame = false;
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_path_trace_images[write_index]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_path_trace_images[read_index]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                subresource_range);
+        }
+        else
+        {
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_path_trace_images[read_index]->handle(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_IMAGE_LAYOUT_GENERAL,
+                subresource_range);
+        }
+
+        auto& rt_props = m_vk_backend->ray_tracing_properties();
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline->handle());
+
+        float accumulation = float(m_num_frames) / float(m_num_frames + 1);
+
+        vkCmdPushConstants(cmd_buf->handle(), m_path_trace_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_NV, 0, sizeof(float), &accumulation);
+        vkCmdPushConstants(cmd_buf->handle(), m_path_trace_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_NV, sizeof(float), sizeof(uint32_t), &m_num_frames);
+
+        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 0, 1, &m_path_trace_ds[write_index]->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 1, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 2, 1, &m_scene->ray_tracing_geometry_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 3, 1, &m_scene->albedo_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 4, 1, &m_scene->normal_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 5, 1, &m_scene->roughness_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_path_trace_pipeline_layout->handle(), 6, 1, &m_scene->metallic_descriptor_set()->handle(), 0, VK_NULL_HANDLE);
+
+        vkCmdTraceRaysNV(cmd_buf->handle(),
+                         m_path_trace_pipeline->shader_binding_table_buffer()->handle(),
+                         0,
+                         m_path_trace_pipeline->shader_binding_table_buffer()->handle(),
+                         m_path_trace_sbt->miss_group_offset(),
+                         rt_props.shaderGroupBaseAlignment,
+                         m_path_trace_pipeline->shader_binding_table_buffer()->handle(),
+                         m_path_trace_sbt->hit_group_offset(),
+                         rt_props.shaderGroupBaseAlignment,
+                         VK_NULL_HANDLE,
+                         0,
+                         0,
+                         m_width,
+                         m_height,
+                         1);
+
+        // Prepare ray tracing output image as transfer source
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_path_trace_images[write_index]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void tone_map(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        VkClearValue clear_values[2];
+
+        clear_values[0].color.float32[0] = 0.0f;
+        clear_values[0].color.float32[1] = 0.0f;
+        clear_values[0].color.float32[2] = 0.0f;
+        clear_values[0].color.float32[3] = 1.0f;
+
+        clear_values[1].color.float32[0] = 1.0f;
+        clear_values[1].color.float32[1] = 1.0f;
+        clear_values[1].color.float32[2] = 1.0f;
+        clear_values[1].color.float32[3] = 1.0f;
+
+        VkRenderPassBeginInfo info    = {};
+        info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        info.renderPass               = m_vk_backend->swapchain_render_pass()->handle();
+        info.framebuffer              = m_vk_backend->swapchain_framebuffer()->handle();
+        info.renderArea.extent.width  = m_width;
+        info.renderArea.extent.height = m_height;
+        info.clearValueCount          = 2;
+        info.pClearValues             = &clear_values[0];
+
+        vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport vp;
+
+        vp.x        = 0.0f;
+        vp.y        = (float)m_height;
+        vp.width    = (float)m_width;
+        vp.height   = -(float)m_height;
+        vp.minDepth = 0.0f;
+        vp.maxDepth = 1.0f;
+
+        vkCmdSetViewport(cmd_buf->handle(), 0, 1, &vp);
+
+        VkRect2D scissor_rect;
+
+        scissor_rect.extent.width  = m_width;
+        scissor_rect.extent.height = m_height;
+        scissor_rect.offset.x      = 0;
+        scissor_rect.offset.y      = 0;
+
+        vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_tone_map_pipeline->handle());
+
+        const uint32_t write_index = (uint32_t)m_ping_pong;
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_tone_map_pipeline_layout->handle(), 0, 1, &m_tone_map_ds[write_index]->handle(), 0, nullptr);
+
+        vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
+
+        render_gui(cmd_buf);
+
+        vkCmdEndRenderPass(cmd_buf->handle());
+
+        m_num_frames++;
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1288,6 +1640,21 @@ private:
     dw::vk::ImageView::Ptr           m_reflection_view;
     dw::vk::ShaderBindingTable::Ptr  m_reflection_sbt;
 
+    // Path Tracing pass
+    dw::vk::DescriptorSet::Ptr       m_path_trace_ds[2];
+    dw::vk::DescriptorSetLayout::Ptr m_path_trace_ds_layout;
+    dw::vk::RayTracingPipeline::Ptr  m_path_trace_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_path_trace_pipeline_layout;
+    dw::vk::Image::Ptr               m_path_trace_images[2];
+    dw::vk::ImageView::Ptr           m_path_trace_image_views[2];
+    dw::vk::ShaderBindingTable::Ptr  m_path_trace_sbt;
+
+    // Tone map pass
+    dw::vk::GraphicsPipeline::Ptr    m_tone_map_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_tone_map_pipeline_layout;
+    dw::vk::DescriptorSet::Ptr       m_tone_map_ds[2];
+    dw::vk::DescriptorSetLayout::Ptr m_tone_map_layout;
+
     // Deferred pass
     dw::vk::GraphicsPipeline::Ptr    m_deferred_pipeline;
     dw::vk::PipelineLayout::Ptr      m_deferred_pipeline_layout;
@@ -1328,6 +1695,14 @@ private:
     // Assets.
     dw::Mesh::Ptr  m_mesh;
     dw::Scene::Ptr m_scene;
+
+    // Path Tracer
+    bool    m_path_trace_mode = false;
+    bool    m_ping_pong       = false;
+    bool    m_camera_moved    = false;
+    bool    m_first_frame     = true;
+    int32_t m_num_frames      = 0;
+    int32_t m_max_samples     = 10000;
 
     // Uniforms.
     Transforms m_transforms;
