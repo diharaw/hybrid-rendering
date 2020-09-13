@@ -38,9 +38,9 @@ float G_schlick_ggx(in float ndotl, in float ndotv, in float roughness)
     return G1_schlick_ggx(roughness, ndotl) * G1_schlick_ggx(roughness, ndotv);
 }
 
-vec3 F_schlick(in vec3 f0, in float hdotv)
+vec3 F_schlick(in vec3 f0, in float vdoth)
 {
-    return f0 + (vec3(1.0) - f0) * (pow(1.0 - hdotv, 5.0)); 
+    return f0 + (vec3(1.0) - f0) * (pow(1.0 - vdoth, 5.0)); 
 }
 
 vec3 sample_ggx(in vec3 n, in float alpha, in vec2 Xi)
@@ -74,8 +74,9 @@ vec3 evaluate_uber(in SurfaceProperties p, in vec3 Wo, in vec3 Wh, in vec3 Wi)
     float NdotL = max(dot(p.normal, Wi), 0.0);
     float NdotV = max(dot(p.normal, Wo), 0.0);
     float NdotH = max(dot(p.normal, Wh), 0.0);
+    float VdotH = max(dot(Wi, Wh), 0.0);
 
-    vec3 F = F_schlick(p.F0, NdotH);
+    vec3 F = F_schlick(p.F0, VdotH);
     vec3 specular = evaluate_ggx(p, F, NdotH, NdotL, NdotV);
     vec3 diffuse = evaluate_lambert(p.albedo.xyz);
 
