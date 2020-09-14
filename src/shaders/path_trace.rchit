@@ -110,6 +110,12 @@ void populate_surface_properties(out SurfaceProperties p)
     p.alpha = p.roughness * p.roughness;
     p.alpha2 = p.alpha * p.alpha;
 
+    // Increase roughness per bounce
+    // float old_roughness = ray_payload.roughness;
+    // p.roughness = min(1.0, p.roughness + ray_payload.roughness_bias);
+    // ray_payload.roughness = p.roughness;
+    // ray_payload.roughness_bias += old_roughness * 0.75f;
+
     mat3 normal_mat = mat3(u_PerFrameUBO.model);
 
     vec3 N = normal_mat * p.vertex.normal.xyz;

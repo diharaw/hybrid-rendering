@@ -265,8 +265,8 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 1920;
-        settings.height      = 1080;
+        settings.width       = 1280;
+        settings.height      = 720;
         settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
 
