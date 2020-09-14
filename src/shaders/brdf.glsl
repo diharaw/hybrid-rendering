@@ -23,14 +23,14 @@ float D_ggx(in float ndoth, in float alpha)
     float a2 = alpha * alpha;
     float denom = (ndoth * ndoth) * (a2 - 1.0) + 1.0;
 
-    return a2 / (M_PI * denom * denom);
+    return a2 / max(EPSILON, (M_PI * denom * denom));
 }
 
 float G1_schlick_ggx(in float roughness, in float ndotv)
 {
     float k = ((roughness + 1) * (roughness + 1)) / 8.0;
 
-    return ndotv / (ndotv * (1 - k) + k);
+    return ndotv / max(EPSILON, (ndotv * (1 - k) + k));
 }
 
 float G_schlick_ggx(in float ndotl, in float ndotv, in float roughness) 
@@ -55,18 +55,18 @@ vec3 sample_ggx(in vec3 n, in float alpha, in vec2 Xi)
     d.y = sin_theta * sin(phi);
     d.z = cos_theta;
 
-    return make_rotation_matrix(n) * d;
+    return normalize(make_rotation_matrix(n) * d);
 }
 
 vec3 evaluate_ggx(in SurfaceProperties p, in vec3 F, in float ndoth, in float ndotl, in float ndotv)
 {
     float alpha = p.roughness * p.roughness;
-    return (D_ggx(ndoth, alpha) * F * G_schlick_ggx(ndotl, ndotv, p.roughness)) / (4.0 * ndotl * ndotv); 
+    return (D_ggx(ndoth, alpha) * F * G_schlick_ggx(ndotl, ndotv, p.roughness)) / max(EPSILON, (4.0 * ndotl * ndotv)); 
 }
 
 float pdf_D_ggx(in float alpha, in float ndoth, in float vdoth)
 {
-    return D_ggx(ndoth, alpha) * ndoth / (4.0 * vdoth);
+    return D_ggx(ndoth, alpha) * ndoth / max(EPSILON, (4.0 * vdoth));
 }
 
 vec3 evaluate_uber(in SurfaceProperties p, in vec3 Wo, in vec3 Wh, in vec3 Wi)
@@ -104,12 +104,21 @@ vec3 sample_uber(in SurfaceProperties p, in vec3 Wo, in RNG rng, out vec3 Wi, ou
 
     vec3 rand_value = next_vec3(rng);
 
+    bool is_specular = false;
+
     if (rand_value.x < 0.5)
     {
         Wh = sample_ggx(p.normal, alpha, rand_value.yz);
         Wi = reflect(-Wo, Wh);
+        
+        float NdotL = max(dot(p.normal, Wi), 0.0);
+        float NdotV = max(dot(p.normal, Wo), 0.0);
+
+        if (NdotL > 0.0f && NdotV > 0.0f)
+            is_specular = true;
     }
-    else
+    
+    if (!is_specular)
     {
         Wi = sample_lambert(p.normal, rand_value.yz);
         Wh = normalize(Wo + Wi);

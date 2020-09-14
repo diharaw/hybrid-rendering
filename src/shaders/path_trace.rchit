@@ -125,16 +125,6 @@ void main()
 
     populate_surface_properties(p);
 
-    // vec3 Wi = sample_lambert(p.normal, next_vec2(ray_payload.rng));
-    // vec3 Wo = -gl_WorldRayDirectionNV;
-
-    // float cos_theta = max(dot(p.normal, Wi), 0.0);
-
-    // vec3 brdf = evaluate_lambert(p.albedo.xyz);
-    // float pdf = pdf_lambert(cos_theta);
-
-    // ray_payload.attenuation *= ((brdf * cos_theta) / pdf);
-
     vec3 Wo = -gl_WorldRayDirectionNV;
     vec3 Wi;
     float pdf;
@@ -151,7 +141,7 @@ void main()
 
         uint  ray_flags = gl_RayFlagsOpaqueNV;
         uint  cull_mask = 0xff;
-        float tmin      = 0.001;
+        float tmin      = 0.0001;
         float tmax      = 10000.0;
 
         // Trace Ray

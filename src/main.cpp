@@ -88,6 +88,14 @@ protected:
             {
                 ImGui::Checkbox("Path Trace Mode", &m_path_trace_mode);
                 ImGui::InputInt("Max Samples", &m_max_samples);
+
+                if (m_path_trace_mode)
+                {
+                    ImGui::Text("Finished %i samples out of %i", m_num_frames, m_max_samples);
+
+                    int progress = glm::min(m_num_frames, m_max_samples);
+                    ImGui::ProgressBar(float(progress) / float(m_max_samples));
+                }
             }
 
             // Update camera.
@@ -1683,7 +1691,7 @@ private:
     float     m_heading_speed      = 0.0f;
     float     m_sideways_speed     = 0.0f;
     float     m_camera_sensitivity = 0.05f;
-    float     m_camera_speed       = 0.05f;
+    float     m_camera_speed       = 0.2f;
     float     m_offset             = 0.1f;
     bool      m_debug_gui          = true;
     glm::vec3 m_light_direction    = glm::vec3(0.0f);

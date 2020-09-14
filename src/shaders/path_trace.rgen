@@ -28,6 +28,11 @@ layout(push_constant) uniform PathTraceConsts
 
 layout(location = 0) rayPayloadNV PathTracePayload ray_payload;
 
+bool is_nan(vec3 c)
+{
+    return isnan(c.x) || isnan(c.y) || isnan(c.z);
+}
+
 void main()
 {
     // Init Payload
@@ -55,7 +60,7 @@ void main()
 
     uint  ray_flags = gl_RayFlagsOpaqueNV;
     uint  cull_mask = 0xff;
-    float tmin      = 0.001;
+    float tmin      = 0.0001;
     float tmax      = 10000.0;
 
     // Trace Ray
@@ -73,13 +78,26 @@ void main()
 
     // Blend current frames' result with the previous frame
     if (u_PathTraceConsts.num_frames == 0)
-        imageStore(i_CurrentColor, ivec2(gl_LaunchIDNV.xy), vec4(ray_payload.color, 1.0));
+    {
+        vec3 final_color = ray_payload.color;
+
+        if (is_nan(final_color))
+            final_color = vec3(1.0, 0.0, 0.0);
+
+        imageStore(i_CurrentColor, ivec2(gl_LaunchIDNV.xy), vec4(final_color, 1.0));
+    }
     else
     {
         vec3 prev_color = imageLoad(i_PreviousColor, ivec2(gl_LaunchIDNV.xy)).rgb;
 
-        vec3 accumulated_color = mix(ray_payload.color, prev_color, u_PathTraceConsts.accumulation); 
-        
-        imageStore(i_CurrentColor, ivec2(gl_LaunchIDNV.xy), vec4(accumulated_color, 1.0));
+        //vec3 accumulated_color = mix(ray_payload.color, prev_color, u_PathTraceConsts.accumulation); 
+        vec3 accumulated_color = prev_color + (ray_payload.color - prev_color) / float(u_PathTraceConsts.num_frames);
+
+        vec3 final_color = accumulated_color;
+
+        if (is_nan(final_color))
+            final_color = vec3(1.0, 0.0, 0.0);
+
+        imageStore(i_CurrentColor, ivec2(gl_LaunchIDNV.xy), vec4(final_color, 1.0));
     }
 }

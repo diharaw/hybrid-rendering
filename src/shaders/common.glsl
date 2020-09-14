@@ -14,6 +14,8 @@
 #define PRIMARY_RAY_PAYLOAD_LOC 0
 
 #define M_PI 3.14159265359
+#define EPSILON 0.0001f
+#define INFINITY 100000.0f
 
 #define MAX_RAY_BOUNCES 5
 
