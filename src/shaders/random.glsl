@@ -49,4 +49,26 @@ RNG rng_init(uvec2 id, uint frameIndex)
     return rng;
 }
 
+float next_float(inout RNG rng)
+{
+    uint u = 0x3f800000 | (rng_next(rng) >> 9);
+    return uintBitsToFloat(u) - 1.0;
+}
+
+uint next_uint(inout RNG rng, uint nmax)
+{
+    float f = next_float(rng);
+    return uint(floor(f * nmax));
+}
+
+vec2 next_vec2(inout RNG rng)
+{
+    return vec2(next_float(rng), next_float(rng));
+}
+
+vec3 next_vec3(inout RNG rng)
+{
+    return vec3(next_float(rng), next_float(rng), next_float(rng));
+}
+
 #endif

@@ -6,11 +6,10 @@
 
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
-layout(set = 0, binding = 1, rgba16f) uniform image2D i_Reflections;
+layout(set = 1, binding = 0, rgba16f) uniform image2D i_Reflections;
+layout(set = 1, binding = 1, rgba16f) uniform image2D i_PrevReflections;
 
-layout(set = 0, binding = 2) uniform sampler2D s_BlueNoise;
-
-layout(set = 1, binding = 0) uniform PerFrameUBO
+layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
@@ -22,9 +21,11 @@ layout(set = 1, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout(set = 2, binding = 1) uniform sampler2D s_BlueNoise;
+
+layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
 
 layout(location = 0) rayPayloadNV RayPayload ray_payload;
 
@@ -75,7 +76,7 @@ void main()
 
     vec4 color = vec4(0.0);
 
-    if (roughness == 0.0f)
+    if (roughness < 0.1f)
     {
         vec3 R = reflect(V, N.xyz);
         traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, P, tmin, R, tmax, 0);

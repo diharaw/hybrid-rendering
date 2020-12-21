@@ -8,9 +8,10 @@
 
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
-layout(set = 0, binding = 1, r8) uniform image2D i_LightMask;
+layout(set = 1, binding = 0, r8) uniform image2D i_LightMask;
+layout(set = 1, binding = 1, r8) uniform image2D i_PrevLightMask;
 
-layout(set = 1, binding = 0) uniform PerFrameUBO
+layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
@@ -22,14 +23,23 @@ layout(set = 1, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
 
 layout(location = 0) rayPayloadNV ShadowRayPayload shadow_ray_payload;
 
+layout(push_constant) uniform PushConstants
+{
+    float light_radius;
+    float alpha;
+    uint num_frames;
+} u_PushConstants;
+
 void main()
 {
+    RNG rng = rng_init(gl_LaunchIDNV.xy, u_PushConstants.num_frames);
+
     const vec2 pixel_center = vec2(gl_LaunchIDNV.xy) + vec2(0.5);
     const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeNV.xy);
     vec2       d            = tex_coord * 2.0 - 1.0;
@@ -42,10 +52,27 @@ void main()
     float tmin      = 0.001;
     float tmax      = 10000.0;
 
+    vec2 rnd_sample = next_vec2(rng);
+
+   vec3 light_dir = ubo.light_dir.xyz;
+   vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+   vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
+   float light_radius = u_PushConstants.light_radius;
+
+   // calculate disk point
+   float point_radius = light_radius * sqrt(rnd_sample.x);
+   float point_angle = rnd_sample.y * 2.0f * M_PI;
+   vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+
+   vec3 shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+
     // Ray bias
-    position += ubo.light_dir.xyz * SHADOW_RAY_BIAS;
+    position += normal * SHADOW_RAY_BIAS;
 
-    traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, ubo.light_dir.xyz, tmax, 0);
+    traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 
-    imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_ray_payload.dist, 0.0, 0.0, 0.0));
+    float shadow_current = shadow_ray_payload.dist;
+    float shadow_prev = imageLoad(i_PrevLightMask, ivec2(gl_LaunchIDNV.xy)).r;
+
+    imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_current * u_PushConstants.alpha + shadow_prev * (1.0 - u_PushConstants.alpha), 0.0, 0.0, 0.0));
 }

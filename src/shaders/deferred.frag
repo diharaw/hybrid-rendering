@@ -1,12 +1,13 @@
 #version 450
 
-layout(set = 0, binding = 0) uniform sampler2D s_Shadow;
-layout(set = 0, binding = 1) uniform sampler2D s_Reflection;
-layout(set = 0, binding = 2) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 0, binding = 3) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 0, binding = 4) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout(set = 0, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 0, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 0, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
 
-layout(set = 1, binding = 0) uniform PerFrameUBO
+layout(set = 1, binding = 0) uniform sampler2D s_Shadow;
+layout(set = 2, binding = 0) uniform sampler2D s_Reflection;
+
+layout(set = 3, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;

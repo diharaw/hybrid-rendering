@@ -9,7 +9,7 @@ layout(location = 0) rayPayloadInNV RayPayload ray_payload;
 
 hitAttributeNV vec3 hit_attribs;
 
-layout(set = 1, binding = 0) uniform PerFrameUBO
+layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
@@ -21,28 +21,28 @@ layout(set = 1, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout (set = 3, binding = 0) readonly buffer MaterialBuffer 
+layout (set = 4, binding = 0) readonly buffer MaterialBuffer 
 {
     uint id[];
 } Material[];
 
-layout (set = 3, binding = 1, std430) readonly buffer VertexBuffer 
+layout (set = 4, binding = 1, std430) readonly buffer VertexBuffer 
 {
     Vertex vertices[];
 } VertexArray[];
 
-layout (set = 3, binding = 2) readonly buffer IndexBuffer 
+layout (set = 4, binding = 2) readonly buffer IndexBuffer 
 {
     uint indices[];
 } IndexArray[];
 
-layout(set = 4, binding = 0) uniform sampler2D s_Albedo[];
+layout(set = 5, binding = 0) uniform sampler2D s_Albedo[];
 
-layout(set = 5, binding = 0) uniform sampler2D s_Normal[];
+layout(set = 6, binding = 0) uniform sampler2D s_Normal[];
 
-layout(set = 6, binding = 0) uniform sampler2D s_Roughness[];
+layout(set = 7, binding = 0) uniform sampler2D s_Roughness[];
 
-layout(set = 7, binding = 0) uniform sampler2D s_Metallic[];
+layout(set = 8, binding = 0) uniform sampler2D s_Metallic[];
 
 Vertex get_vertex(uint mesh_idx, uint vertex_idx)
 {
