@@ -9,12 +9,14 @@
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
 layout(set = 1, binding = 0, r8) uniform image2D i_LightMask;
-layout(set = 1, binding = 1, r8) uniform image2D i_PrevLightMask;
+layout(set = 1, binding = 1) uniform sampler2D i_PrevLightMask;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
+    mat4 view_proj_inverse;
+    mat4 prev_view_proj;
     mat4 model;
     mat4 view;
     mat4 projection;
@@ -25,7 +27,8 @@ ubo;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(location = 0) rayPayloadNV ShadowRayPayload shadow_ray_payload;
 
@@ -33,8 +36,26 @@ layout(push_constant) uniform PushConstants
 {
     float light_radius;
     float alpha;
-    uint num_frames;
-} u_PushConstants;
+    uint  num_frames;
+}
+u_PushConstants;
+
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = ubo.view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
 
 void main()
 {
@@ -44,8 +65,9 @@ void main()
     const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeNV.xy);
     vec2       d            = tex_coord * 2.0 - 1.0;
 
-    vec3 position = texture(s_GBuffer3, tex_coord).rgb;
-    vec3 normal   = texture(s_GBuffer2, tex_coord).rgb;
+    vec3 position      = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
+    vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
+    vec2 motion_vector = texture(s_GBuffer3, tex_coord).rg;
 
     uint  ray_flags = gl_RayFlagsOpaqueNV;
     uint  cull_mask = 0xff;
@@ -54,17 +76,17 @@ void main()
 
     vec2 rnd_sample = next_vec2(rng);
 
-   vec3 light_dir = ubo.light_dir.xyz;
-   vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-   vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-   float light_radius = u_PushConstants.light_radius;
+    vec3  light_dir       = ubo.light_dir.xyz;
+    vec3  light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+    vec3  light_bitangent = normalize(cross(light_tangent, light_dir));
+    float light_radius    = u_PushConstants.light_radius;
 
-   // calculate disk point
-   float point_radius = light_radius * sqrt(rnd_sample.x);
-   float point_angle = rnd_sample.y * 2.0f * M_PI;
-   vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+    // calculate disk point
+    float point_radius = light_radius * sqrt(rnd_sample.x);
+    float point_angle  = rnd_sample.y * 2.0f * M_PI;
+    vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
 
-   vec3 shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+    vec3 shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
 
     // Ray bias
     position += normal * SHADOW_RAY_BIAS;
@@ -72,7 +94,7 @@ void main()
     traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 
     float shadow_current = shadow_ray_payload.dist;
-    float shadow_prev = imageLoad(i_PrevLightMask, ivec2(gl_LaunchIDNV.xy)).r;
+    float shadow_prev    = texture(i_PrevLightMask, tex_coord - motion_vector).r;
 
     imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_current * u_PushConstants.alpha + shadow_prev * (1.0 - u_PushConstants.alpha), 0.0, 0.0, 0.0));
 }

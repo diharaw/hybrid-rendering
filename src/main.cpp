@@ -16,6 +16,10 @@ struct Transforms
     DW_ALIGNED(16)
     glm::mat4 proj_inverse;
     DW_ALIGNED(16)
+    glm::mat4 view_proj_inverse;
+    DW_ALIGNED(16)
+    glm::mat4 prev_view_proj;
+    DW_ALIGNED(16)
     glm::mat4 model;
     DW_ALIGNED(16)
     glm::mat4 view;
@@ -375,7 +379,7 @@ private:
         attachments[3].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
         attachments[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         attachments[3].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-        attachments[3].finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        attachments[3].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkAttachmentReference gbuffer_references[3];
 
@@ -463,6 +467,7 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
 
             m_g_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -479,7 +484,7 @@ private:
             dw::vk::DescriptorSetLayout::Desc desc;
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
 
             m_storage_image_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -551,7 +556,7 @@ private:
 
         // G-Buffer
         {
-            VkDescriptorImageInfo image_info[3];
+            VkDescriptorImageInfo image_info[4];
 
             image_info[0].sampler     = dw::Material::common_sampler()->handle();
             image_info[0].imageView   = m_g_buffer_1_view->handle();
@@ -565,10 +570,15 @@ private:
             image_info[2].imageView   = m_g_buffer_3_view->handle();
             image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            VkWriteDescriptorSet write_data[3];
+            image_info[3].sampler     = dw::Material::common_sampler()->handle();
+            image_info[3].imageView   = m_g_buffer_depth_view->handle();
+            image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet write_data[4];
             DW_ZERO_MEMORY(write_data[0]);
             DW_ZERO_MEMORY(write_data[1]);
             DW_ZERO_MEMORY(write_data[2]);
+            DW_ZERO_MEMORY(write_data[3]);
 
             write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[0].descriptorCount = 1;
@@ -591,7 +601,14 @@ private:
             write_data[2].dstBinding      = 2;
             write_data[2].dstSet          = m_g_buffer_ds->handle();
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
+            write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[3].descriptorCount = 1;
+            write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[3].pImageInfo      = &image_info[3];
+            write_data[3].dstBinding      = 3;
+            write_data[3].dstSet          = m_g_buffer_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
         }
 
         // Acceleration Structure
@@ -624,13 +641,18 @@ private:
             DW_ZERO_MEMORY(write_data[2]);
             DW_ZERO_MEMORY(write_data[3]);
 
-            VkDescriptorImageInfo image_info[2];
+            VkDescriptorImageInfo storage_image_info[2];
+            VkDescriptorImageInfo sampler_image_info[2];
 
             for (int i = 0; i < 2; i++)
             {
-                image_info[i].sampler     = VK_NULL_HANDLE;
-                image_info[i].imageView   = m_shadow_mask_view[i]->handle();
-                image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                storage_image_info[i].sampler     = VK_NULL_HANDLE;
+                storage_image_info[i].imageView   = m_shadow_mask_view[i]->handle();
+                storage_image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                sampler_image_info[i].sampler     = m_bilinear_sampler->handle();
+                sampler_image_info[i].imageView   = m_shadow_mask_view[i]->handle();
+                sampler_image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 
             for (int i = 0; i < 2; i++)
@@ -642,14 +664,14 @@ private:
                 write_data[write_idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 write_data[write_idx].descriptorCount = 1;
                 write_data[write_idx].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data[write_idx].pImageInfo      = &image_info[idx];
+                write_data[write_idx].pImageInfo      = &storage_image_info[idx];
                 write_data[write_idx].dstBinding      = 0;
                 write_data[write_idx].dstSet          = m_shadow_mask_write_ds[i]->handle();
 
                 write_data[write_idx + 1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 write_data[write_idx + 1].descriptorCount = 1;
-                write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data[write_idx + 1].pImageInfo      = &image_info[!idx];
+                write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[write_idx + 1].pImageInfo      = &sampler_image_info[!idx];
                 write_data[write_idx + 1].dstBinding      = 1;
                 write_data[write_idx + 1].dstSet          = m_shadow_mask_write_ds[i]->handle();
             }
@@ -691,13 +713,18 @@ private:
             DW_ZERO_MEMORY(write_data[2]);
             DW_ZERO_MEMORY(write_data[3]);
 
-            VkDescriptorImageInfo image_info[2];
+            VkDescriptorImageInfo storage_image_info[2];
+            VkDescriptorImageInfo sampler_image_info[2];
 
             for (int i = 0; i < 2; i++)
             {
-                image_info[i].sampler     = VK_NULL_HANDLE;
-                image_info[i].imageView   = m_reflection_view[i]->handle();
-                image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                storage_image_info[i].sampler     = VK_NULL_HANDLE;
+                storage_image_info[i].imageView   = m_reflection_view[i]->handle();
+                storage_image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                sampler_image_info[i].sampler     = m_bilinear_sampler->handle();
+                sampler_image_info[i].imageView   = m_reflection_view[i]->handle();
+                sampler_image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 
             for (int i = 0; i < 2; i++)
@@ -709,14 +736,14 @@ private:
                 write_data[write_idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 write_data[write_idx].descriptorCount = 1;
                 write_data[write_idx].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data[write_idx].pImageInfo      = &image_info[idx];
+                write_data[write_idx].pImageInfo      = &storage_image_info[idx];
                 write_data[write_idx].dstBinding      = 0;
                 write_data[write_idx].dstSet          = m_reflection_write_ds[i]->handle();
 
                 write_data[write_idx + 1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 write_data[write_idx + 1].descriptorCount = 1;
-                write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data[write_idx + 1].pImageInfo      = &image_info[!idx];
+                write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[write_idx + 1].pImageInfo      = &sampler_image_info[!idx];
                 write_data[write_idx + 1].dstBinding      = 1;
                 write_data[write_idx + 1].dstSet          = m_reflection_write_ds[i]->handle();
             }
@@ -1021,7 +1048,7 @@ private:
     void create_camera()
     {
         m_main_camera = std::make_unique<dw::Camera>(
-            60.0f, 0.1f, 10000.0f, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+            60.0f, 1.0f, 10000.0f, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1050,12 +1077,15 @@ private:
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
 
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_shadow_mask_image[!m_ping_pong]->handle(),
-            m_first_frame ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
+        if (m_first_frame)
+        {
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_shadow_mask_image[!m_ping_pong]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
+        }
 
         auto& rt_props = m_vk_backend->ray_tracing_properties();
 
@@ -1121,12 +1151,15 @@ private:
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
 
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_reflection_image[!m_ping_pong]->handle(),
-            m_first_frame ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
+        if (m_first_frame)
+        {
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_reflection_image[!m_ping_pong]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
+        }
 
         auto& rt_props = m_vk_backend->ray_tracing_properties();
 
@@ -1332,13 +1365,20 @@ private:
     {
         DW_SCOPED_SAMPLE("update_uniforms", cmd_buf);
 
-        m_transforms.proj_inverse = glm::inverse(m_main_camera->m_projection);
-        m_transforms.view_inverse = glm::inverse(m_main_camera->m_view);
-        m_transforms.proj         = m_main_camera->m_projection;
-        m_transforms.view         = m_main_camera->m_view;
-        m_transforms.model        = glm::mat4(1.0f);
-        m_transforms.cam_pos      = glm::vec4(m_main_camera->m_position, 0.0f);
-        m_transforms.light_dir    = glm::vec4(m_light_direction, 0.0f);
+        if (m_first_frame)
+            m_prev_view_proj = m_main_camera->m_view_projection;
+
+        m_transforms.proj_inverse      = glm::inverse(m_main_camera->m_projection);
+        m_transforms.view_inverse      = glm::inverse(m_main_camera->m_view);
+        m_transforms.view_proj_inverse = glm::inverse(m_main_camera->m_projection * m_main_camera->m_view);
+        m_transforms.prev_view_proj    = m_prev_view_proj;
+        m_transforms.proj              = m_main_camera->m_projection;
+        m_transforms.view              = m_main_camera->m_view;
+        m_transforms.model             = glm::mat4(1.0f);
+        m_transforms.cam_pos           = glm::vec4(m_main_camera->m_position, 0.0f);
+        m_transforms.light_dir         = glm::vec4(m_light_direction, 0.0f);
+
+        m_prev_view_proj = m_main_camera->m_view_projection;
 
         uint8_t* ptr = (uint8_t*)m_ubo->mapped_ptr();
         memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_transforms, sizeof(Transforms));
@@ -1437,6 +1477,7 @@ private:
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
+    glm::mat4                   m_prev_view_proj;
 
     // Camera controls.
     bool      m_mouse_look         = false;
@@ -1463,7 +1504,7 @@ private:
     bool    m_first_frame     = true;
     int32_t m_num_frames      = 0;
     float   m_light_radius    = 0.01f;
-    float   m_alpha           = 0.5f;
+    float   m_alpha           = 0.3f;
     int32_t m_max_samples     = 10000;
 
     // Uniforms.

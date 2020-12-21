@@ -13,6 +13,8 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
+    mat4 view_proj_inverse;
+    mat4 prev_view_proj;
     mat4 model;
     mat4 view;
     mat4 projection;
@@ -21,20 +23,23 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout (set = 4, binding = 0) readonly buffer MaterialBuffer 
+layout(set = 4, binding = 0) readonly buffer MaterialBuffer
 {
     uint id[];
-} Material[];
+}
+Material[];
 
-layout (set = 4, binding = 1, std430) readonly buffer VertexBuffer 
+layout(set = 4, binding = 1, std430) readonly buffer VertexBuffer
 {
     Vertex vertices[];
-} VertexArray[];
+}
+VertexArray[];
 
-layout (set = 4, binding = 2) readonly buffer IndexBuffer 
+layout(set = 4, binding = 2) readonly buffer IndexBuffer
 {
     uint indices[];
-} IndexArray[];
+}
+IndexArray[];
 
 layout(set = 5, binding = 0) uniform sampler2D s_Albedo[];
 
@@ -53,7 +58,7 @@ Triangle fetch_triangle(uint mesh_idx)
 {
     Triangle tri;
 
-    uvec3 idx = uvec3(IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID], 
+    uvec3 idx = uvec3(IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID],
                       IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID + 1],
                       IndexArray[nonuniformEXT(mesh_idx)].indices[3 * gl_PrimitiveID + 2]);
 
@@ -72,10 +77,10 @@ Vertex interpolated_vertex(in Triangle tri)
 
     Vertex o;
 
-    o.position.xyz = tri.v0.position.xyz * barycentrics.x + tri.v1.position.xyz * barycentrics.y + tri.v2.position.xyz * barycentrics.z;
-    o.tex_coord.xy = tri.v0.tex_coord.xy * barycentrics.x + tri.v1.tex_coord.xy * barycentrics.y + tri.v2.tex_coord.xy * barycentrics.z;
-    o.normal.xyz = normalize(tri.v0.normal.xyz * barycentrics.x + tri.v1.normal.xyz * barycentrics.y + tri.v2.normal.xyz * barycentrics.z);
-    o.tangent.xyz = normalize(tri.v0.tangent.xyz * barycentrics.x + tri.v1.tangent.xyz * barycentrics.y + tri.v2.tangent.xyz * barycentrics.z);
+    o.position.xyz  = tri.v0.position.xyz * barycentrics.x + tri.v1.position.xyz * barycentrics.y + tri.v2.position.xyz * barycentrics.z;
+    o.tex_coord.xy  = tri.v0.tex_coord.xy * barycentrics.x + tri.v1.tex_coord.xy * barycentrics.y + tri.v2.tex_coord.xy * barycentrics.z;
+    o.normal.xyz    = normalize(tri.v0.normal.xyz * barycentrics.x + tri.v1.normal.xyz * barycentrics.y + tri.v2.normal.xyz * barycentrics.z);
+    o.tangent.xyz   = normalize(tri.v0.tangent.xyz * barycentrics.x + tri.v1.tangent.xyz * barycentrics.y + tri.v2.tangent.xyz * barycentrics.z);
     o.bitangent.xyz = normalize(tri.v0.bitangent.xyz * barycentrics.x + tri.v1.bitangent.xyz * barycentrics.y + tri.v2.bitangent.xyz * barycentrics.z);
 
     return o;
@@ -98,7 +103,7 @@ vec3 get_normal_from_map(vec3 tangent, vec3 bitangent, vec3 normal, vec2 tex_coo
 void main()
 {
     const Triangle tri = fetch_triangle(gl_InstanceCustomIndexNV);
-    const Vertex v = interpolated_vertex(tri);
+    const Vertex   v   = interpolated_vertex(tri);
 
     mat3 normal_mat = mat3(ubo.model);
 
@@ -109,12 +114,12 @@ void main()
     vec4 albedo = textureLod(s_Albedo[nonuniformEXT(tri.mat_idx)], v.tex_coord.xy, 0.0);
     vec3 normal = get_normal_from_map(T, B, N, v.tex_coord.xy, tri.mat_idx);
 
-    vec3 color = albedo.rgb * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo.rgb * 0.1;
+    vec3  color        = albedo.rgb * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo.rgb * 0.1;
     float hit_distance = gl_HitTNV;
 
     if (albedo.a < 0.1)
     {
-        color = vec3(0.0);
+        color        = vec3(0.0);
         hit_distance = 0;
     }
 

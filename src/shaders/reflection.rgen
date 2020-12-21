@@ -7,12 +7,14 @@
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
 layout(set = 1, binding = 0, rgba16f) uniform image2D i_Reflections;
-layout(set = 1, binding = 1, rgba16f) uniform image2D i_PrevReflections;
+layout(set = 1, binding = 1) uniform sampler2D i_PrevReflections;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
+    mat4 view_proj_inverse;
+    mat4 prev_view_proj;
     mat4 model;
     mat4 view;
     mat4 projection;
@@ -25,13 +27,14 @@ layout(set = 2, binding = 1) uniform sampler2D s_BlueNoise;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RGB: Position, A: -
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(location = 0) rayPayloadNV RayPayload ray_payload;
 
 vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
 {
-    float a = Roughness * Roughness;
+    float a  = Roughness * Roughness;
     float m2 = a * a;
 
     float phi      = 2.0f * M_PI * E.x;
@@ -58,6 +61,23 @@ vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
     return vec4(normalize(sampleVec), PDF);
 }
 
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = ubo.view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
+
 void main()
 {
     const vec2 pixel_center = vec2(gl_LaunchIDNV.xy) + vec2(0.5);
@@ -65,23 +85,24 @@ void main()
     vec2       d            = tex_coord * 2.0 - 1.0;
 
     float roughness = texture(s_GBuffer1, tex_coord).a;
-    vec3 P = texture(s_GBuffer3, tex_coord).rgb;
-    vec3 N   = texture(s_GBuffer2, tex_coord).rgb;
-    vec3 V = normalize(P.xyz - ubo.cam_pos.xyz); 
+    vec3  P         = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
+    vec3  N         = texture(s_GBuffer2, tex_coord).rgb;
+    vec3  V         = normalize(P.xyz - ubo.cam_pos.xyz);
 
-    uint  ray_flags = gl_RayFlagsOpaqueNV;
-    uint  cull_mask = 0xff;
-    float tmin      = 0.001;
-    float tmax      = 10000.0;
+    uint  ray_flags  = gl_RayFlagsOpaqueNV;
+    uint  cull_mask  = 0xff;
+    float tmin       = 0.001;
+    float tmax       = 10000.0;
+    vec3  ray_origin = P + N * 0.1f;
 
     vec4 color = vec4(0.0);
 
     if (roughness < 0.1f)
     {
         vec3 R = reflect(V, N.xyz);
-        traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, P, tmin, R, tmax, 0);
-        color = vec4(ray_payload.color_dist.rgb, 1.0);      
+        traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, R, tmax, 0);
+        color = vec4(ray_payload.color_dist.rgb, 1.0);
     }
-    
+
     imageStore(i_Reflections, ivec2(gl_LaunchIDNV.xy), color);
 }
