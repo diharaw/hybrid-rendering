@@ -38,6 +38,13 @@ struct ShadowPushConstants
     uint32_t num_frames;
 };
 
+struct BilateralBlurPushConstants
+{
+    glm::vec4 z_buffer_params;
+    glm::vec2 direction;
+    glm::vec2 pixel_size;
+};
+
 class Sample : public dw::Application
 {
 protected:
@@ -86,6 +93,7 @@ protected:
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
         create_reflection_ray_tracing_pipeline();
+        create_compute_pipeline();
 
         // Create camera.
         create_camera();
@@ -115,6 +123,8 @@ protected:
             {
                 ImGui::InputFloat("Light Radius", &m_light_radius);
                 ImGui::SliderFloat("Alpha", &m_alpha, 0.0f, 1.0f);
+                ImGui::Checkbox("Shadow Temporal Filter", &m_temporal_accumulation);
+                ImGui::Checkbox("Shadow Spatial Blur", &m_use_bilateral_blur);
             }
 
             // Render profiler.
@@ -129,6 +139,8 @@ protected:
             // Render.
             render_gbuffer(cmd_buf);
             ray_trace_shadow_mask(cmd_buf);
+            if (m_use_bilateral_blur)
+                bilateral_blur_shadows(cmd_buf);
             ray_trace_reflection(cmd_buf);
 
             render(cmd_buf);
@@ -168,6 +180,12 @@ protected:
             m_reflection_image[i].reset();
         }
 
+        m_bilateral_blur_pipeline.reset();
+        m_bilateral_blur_pipeline_layout.reset();
+        m_temp_blur_write_ds.reset();
+        m_temp_blur_read_ds.reset();
+        m_temp_blur_view.reset();
+        m_temp_blur.reset();
         m_bilinear_sampler.reset();
         m_acceleration_structure_ds.reset();
         m_per_frame_ds.reset();
@@ -328,11 +346,14 @@ private:
         m_g_buffer_2     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_3     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
-
+        
         m_g_buffer_1_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_2_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_3_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
+    
+        m_temp_blur = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_SNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_temp_blur_view = dw::vk::ImageView::create(m_vk_backend, m_temp_blur, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -464,10 +485,10 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_g_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -483,8 +504,8 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_storage_image_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -505,6 +526,8 @@ private:
         m_per_frame_ds              = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
         m_acceleration_structure_ds = m_vk_backend->allocate_descriptor_set(m_acceleration_structure_ds_layout);
         m_g_buffer_ds               = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
+        m_temp_blur_write_ds        = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
+        m_temp_blur_read_ds         = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
 
         for (int i = 0; i < 2; i++)
         {
@@ -776,6 +799,39 @@ private:
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
         }
+
+        // Temp blur
+        {
+            VkWriteDescriptorSet write_data[2];
+            DW_ZERO_MEMORY(write_data[0]);
+            DW_ZERO_MEMORY(write_data[1]);
+
+            VkDescriptorImageInfo image_info[2];
+
+            image_info[0].sampler     = VK_NULL_HANDLE;
+            image_info[0].imageView   = m_temp_blur_view->handle();
+            image_info[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            image_info[1].sampler     = m_bilinear_sampler->handle();
+            image_info[1].imageView   = m_temp_blur_view->handle();
+            image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[0].descriptorCount = 1;
+            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data[0].pImageInfo      = &image_info[0];
+            write_data[0].dstBinding      = 0;
+            write_data[0].dstSet          = m_temp_blur_write_ds->handle();
+
+            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[1].descriptorCount = 1;
+            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[1].pImageInfo      = &image_info[1];
+            write_data[1].dstBinding      = 0;
+            write_data[1].dstSet          = m_temp_blur_read_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -791,6 +847,30 @@ private:
 
         m_deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_deferred_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_deferred_pipeline_layout, m_vk_backend->swapchain_render_pass());
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_compute_pipeline()
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BilateralBlurPushConstants));
+
+        m_bilateral_blur_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/bilateral_blur.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_bilateral_blur_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_bilateral_blur_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1094,7 +1174,7 @@ private:
         ShadowPushConstants push_constants;
 
         push_constants.num_frames   = m_num_frames;
-        push_constants.alpha        = m_alpha;
+        push_constants.alpha        = m_temporal_accumulation ? m_alpha : 1.0f;
         push_constants.light_radius = m_light_radius;
 
         vkCmdPushConstants(cmd_buf->handle(), m_shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_NV, 0, sizeof(push_constants), &push_constants);
@@ -1292,6 +1372,88 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void bilateral_blur_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        const uint32_t NUM_THREADS = 32;
+
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_temp_blur->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        BilateralBlurPushConstants push_constants;
+
+        float z_buffer_params_x = -1.0 + (m_main_camera->m_near / m_main_camera->m_far);
+
+        push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_main_camera->m_near, 1.0f / m_main_camera->m_near);
+        push_constants.pixel_size = glm::vec2(1.0f / float(m_width), 1.0f / float(m_height));
+
+        {
+            DW_SCOPED_SAMPLE("Bilateral Blur Horizontal", cmd_buf);
+
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur_pipeline->handle());
+
+            push_constants.direction = glm::vec2(1.0f, 0.0f);
+            vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+            VkDescriptorSet descriptor_sets[] = {
+                m_temp_blur_write_ds->handle(),
+                m_shadow_mask_read_ds[m_ping_pong]->handle(),
+                m_g_buffer_ds->handle()
+            };
+
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+            vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+        }
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_shadow_mask_image[m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_temp_blur->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        {
+            DW_SCOPED_SAMPLE("Bilateral Blur Vertical", cmd_buf);
+
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur_pipeline->handle());
+
+            push_constants.direction = glm::vec2(0.0f, 1.0f);
+            vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+            VkDescriptorSet descriptor_sets[] = {
+                m_shadow_mask_write_ds[m_ping_pong]->handle(),
+                m_temp_blur_read_ds->handle(),
+                m_g_buffer_ds->handle()
+            };
+
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+            vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+        }
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_shadow_mask_image[m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void render(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("deferred", cmd_buf);
@@ -1475,6 +1637,14 @@ private:
     dw::vk::GraphicsPipeline::Ptr m_g_buffer_pipeline;
     dw::vk::PipelineLayout::Ptr   m_g_buffer_pipeline_layout;
 
+    // Bilateral Blur
+    dw::vk::DescriptorSet::Ptr   m_temp_blur_write_ds;
+    dw::vk::DescriptorSet::Ptr   m_temp_blur_read_ds;
+    dw::vk::Image::Ptr           m_temp_blur;
+    dw::vk::ImageView::Ptr       m_temp_blur_view;
+    dw::vk::ComputePipeline::Ptr m_bilateral_blur_pipeline;
+    dw::vk::PipelineLayout::Ptr  m_bilateral_blur_pipeline_layout;
+
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
     glm::mat4                   m_prev_view_proj;
@@ -1502,6 +1672,8 @@ private:
     bool    m_ping_pong       = false;
     bool    m_camera_moved    = false;
     bool    m_first_frame     = true;
+    bool    m_use_bilateral_blur = true;
+    bool    m_temporal_accumulation = true;
     int32_t m_num_frames      = 0;
     float   m_light_radius    = 0.01f;
     float   m_alpha           = 0.3f;

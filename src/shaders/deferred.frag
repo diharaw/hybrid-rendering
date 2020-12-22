@@ -117,8 +117,8 @@ void main()
     vec3  reflection = texture(s_Reflection, inUV).rgb;
     float shadow     = texture(s_Shadow, inUV).r;
 
-    //vec3 color = shadow * albedo * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo * 0.1 + reflection;
-    vec3 color = shadow * vec3(max(dot(normal, ubo.light_dir.xyz), 0.0)) + vec3(0.1);
+    vec3 color = shadow * albedo * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo * 0.1 + reflection;
+    //vec3 color = shadow * vec3(max(dot(normal, ubo.light_dir.xyz), 0.0)) + vec3(0.1);
 
     // Reinhard tone mapping
     color = color / (1.0 + color);

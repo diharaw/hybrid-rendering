@@ -1,0 +1,133 @@
+#version 450
+
+#define BLUR_DEPTH_FACTOR 0.5
+#define GAUSS_BLUR_DEVIATION 1.5
+#define BLUR_KERNEL_SIZE 5
+#define DEPTH_LOD 0.0
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS 32
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, r8) uniform image2D i_OutputVisibility;
+layout(set = 1, binding = 0) uniform sampler2D s_InputVisibility;
+layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+
+// ------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    vec4 z_buffer_params;
+    vec2 direction;
+    vec2 pixel_size;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+const float kPI = 3.14159265359;
+
+float gaussian_weight(float offset, float deviation)
+{
+    float weight = 1.0 / sqrt(2.0 * kPI * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
+}
+
+// ------------------------------------------------------------------
+
+float linear_eye_depth(float z)
+{
+    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
+}
+
+// ------------------------------------------------------------------
+
+float bilateral_blur(vec2 tex_coord, vec2 direction, int radius, vec2 pixel_size)
+{
+    //const float deviation = kernelRadius / 2.5;
+    const float deviation = float(radius) / GAUSS_BLUR_DEVIATION; // make it really strong
+
+    float center_color = texture(s_InputVisibility, tex_coord).r;
+    float color        = center_color;
+    //return float4(color, 1);
+    float center_depth = linear_eye_depth(textureLod(s_GBufferDepth, tex_coord, DEPTH_LOD).r);
+
+    float weight_sum = 0;
+
+    // gaussian weight is computed from constants only -> will be computed in compile time
+    float weight = gaussian_weight(0.0, deviation);
+    color *= weight;
+    weight_sum += weight;
+
+    vec2 offset_direction = direction * pixel_size;
+
+    for (int i = -radius; i < 0; i++)
+    {
+        vec2  uv           = tex_coord + offset_direction * float(i);
+        float sample_color = texture(s_InputVisibility, uv).r;
+        float sample_depth = linear_eye_depth(textureLod(s_GBufferDepth, uv, DEPTH_LOD).r);
+
+        float depth_diff = abs(center_depth - sample_depth);
+        float dFactor    = depth_diff * BLUR_DEPTH_FACTOR;
+        float w          = exp(-(dFactor * dFactor));
+
+        // gaussian weight is computed from constants only -> will be computed in compile time
+        weight = gaussian_weight(float(i), deviation) * w;
+
+        color += weight * sample_color;
+        weight_sum += weight;
+    }
+
+    for (int i = 1; i <= radius; i++)
+    {
+        vec2  uv           = tex_coord + offset_direction * float(i);
+        float sample_color = texture(s_InputVisibility, uv).r;
+        float sample_depth = linear_eye_depth(textureLod(s_GBufferDepth, uv, DEPTH_LOD).r);
+
+        float depth_diff = abs(center_depth - sample_depth);
+        float dFactor    = depth_diff * BLUR_DEPTH_FACTOR;
+        float w          = exp(-(dFactor * dFactor));
+
+        // gaussian weight is computed from constants only -> will be computed in compile time
+        weight = gaussian_weight(float(i), deviation) * w;
+
+        color += weight * sample_color;
+        weight_sum += weight;
+    }
+
+    color /= weight_sum;
+    return color;
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    ivec2 size      = textureSize(s_InputVisibility, 0);
+    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+
+    float visibility = bilateral_blur(tex_coord, u_PushConstants.direction, BLUR_KERNEL_SIZE, u_PushConstants.pixel_size);
+
+    imageStore(i_OutputVisibility, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), vec4(visibility, 0.0, 0.0, 1.0));
+}
+
+// ------------------------------------------------------------------

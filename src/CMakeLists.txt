@@ -28,7 +28,8 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rgen
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rchit
-                   ${PROJECT_SOURCE_DIR}/src/shaders/tone_map.frag)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/tone_map.frag
+                   ${PROJECT_SOURCE_DIR}/src/shaders/bilateral_blur.comp)
 
 
 if(APPLE)
