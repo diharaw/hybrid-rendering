@@ -6,9 +6,8 @@ layout(set = 0, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector,
 layout(set = 0, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(set = 1, binding = 0) uniform sampler2D s_Shadow;
-layout(set = 2, binding = 0) uniform sampler2D s_Reflection;
 
-layout(set = 3, binding = 0) uniform PerFrameUBO
+layout(set = 2, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
@@ -114,10 +113,10 @@ void main()
 {
     vec3  albedo     = texture(s_GBuffer1, inUV).rgb;
     vec3  normal     = texture(s_GBuffer2, inUV).rgb;
-    vec3  reflection = texture(s_Reflection, inUV).rgb;
+    //vec3  reflection = texture(s_Reflection, inUV).rgb;
     float shadow     = texture(s_Shadow, inUV).r;
 
-    vec3 color = shadow * albedo * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo * 0.1 + reflection;
+    vec3 color = shadow * albedo * max(dot(normal, ubo.light_dir.xyz), 0.0) + albedo * 0.1;// + reflection;
     //vec3 color = shadow * vec3(max(dot(normal, ubo.light_dir.xyz), 0.0)) + vec3(0.1);
 
     // Reinhard tone mapping

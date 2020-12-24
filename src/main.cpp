@@ -92,7 +92,7 @@ protected:
         create_deferred_pipeline();
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
-        create_reflection_ray_tracing_pipeline();
+        //create_reflection_ray_tracing_pipeline();
         create_compute_pipeline();
 
         // Create camera.
@@ -141,7 +141,7 @@ protected:
             ray_trace_shadow_mask(cmd_buf);
             if (m_use_bilateral_blur)
                 bilateral_blur_shadows(cmd_buf);
-            ray_trace_reflection(cmd_buf);
+            //ray_trace_reflection(cmd_buf);
 
             render(cmd_buf);
         }
@@ -168,18 +168,19 @@ protected:
         for (int i = 0; i < 2; i++)
         {
             m_reflection_write_ds[i].reset();
-            m_shadow_mask_write_ds[i].reset();
-
             m_reflection_read_ds[i].reset();
-            m_shadow_mask_read_ds[i].reset();
-
             m_reflection_view[i].reset();
-            m_shadow_mask_view[i].reset();
-
-            m_shadow_mask_image[i].reset();
             m_reflection_image[i].reset();
         }
 
+        m_visibility_write_ds.reset();
+        m_visibility_read_ds.reset();
+        m_visibility_filtered_write_ds.reset();
+        m_visibility_filtered_read_ds.reset();
+        m_visibility_view.reset();
+        m_visibility_image.reset();
+        m_visibility_filtered_view.reset();
+        m_visibility_filtered_image.reset();
         m_bilateral_blur_pipeline.reset();
         m_bilateral_blur_pipeline_layout.reset();
         m_temp_blur_write_ds.reset();
@@ -288,8 +289,8 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 1280;
-        settings.height      = 720;
+        settings.width       = 2560;
+        settings.height      = 1440;
         settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
         settings.resizable   = false;
@@ -326,15 +327,19 @@ private:
         m_g_buffer_2_view.reset();
         m_g_buffer_3_view.reset();
         m_g_buffer_depth_view.reset();
+        m_visibility_image.reset();
+        m_visibility_view.reset();
+        m_visibility_filtered_image.reset();
+        m_visibility_filtered_view.reset();
+
+        m_visibility_image          = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_visibility_filtered_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+
+        m_visibility_view          = dw::vk::ImageView::create(m_vk_backend, m_visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_visibility_filtered_view = dw::vk::ImageView::create(m_vk_backend, m_visibility_filtered_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
         for (int i = 0; i < 2; i++)
         {
-            m_shadow_mask_image[i].reset();
-            m_shadow_mask_view[i].reset();
-
-            m_shadow_mask_image[i] = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_SNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-            m_shadow_mask_view[i]  = dw::vk::ImageView::create(m_vk_backend, m_shadow_mask_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-
             m_reflection_image[i].reset();
             m_reflection_view[i].reset();
 
@@ -346,13 +351,13 @@ private:
         m_g_buffer_2     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_3     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
-        
+
         m_g_buffer_1_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_2_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_3_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
-    
-        m_temp_blur = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_SNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+
+        m_temp_blur      = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_temp_blur_view = dw::vk::ImageView::create(m_vk_backend, m_temp_blur, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
@@ -505,7 +510,6 @@ private:
             dw::vk::DescriptorSetLayout::Desc desc;
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_storage_image_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -523,18 +527,19 @@ private:
 
     void create_descriptor_sets()
     {
-        m_per_frame_ds              = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
-        m_acceleration_structure_ds = m_vk_backend->allocate_descriptor_set(m_acceleration_structure_ds_layout);
-        m_g_buffer_ds               = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
-        m_temp_blur_write_ds        = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
-        m_temp_blur_read_ds         = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
+        m_per_frame_ds                 = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
+        m_acceleration_structure_ds    = m_vk_backend->allocate_descriptor_set(m_acceleration_structure_ds_layout);
+        m_g_buffer_ds                  = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
+        m_temp_blur_write_ds           = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
+        m_temp_blur_read_ds            = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
+        m_visibility_write_ds          = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
+        m_visibility_read_ds           = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
+        m_visibility_filtered_read_ds  = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
+        m_visibility_filtered_write_ds = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
 
         for (int i = 0; i < 2; i++)
         {
-            m_shadow_mask_write_ds[i] = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
-            m_reflection_write_ds[i]  = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
-
-            m_shadow_mask_read_ds[i] = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
+            m_reflection_write_ds[i] = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
             m_reflection_read_ds[i]  = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
         }
     }
@@ -656,149 +661,161 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
-        // Shadow mask write
+        // Visibility write
         {
-            VkWriteDescriptorSet write_data[4];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
-            DW_ZERO_MEMORY(write_data[2]);
-            DW_ZERO_MEMORY(write_data[3]);
+            VkWriteDescriptorSet write_data;
+            DW_ZERO_MEMORY(write_data);
 
-            VkDescriptorImageInfo storage_image_info[2];
-            VkDescriptorImageInfo sampler_image_info[2];
+            VkDescriptorImageInfo storage_image_info;
 
-            for (int i = 0; i < 2; i++)
-            {
-                storage_image_info[i].sampler     = VK_NULL_HANDLE;
-                storage_image_info[i].imageView   = m_shadow_mask_view[i]->handle();
-                storage_image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_visibility_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                sampler_image_info[i].sampler     = m_bilinear_sampler->handle();
-                sampler_image_info[i].imageView   = m_shadow_mask_view[i]->handle();
-                sampler_image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            }
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &storage_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_visibility_write_ds->handle();
 
-            for (int i = 0; i < 2; i++)
-            {
-                bool idx = (bool)i;
-
-                int write_idx = 2 * i;
-
-                write_data[write_idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data[write_idx].descriptorCount = 1;
-                write_data[write_idx].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data[write_idx].pImageInfo      = &storage_image_info[idx];
-                write_data[write_idx].dstBinding      = 0;
-                write_data[write_idx].dstSet          = m_shadow_mask_write_ds[i]->handle();
-
-                write_data[write_idx + 1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data[write_idx + 1].descriptorCount = 1;
-                write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data[write_idx + 1].pImageInfo      = &sampler_image_info[!idx];
-                write_data[write_idx + 1].dstBinding      = 1;
-                write_data[write_idx + 1].dstSet          = m_shadow_mask_write_ds[i]->handle();
-            }
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
-        // Shadow mask read
+        // Visibility read
         {
-            VkWriteDescriptorSet write_data[2];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
+            VkWriteDescriptorSet write_data;
+            DW_ZERO_MEMORY(write_data);
 
-            VkDescriptorImageInfo image_info[2];
+            VkDescriptorImageInfo sampler_image_info;
 
-            for (int i = 0; i < 2; i++)
-            {
-                image_info[i].sampler     = VK_NULL_HANDLE;
-                image_info[i].imageView   = m_shadow_mask_view[i]->handle();
-                image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_info[i].sampler     = m_bilinear_sampler->handle();
+            sampler_image_info.sampler     = m_bilinear_sampler->handle();
+            sampler_image_info.imageView   = m_visibility_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-                write_data[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data[i].descriptorCount = 1;
-                write_data[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data[i].pImageInfo      = &image_info[i];
-                write_data[i].dstBinding      = 0;
-                write_data[i].dstSet          = m_shadow_mask_read_ds[i]->handle();
-            }
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &sampler_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_visibility_read_ds->handle();
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+        }
+
+        // Filtered visibility write
+        {
+            VkWriteDescriptorSet write_data;
+            DW_ZERO_MEMORY(write_data);
+
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_visibility_filtered_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &storage_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_visibility_filtered_write_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+        }
+
+        // Filtered visibility read
+        {
+            VkWriteDescriptorSet write_data;
+            DW_ZERO_MEMORY(write_data);
+
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = m_bilinear_sampler->handle();
+            sampler_image_info.imageView   = m_visibility_filtered_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &sampler_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_visibility_filtered_read_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
         // Reflection write
-        {
-            VkWriteDescriptorSet write_data[4];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
-            DW_ZERO_MEMORY(write_data[2]);
-            DW_ZERO_MEMORY(write_data[3]);
+        //{
+        //    VkWriteDescriptorSet write_data[4];
+        //    DW_ZERO_MEMORY(write_data[0]);
+        //    DW_ZERO_MEMORY(write_data[1]);
+        //    DW_ZERO_MEMORY(write_data[2]);
+        //    DW_ZERO_MEMORY(write_data[3]);
 
-            VkDescriptorImageInfo storage_image_info[2];
-            VkDescriptorImageInfo sampler_image_info[2];
+        //    VkDescriptorImageInfo storage_image_info[2];
+        //    VkDescriptorImageInfo sampler_image_info[2];
 
-            for (int i = 0; i < 2; i++)
-            {
-                storage_image_info[i].sampler     = VK_NULL_HANDLE;
-                storage_image_info[i].imageView   = m_reflection_view[i]->handle();
-                storage_image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        //    for (int i = 0; i < 2; i++)
+        //    {
+        //        storage_image_info[i].sampler     = VK_NULL_HANDLE;
+        //        storage_image_info[i].imageView   = m_reflection_view[i]->handle();
+        //        storage_image_info[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                sampler_image_info[i].sampler     = m_bilinear_sampler->handle();
-                sampler_image_info[i].imageView   = m_reflection_view[i]->handle();
-                sampler_image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            }
+        //        sampler_image_info[i].sampler     = m_bilinear_sampler->handle();
+        //        sampler_image_info[i].imageView   = m_reflection_view[i]->handle();
+        //        sampler_image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        //    }
 
-            for (int i = 0; i < 2; i++)
-            {
-                bool idx = (bool)i;
+        //    for (int i = 0; i < 2; i++)
+        //    {
+        //        bool idx = (bool)i;
 
-                int write_idx = 2 * i;
+        //        int write_idx = 2 * i;
 
-                write_data[write_idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data[write_idx].descriptorCount = 1;
-                write_data[write_idx].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data[write_idx].pImageInfo      = &storage_image_info[idx];
-                write_data[write_idx].dstBinding      = 0;
-                write_data[write_idx].dstSet          = m_reflection_write_ds[i]->handle();
+        //        write_data[write_idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        //        write_data[write_idx].descriptorCount = 1;
+        //        write_data[write_idx].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        //        write_data[write_idx].pImageInfo      = &storage_image_info[idx];
+        //        write_data[write_idx].dstBinding      = 0;
+        //        write_data[write_idx].dstSet          = m_reflection_write_ds[i]->handle();
 
-                write_data[write_idx + 1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data[write_idx + 1].descriptorCount = 1;
-                write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data[write_idx + 1].pImageInfo      = &sampler_image_info[!idx];
-                write_data[write_idx + 1].dstBinding      = 1;
-                write_data[write_idx + 1].dstSet          = m_reflection_write_ds[i]->handle();
-            }
+        //        write_data[write_idx + 1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        //        write_data[write_idx + 1].descriptorCount = 1;
+        //        write_data[write_idx + 1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        //        write_data[write_idx + 1].pImageInfo      = &sampler_image_info[!idx];
+        //        write_data[write_idx + 1].dstBinding      = 1;
+        //        write_data[write_idx + 1].dstSet          = m_reflection_write_ds[i]->handle();
+        //    }
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
-        }
+        //    vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
+        //}
 
-        // Reflection read
-        {
-            VkWriteDescriptorSet write_data[2];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
+        //// Reflection read
+        //{
+        //    VkWriteDescriptorSet write_data[2];
+        //    DW_ZERO_MEMORY(write_data[0]);
+        //    DW_ZERO_MEMORY(write_data[1]);
 
-            VkDescriptorImageInfo image_info[2];
+        //    VkDescriptorImageInfo image_info[2];
 
-            for (int i = 0; i < 2; i++)
-            {
-                image_info[i].sampler     = VK_NULL_HANDLE;
-                image_info[i].imageView   = m_reflection_view[i]->handle();
-                image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_info[i].sampler     = m_bilinear_sampler->handle();
+        //    for (int i = 0; i < 2; i++)
+        //    {
+        //        image_info[i].sampler     = VK_NULL_HANDLE;
+        //        image_info[i].imageView   = m_reflection_view[i]->handle();
+        //        image_info[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        //        image_info[i].sampler     = m_bilinear_sampler->handle();
 
-                write_data[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data[i].descriptorCount = 1;
-                write_data[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data[i].pImageInfo      = &image_info[i];
-                write_data[i].dstBinding      = 0;
-                write_data[i].dstSet          = m_reflection_read_ds[i]->handle();
-            }
+        //        write_data[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        //        write_data[i].descriptorCount = 1;
+        //        write_data[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        //        write_data[i].pImageInfo      = &image_info[i];
+        //        write_data[i].dstBinding      = 0;
+        //        write_data[i].dstSet          = m_reflection_read_ds[i]->handle();
+        //    }
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
-        }
+        //    vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
+        //}
 
         // Temp blur
         {
@@ -841,7 +858,6 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
-        desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_per_frame_ds_layout);
 
@@ -906,6 +922,7 @@ private:
 
         pl_desc.add_descriptor_set_layout(m_acceleration_structure_ds_layout);
         pl_desc.add_descriptor_set_layout(m_storage_image_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
         pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
 
@@ -1152,7 +1169,7 @@ private:
         // Transition ray tracing output image back to general layout
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_shadow_mask_image[m_ping_pong]->handle(),
+            m_visibility_image->handle(),
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
@@ -1161,7 +1178,7 @@ private:
         {
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
-                m_shadow_mask_image[!m_ping_pong]->handle(),
+                m_visibility_filtered_image->handle(),
                 VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
@@ -1183,12 +1200,13 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_acceleration_structure_ds->handle(),
-            m_shadow_mask_write_ds[m_ping_pong]->handle(),
+            m_visibility_write_ds->handle(),
+            m_visibility_filtered_read_ds->handle(),
             m_per_frame_ds->handle(),
             m_g_buffer_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
         vkCmdTraceRaysNV(cmd_buf->handle(),
                          m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
@@ -1209,7 +1227,7 @@ private:
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_shadow_mask_image[m_ping_pong]->handle(),
+            m_visibility_image->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
@@ -1390,7 +1408,7 @@ private:
         float z_buffer_params_x = -1.0 + (m_main_camera->m_near / m_main_camera->m_far);
 
         push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_main_camera->m_near, 1.0f / m_main_camera->m_near);
-        push_constants.pixel_size = glm::vec2(1.0f / float(m_width), 1.0f / float(m_height));
+        push_constants.pixel_size      = glm::vec2(1.0f / float(m_width), 1.0f / float(m_height));
 
         {
             DW_SCOPED_SAMPLE("Bilateral Blur Horizontal", cmd_buf);
@@ -1402,7 +1420,7 @@ private:
 
             VkDescriptorSet descriptor_sets[] = {
                 m_temp_blur_write_ds->handle(),
-                m_shadow_mask_read_ds[m_ping_pong]->handle(),
+                m_visibility_read_ds->handle(),
                 m_g_buffer_ds->handle()
             };
 
@@ -1413,7 +1431,7 @@ private:
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_shadow_mask_image[m_ping_pong]->handle(),
+            m_visibility_filtered_image->handle(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
@@ -1434,7 +1452,7 @@ private:
             vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
             VkDescriptorSet descriptor_sets[] = {
-                m_shadow_mask_write_ds[m_ping_pong]->handle(),
+                m_visibility_filtered_write_ds->handle(),
                 m_temp_blur_read_ds->handle(),
                 m_g_buffer_ds->handle()
             };
@@ -1446,7 +1464,7 @@ private:
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_shadow_mask_image[m_ping_pong]->handle(),
+            m_visibility_filtered_image->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
@@ -1507,12 +1525,11 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer_ds->handle(),
-            m_shadow_mask_read_ds[m_ping_pong]->handle(),
-            m_reflection_read_ds[m_ping_pong]->handle(),
+            m_visibility_filtered_read_ds->handle(),
             m_per_frame_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_deferred_pipeline_layout->handle(), 0, 3, descriptor_sets, 1, &dynamic_offset);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
@@ -1601,14 +1618,18 @@ private:
     dw::vk::Sampler::Ptr       m_bilinear_sampler;
 
     // Shadow mask pass
-    dw::vk::DescriptorSet::Ptr m_shadow_mask_write_ds[2];
-    dw::vk::DescriptorSet::Ptr m_shadow_mask_read_ds[2];
+    dw::vk::DescriptorSet::Ptr m_visibility_write_ds;
+    dw::vk::DescriptorSet::Ptr m_visibility_read_ds;
+    dw::vk::DescriptorSet::Ptr m_visibility_filtered_read_ds;
+    dw::vk::DescriptorSet::Ptr m_visibility_filtered_write_ds;
 
     dw::vk::RayTracingPipeline::Ptr m_shadow_mask_pipeline;
     dw::vk::PipelineLayout::Ptr     m_shadow_mask_pipeline_layout;
-    dw::vk::Image::Ptr              m_shadow_mask_image[2];
-    dw::vk::ImageView::Ptr          m_shadow_mask_view[2];
     dw::vk::ShaderBindingTable::Ptr m_shadow_mask_sbt;
+    dw::vk::Image::Ptr              m_visibility_image;
+    dw::vk::ImageView::Ptr          m_visibility_view;
+    dw::vk::Image::Ptr              m_visibility_filtered_image;
+    dw::vk::ImageView::Ptr          m_visibility_filtered_view;
 
     // Reflection pass
     dw::vk::DescriptorSet::Ptr      m_reflection_write_ds[2];
@@ -1668,16 +1689,16 @@ private:
     dw::Scene::Ptr m_scene;
 
     // Path Tracer
-    bool    m_path_trace_mode = false;
-    bool    m_ping_pong       = false;
-    bool    m_camera_moved    = false;
-    bool    m_first_frame     = true;
-    bool    m_use_bilateral_blur = true;
+    bool    m_path_trace_mode       = false;
+    bool    m_ping_pong             = false;
+    bool    m_camera_moved          = false;
+    bool    m_first_frame           = true;
+    bool    m_use_bilateral_blur    = true;
     bool    m_temporal_accumulation = true;
-    int32_t m_num_frames      = 0;
-    float   m_light_radius    = 0.01f;
-    float   m_alpha           = 0.3f;
-    int32_t m_max_samples     = 10000;
+    int32_t m_num_frames            = 0;
+    float   m_light_radius          = 0.01f;
+    float   m_alpha                 = 0.15f;
+    int32_t m_max_samples           = 10000;
 
     // Uniforms.
     Transforms m_transforms;

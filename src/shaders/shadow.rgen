@@ -8,10 +8,11 @@
 
 layout(set = 0, binding = 0) uniform accelerationStructureNV u_TopLevelAS;
 
-layout(set = 1, binding = 0, r8) uniform image2D i_LightMask;
-layout(set = 1, binding = 1) uniform sampler2D i_PrevLightMask;
+layout(set = 1, binding = 0, r16f) uniform image2D i_Visibility;
 
-layout(set = 2, binding = 0) uniform PerFrameUBO
+layout(set = 2, binding = 0) uniform sampler2D i_FilteredVisibility;
+
+layout(set = 3, binding = 0) uniform PerFrameUBO
 {
     mat4 view_inverse;
     mat4 proj_inverse;
@@ -25,10 +26,10 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
-layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
+layout(set = 4, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 4, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 4, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 4, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(location = 0) rayPayloadNV ShadowRayPayload shadow_ray_payload;
 
@@ -94,7 +95,10 @@ void main()
     traceNV(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 
     float shadow_current = shadow_ray_payload.dist;
-    float shadow_prev    = texture(i_PrevLightMask, tex_coord - motion_vector).r;
+    float shadow_prev    = texture(i_FilteredVisibility, tex_coord - motion_vector).r;
 
-    imageStore(i_LightMask, ivec2(gl_LaunchIDNV.xy), vec4(shadow_current * u_PushConstants.alpha + shadow_prev * (1.0 - u_PushConstants.alpha), 0.0, 0.0, 0.0));
+    if (u_PushConstants.num_frames == 0)
+        imageStore(i_Visibility, ivec2(gl_LaunchIDNV.xy), vec4(shadow_current, 0.0, 0.0, 0.0));
+    else
+        imageStore(i_Visibility, ivec2(gl_LaunchIDNV.xy), vec4(mix(shadow_prev, shadow_current, u_PushConstants.alpha), 0.0, 0.0, 0.0));
 }

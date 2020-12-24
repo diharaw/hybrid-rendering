@@ -1,0 +1,146 @@
+#version 450
+
+// Edge-Avoiding À-Trous Wavelet Transform for fast Global Illumination Filtering"
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS 32
+#define KERNEL_SIZE 25
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, r16f) uniform image2D i_OutputVisibility;
+
+layout(set = 1, binding = 0) uniform sampler2D s_InputVisibility;
+
+layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+
+layout(set = 3, binding = 0) uniform PerFrameUBO
+{
+    mat4 view_inverse;
+    mat4 proj_inverse;
+    mat4 view_proj_inverse;
+    mat4 prev_view_proj;
+    mat4 model;
+    mat4 view;
+    mat4 projection;
+    vec4 cam_pos;
+    vec4 light_dir;
+}
+ubo;
+
+layout(set = 4, binding = 0) uniform FilterUBO
+{
+    vec4 kernel[KERNEL_SIZE];
+    ivec4 offsets[KERNEL_SIZE];
+} filter_ubo;
+
+// ------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    int step_width;
+    float c_phi;
+    float n_phi;
+    float p_phi;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+const float kPI = 3.14159265359;
+
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = ubo.view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    ivec2 size      = textureSize(s_InputVisibility, 0);
+    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    ivec2 pixel_coord = ivec2(gl_GlobalInvocationID.xy);
+    
+    float visibility = 0.0f;
+    float sum = 0.0f;
+    float cum_w = 0.0f;
+
+    float depth = texelFetch(s_GBufferDepth, pixel_coord, 0).r;
+
+    if (depth != 1.0f)
+    {
+        float cval = texelFetch(s_InputVisibility, pixel_coord, 0).r;
+        vec3 nval = texelFetch(s_GBuffer2, pixel_coord, 0).rgb;
+        vec3 pval = world_position_from_depth(tex_coord, depth);
+        
+        for (int i = 0; i < KERNEL_SIZE; i++) 
+        {
+            ivec2 uv = pixel_coord + filter_ubo.offsets[i].xy * u_PushConstants.step_width;
+            
+            float ctmp = texelFetch(s_InputVisibility, uv, 0).r;
+            float t = cval - ctmp;
+            
+            float c_w = min(exp(-dot(t, t) / u_PushConstants.c_phi), 1.0);
+            
+            vec3 ntmp = texelFetch(s_GBuffer2, uv, 0).rgb;
+            vec3 tn = nval - ntmp;
+            float dist2 = max(dot(tn, tn) / (u_PushConstants.step_width * u_PushConstants.step_width), 0.0);
+            
+            float n_w = min(exp(-dist2 / u_PushConstants.n_phi), 1.0);
+        
+            depth = texelFetch(s_GBufferDepth, uv, 0).r;
+        
+            if (depth == 1.0f)
+                continue;
+        
+            vec3 ptmp = world_position_from_depth(tex_coord, depth);
+            vec3 tp = pval - ptmp;
+        
+            float p_w = min(exp(-dot(tp, tp) / u_PushConstants.p_phi), 1.0);
+            
+            float weight = c_w * n_w * p_w * filter_ubo.kernel[i].x;
+            
+            sum += ctmp * weight;
+            cum_w += weight;
+        }
+        
+        visibility = sum / cum_w;
+    }
+
+    imageStore(i_OutputVisibility, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), vec4(visibility, 0.0, 0.0, 1.0));
+}
+
+// ------------------------------------------------------------------

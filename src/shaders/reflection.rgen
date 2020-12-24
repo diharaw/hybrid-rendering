@@ -65,7 +65,7 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 {
     // Take texture coordinate and remap to [-1.0, 1.0] range.
     vec2 screen_pos = tex_coords * 2.0 - 1.0;
-
+    
     // // Create NDC position.
     vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
 
@@ -93,10 +93,10 @@ void main()
     uint  cull_mask  = 0xff;
     float tmin       = 0.001;
     float tmax       = 10000.0;
-    vec3  ray_origin = P + N * 0.1f;
-
+    vec3  ray_origin = P + N * 0.1;
+    
     vec4 color = vec4(0.0);
-
+    
     if (roughness < 0.1f)
     {
         vec3 R = reflect(V, N.xyz);
