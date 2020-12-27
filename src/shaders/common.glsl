@@ -22,58 +22,12 @@
 
 struct RayPayload
 {
-    vec4 color_dist;
-};
-
-struct PathTracePayload
-{
     vec3 color;
-    vec3 attenuation;
-    float hit_distance;
-    float roughness;
-    float roughness_bias;
-    uint depth;
-    RNG rng;
 };
 
 struct ShadowRayPayload
 {
     float dist;
-};
-
-struct IndirectionInfo
-{
-    ivec2 idx;
-};
-
-struct Vertex
-{
-    vec4 position;
-    vec4 tex_coord;
-    vec4 normal;
-    vec4 tangent;
-    vec4 bitangent;
-};
-
-struct Triangle
-{
-    Vertex v0;
-    Vertex v1;
-    Vertex v2;
-    uint mat_idx;
-};
-
-struct SurfaceProperties
-{
-    Vertex vertex;
-    vec4 albedo;
-    vec3 emissive;
-    vec3 normal;
-    vec3 F0;
-    float metallic;
-    float roughness;   
-    float alpha;
-    float alpha2; 
 };
 
 #endif

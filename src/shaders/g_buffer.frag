@@ -1,5 +1,14 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "scene_descriptor_set.glsl"
+
+// ------------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------------
+// ------------------------------------------------------------------------
+
 layout(location = 0) in vec3 FS_IN_FragPos;
 layout(location = 1) in vec2 FS_IN_Texcoord;
 layout(location = 2) in vec3 FS_IN_Normal;
@@ -8,28 +17,27 @@ layout(location = 4) in vec3 FS_IN_Bitangent;
 layout(location = 5) in vec4 FS_IN_CSPos;
 layout(location = 6) in vec4 FS_IN_PrevCSPos;
 
+// ------------------------------------------------------------------------
+// OUTPUTS ----------------------------------------------------------------
+// ------------------------------------------------------------------------
+
 layout(location = 0) out vec4 FS_OUT_GBuffer1; // RGB: Albedo, A: Roughness
 layout(location = 1) out vec4 FS_OUT_GBuffer2; // RGB: Normal, A: Metallic
 layout(location = 2) out vec4 FS_OUT_GBuffer3; // RG: Motion Vector, BA: -
 
-layout(set = 1, binding = 0) uniform sampler2D s_Diffuse;
-layout(set = 1, binding = 1) uniform sampler2D s_Normal;
-layout(set = 1, binding = 2) uniform sampler2D s_Roughness;
-layout(set = 1, binding = 3) uniform sampler2D s_Metallic;
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
 
-vec3 get_normal_from_map(vec3 tangent, vec3 bitangent, vec3 normal, vec2 tex_coord, sampler2D normal_map)
+layout(push_constant) uniform PushConstants
 {
-    // Create TBN matrix.
-    mat3 TBN = mat3(normalize(tangent), normalize(bitangent), normalize(normal));
+    mat4 model;
+    uint material_idx;
+} u_PushConstants;
 
-    // Sample tangent space normal vector from normal map and remap it from [0, 1] to [-1, 1] range.
-    vec3 n = normalize(texture(normal_map, tex_coord).xyz * 2.0 - 1.0);
-
-    // Multiple vector by the TBN matrix to transform the normal from tangent space to world space.
-    n = normalize(TBN * n);
-
-    return n;
-}
+// ------------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------------
+// ------------------------------------------------------------------------
 
 vec2 motion_vector(vec4 prev_pos, vec4 current_pos)
 {
@@ -49,9 +57,15 @@ vec2 motion_vector(vec4 prev_pos, vec4 current_pos)
     return (current - prev);
 }
 
+// ------------------------------------------------------------------------
+// MAIN -------------------------------------------------------------------
+// ------------------------------------------------------------------------
+
 void main()
 {
-    vec4 albedo = texture(s_Diffuse, FS_IN_Texcoord);
+    const Material material = Materials.data[u_PushConstants.material_idx];
+
+    vec4 albedo = fetch_albedo(material, FS_IN_Texcoord);
 
     if (albedo.a < 0.1)
         discard;
@@ -60,14 +74,16 @@ void main()
     FS_OUT_GBuffer1.rgb = albedo.rgb;
 
     // Normal.
-    FS_OUT_GBuffer2.rgb = get_normal_from_map(FS_IN_Tangent, FS_IN_Bitangent, FS_IN_Normal, FS_IN_Texcoord, s_Normal);
+    FS_OUT_GBuffer2.rgb = fetch_normal(material, FS_IN_Tangent, FS_IN_Bitangent, FS_IN_Normal, FS_IN_Texcoord);
 
     // Roughness
-    FS_OUT_GBuffer1.a = texture(s_Roughness, FS_IN_Texcoord).r;
+    FS_OUT_GBuffer1.a = fetch_roughness(material, FS_IN_Texcoord);
 
     // Metallic
-    FS_OUT_GBuffer2.a = texture(s_Metallic, FS_IN_Texcoord).r;
+    FS_OUT_GBuffer2.a = fetch_metallic(material, FS_IN_Texcoord);
 
     // Motion Vector
     FS_OUT_GBuffer3.rg = motion_vector(FS_IN_PrevCSPos, FS_IN_CSPos);
 }
+
+// ------------------------------------------------------------------------

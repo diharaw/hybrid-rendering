@@ -6,7 +6,7 @@
 #include <profiler.h>
 #include <assimp/scene.h>
 #include <vk_mem_alloc.h>
-#include <scene.h>
+#include <ray_traced_scene.h>
 
 // Uniform buffer data structure.
 struct Transforms
@@ -20,15 +20,15 @@ struct Transforms
     DW_ALIGNED(16)
     glm::mat4 prev_view_proj;
     DW_ALIGNED(16)
-    glm::mat4 model;
-    DW_ALIGNED(16)
-    glm::mat4 view;
-    DW_ALIGNED(16)
-    glm::mat4 proj;
+    glm::mat4 view_proj;
     DW_ALIGNED(16)
     glm::vec4 cam_pos;
-    DW_ALIGNED(16)
-    glm::vec4 light_dir;
+};
+
+struct GBufferPushConstants
+{
+    glm::mat4 model;
+    uint32_t  material_index;
 };
 
 struct ShadowPushConstants
@@ -45,7 +45,7 @@ struct BilateralBlurPushConstants
     glm::vec2 pixel_size;
 };
 
-class Sample : public dw::Application
+class HybridRendering : public dw::Application
 {
 protected:
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -62,27 +62,6 @@ protected:
             return false;
         }
 
-        dw::vk::Sampler::Desc sampler_desc;
-
-        sampler_desc.mag_filter        = VK_FILTER_LINEAR;
-        sampler_desc.min_filter        = VK_FILTER_LINEAR;
-        sampler_desc.mipmap_mode       = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        sampler_desc.address_mode_u    = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_desc.address_mode_v    = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_desc.address_mode_w    = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_desc.mip_lod_bias      = 0.0f;
-        sampler_desc.anisotropy_enable = VK_FALSE;
-        sampler_desc.max_anisotropy    = 1.0f;
-        sampler_desc.compare_enable    = false;
-        sampler_desc.compare_op        = VK_COMPARE_OP_NEVER;
-        sampler_desc.min_lod           = 0.0f;
-        sampler_desc.max_lod           = 0.0f;
-        sampler_desc.border_color      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-        sampler_desc.unnormalized_coordinates;
-
-        m_bilinear_sampler = dw::vk::Sampler::create(m_vk_backend, sampler_desc);
-
-        load_blue_noise();
         create_output_images();
         create_render_passes();
         create_framebuffers();
@@ -128,13 +107,15 @@ protected:
             }
 
             // Render profiler.
-            //dw::profiler::ui();
+            dw::profiler::ui();
 
             // Update camera.
             update_camera();
 
             // Update uniforms.
             update_uniforms(cmd_buf);
+
+            m_scene->build_tlas(cmd_buf);
 
             // Render.
             render_gbuffer(cmd_buf);
@@ -162,9 +143,6 @@ protected:
 
     void shutdown() override
     {
-        m_blue_noise.reset();
-        m_blue_noise_view.reset();
-
         for (int i = 0; i < 2; i++)
         {
             m_reflection_write_ds[i].reset();
@@ -187,14 +165,11 @@ protected:
         m_temp_blur_read_ds.reset();
         m_temp_blur_view.reset();
         m_temp_blur.reset();
-        m_bilinear_sampler.reset();
-        m_acceleration_structure_ds.reset();
         m_per_frame_ds.reset();
         m_g_buffer_ds.reset();
         m_per_frame_ds_layout.reset();
         m_g_buffer_ds_layout.reset();
         m_storage_image_ds_layout.reset();
-        m_acceleration_structure_ds_layout.reset();
         m_combined_sampler_ds_layout.reset();
         m_shadow_mask_pipeline_layout.reset();
         m_reflection_pipeline_layout.reset();
@@ -210,9 +185,7 @@ protected:
         m_g_buffer_1_view.reset();
         m_g_buffer_2_view.reset();
         m_g_buffer_3_view.reset();
-        m_blue_noise_view.reset();
         m_g_buffer_depth_view.reset();
-        m_blue_noise.reset();
         m_g_buffer_1.reset();
         m_g_buffer_2.reset();
         m_g_buffer_3.reset();
@@ -481,8 +454,8 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
 
             m_per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -490,10 +463,10 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_g_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -501,15 +474,7 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV);
-
-            m_acceleration_structure_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
-        }
-
-        {
-            dw::vk::DescriptorSetLayout::Desc desc;
-
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_storage_image_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -517,7 +482,7 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_combined_sampler_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -528,7 +493,6 @@ private:
     void create_descriptor_sets()
     {
         m_per_frame_ds                 = m_vk_backend->allocate_descriptor_set(m_per_frame_ds_layout);
-        m_acceleration_structure_ds    = m_vk_backend->allocate_descriptor_set(m_acceleration_structure_ds_layout);
         m_g_buffer_ds                  = m_vk_backend->allocate_descriptor_set(m_g_buffer_ds_layout);
         m_temp_blur_write_ds           = m_vk_backend->allocate_descriptor_set(m_storage_image_ds_layout);
         m_temp_blur_read_ds            = m_vk_backend->allocate_descriptor_set(m_combined_sampler_ds_layout);
@@ -556,49 +520,36 @@ private:
             buffer_info.offset = 0;
             buffer_info.buffer = m_ubo->handle();
 
-            VkWriteDescriptorSet write_data[2];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
+            VkWriteDescriptorSet write_data;
+            DW_ZERO_MEMORY(write_data);
 
-            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[0].descriptorCount = 1;
-            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-            write_data[0].pBufferInfo     = &buffer_info;
-            write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_per_frame_ds->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+            write_data.pBufferInfo     = &buffer_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_per_frame_ds->handle();
 
-            VkDescriptorImageInfo blue_noise_image;
-            blue_noise_image.sampler     = m_bilinear_sampler->handle();
-            blue_noise_image.imageView   = m_blue_noise_view->handle();
-            blue_noise_image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[1].descriptorCount = 1;
-            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[1].pImageInfo      = &blue_noise_image;
-            write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_per_frame_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 2, write_data, 0, nullptr);
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
         // G-Buffer
         {
             VkDescriptorImageInfo image_info[4];
 
-            image_info[0].sampler     = dw::Material::common_sampler()->handle();
+            image_info[0].sampler     = m_vk_backend->nearest_sampler()->handle();
             image_info[0].imageView   = m_g_buffer_1_view->handle();
             image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[1].sampler     = dw::Material::common_sampler()->handle();
+            image_info[1].sampler     = m_vk_backend->nearest_sampler()->handle();
             image_info[1].imageView   = m_g_buffer_2_view->handle();
             image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[2].sampler     = dw::Material::common_sampler()->handle();
+            image_info[2].sampler     = m_vk_backend->nearest_sampler()->handle();
             image_info[2].imageView   = m_g_buffer_3_view->handle();
             image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[3].sampler     = dw::Material::common_sampler()->handle();
+            image_info[3].sampler     = m_vk_backend->nearest_sampler()->handle();
             image_info[3].imageView   = m_g_buffer_depth_view->handle();
             image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -639,28 +590,6 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
         }
 
-        // Acceleration Structure
-        {
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
-
-            VkWriteDescriptorSetAccelerationStructureNV descriptor_as;
-
-            descriptor_as.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_NV;
-            descriptor_as.pNext                      = nullptr;
-            descriptor_as.accelerationStructureCount = 1;
-            descriptor_as.pAccelerationStructures    = &m_scene->acceleration_structure()->handle();
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.pNext           = &descriptor_as;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_acceleration_structure_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
-        }
-
         // Visibility write
         {
             VkWriteDescriptorSet write_data;
@@ -689,7 +618,7 @@ private:
 
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = m_bilinear_sampler->handle();
+            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
             sampler_image_info.imageView   = m_visibility_view->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -731,7 +660,7 @@ private:
 
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = m_bilinear_sampler->handle();
+            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
             sampler_image_info.imageView   = m_visibility_filtered_view->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -829,7 +758,7 @@ private:
             image_info[0].imageView   = m_temp_blur_view->handle();
             image_info[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            image_info[1].sampler     = m_bilinear_sampler->handle();
+            image_info[1].sampler     = m_vk_backend->bilinear_sampler()->handle();
             image_info[1].imageView   = m_temp_blur_view->handle();
             image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -911,7 +840,7 @@ private:
 
         dw::vk::RayTracingPipeline::Desc desc;
 
-        desc.set_recursion_depth(1);
+        desc.set_max_pipeline_ray_recursion_depth(1);
         desc.set_shader_binding_table(m_shadow_mask_sbt);
 
         // ---------------------------------------------------------------------------
@@ -920,13 +849,13 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_acceleration_structure_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_scene->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
         pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
 
-        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_NV, 0, sizeof(ShadowPushConstants));
+        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ShadowPushConstants));
 
         m_shadow_mask_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
 
@@ -957,7 +886,7 @@ private:
 
         dw::vk::RayTracingPipeline::Desc desc;
 
-        desc.set_recursion_depth(1);
+        desc.set_max_pipeline_ray_recursion_depth(1);
         desc.set_shader_binding_table(m_reflection_sbt);
 
         // ---------------------------------------------------------------------------
@@ -966,16 +895,11 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_acceleration_structure_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_scene->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_scene->ray_tracing_geometry_descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_scene->material_descriptor_set_layout());
-
+    
         m_reflection_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
 
         desc.set_pipeline_layout(m_reflection_pipeline_layout);
@@ -1094,8 +1018,9 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout)
-            .add_descriptor_set_layout(dw::Material::pbr_descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_scene->descriptor_set_layout())
+            .add_descriptor_set_layout(m_per_frame_ds_layout)
+            .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants));
 
         m_g_buffer_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
 
@@ -1122,22 +1047,23 @@ private:
     bool load_mesh()
     {
         m_mesh = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
+        
+        if (!m_mesh)
+        {
+            DW_LOG_ERROR("Failed to load mesh");
+            return false;
+        }
+        
         m_mesh->initialize_for_ray_tracing(m_vk_backend);
 
-        m_scene = dw::Scene::create();
-        m_scene->add_instance(m_mesh, glm::mat4(1.0f));
+        dw::RayTracedScene::Instance instance;
 
-        m_scene->initialize_for_ray_tracing(m_vk_backend);
+        instance.mesh = m_mesh;
+        instance.transform = glm::mat4(1.0f);
 
-        return m_mesh != nullptr;
-    }
+        m_scene = dw::RayTracedScene::create(m_vk_backend, { instance });
 
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void load_blue_noise()
-    {
-        m_blue_noise      = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
-        m_blue_noise_view = dw::vk::ImageView::create(m_vk_backend, m_blue_noise, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        return true;
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1150,19 +1076,9 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void check_camera_movement()
-    {
-        if (m_mouse_look && (m_mouse_delta_x != 0 || m_mouse_delta_y != 0) || m_heading_speed != 0.0f || m_sideways_speed != 0.0f)
-            m_camera_moved = true;
-        else
-            m_camera_moved = false;
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void ray_trace_shadow_mask(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("ray-tracing-shadows", cmd_buf);
+        DW_SCOPED_SAMPLE("Ray Traced Shadows", cmd_buf);
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -1184,9 +1100,7 @@ private:
                 subresource_range);
         }
 
-        auto& rt_props = m_vk_backend->ray_tracing_properties();
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline->handle());
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_shadow_mask_pipeline->handle());
 
         ShadowPushConstants push_constants;
 
@@ -1194,35 +1108,31 @@ private:
         push_constants.alpha        = m_temporal_accumulation ? m_alpha : 1.0f;
         push_constants.light_radius = m_light_radius;
 
-        vkCmdPushConstants(cmd_buf->handle(), m_shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_NV, 0, sizeof(push_constants), &push_constants);
+        vkCmdPushConstants(cmd_buf->handle(), m_shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_acceleration_structure_ds->handle(),
+            m_scene->descriptor_set()->handle(),
             m_visibility_write_ds->handle(),
             m_visibility_filtered_read_ds->handle(),
             m_per_frame_ds->handle(),
             m_g_buffer_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_shadow_mask_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_shadow_mask_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
-        vkCmdTraceRaysNV(cmd_buf->handle(),
-                         m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
-                         0,
-                         m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
-                         m_shadow_mask_sbt->miss_group_offset(),
-                         rt_props.shaderGroupBaseAlignment,
-                         m_shadow_mask_pipeline->shader_binding_table_buffer()->handle(),
-                         m_shadow_mask_sbt->hit_group_offset(),
-                         rt_props.shaderGroupBaseAlignment,
-                         VK_NULL_HANDLE,
-                         0,
-                         0,
-                         m_width,
-                         m_height,
-                         1);
+        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
+
+        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
+        VkDeviceSize group_stride = group_size;
+
+        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_shadow_mask_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
+        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_shadow_mask_sbt->miss_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_shadow_mask_sbt->hit_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
+
+        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
 
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -1237,7 +1147,7 @@ private:
 
     void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("ray-tracing-reflections", cmd_buf);
+        DW_SCOPED_SAMPLE("Ray Traced Reflections", cmd_buf);
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -1259,41 +1169,30 @@ private:
                 subresource_range);
         }
 
-        auto& rt_props = m_vk_backend->ray_tracing_properties();
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline->handle());
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_reflection_pipeline->handle());
 
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_acceleration_structure_ds->handle(),
+            m_scene->descriptor_set()->handle(),
             m_reflection_write_ds[m_ping_pong]->handle(),
             m_per_frame_ds->handle(),
-            m_g_buffer_ds->handle(),
-            m_scene->ray_tracing_geometry_descriptor_set()->handle(),
-            m_scene->albedo_descriptor_set()->handle(),
-            m_scene->normal_descriptor_set()->handle(),
-            m_scene->roughness_descriptor_set()->handle(),
-            m_scene->metallic_descriptor_set()->handle()
+            m_g_buffer_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, m_reflection_pipeline_layout->handle(), 0, 9, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_reflection_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
 
-        vkCmdTraceRaysNV(cmd_buf->handle(),
-                         m_reflection_pipeline->shader_binding_table_buffer()->handle(),
-                         0,
-                         m_reflection_pipeline->shader_binding_table_buffer()->handle(),
-                         m_reflection_sbt->miss_group_offset(),
-                         rt_props.shaderGroupBaseAlignment,
-                         m_reflection_pipeline->shader_binding_table_buffer()->handle(),
-                         m_reflection_sbt->hit_group_offset(),
-                         rt_props.shaderGroupBaseAlignment,
-                         VK_NULL_HANDLE,
-                         0,
-                         0,
-                         m_width,
-                         m_height,
-                         1);
+        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
+
+        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
+        VkDeviceSize group_stride = group_size;
+
+        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_reflection_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
+        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_reflection_pipeline->shader_binding_table_buffer()->device_address() + m_reflection_sbt->miss_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_reflection_pipeline->shader_binding_table_buffer()->device_address() + m_reflection_sbt->hit_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
+
+        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
 
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -1308,7 +1207,7 @@ private:
 
     void render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("render_gbuffer", cmd_buf);
+        DW_SCOPED_SAMPLE("G-Buffer", cmd_buf);
 
         VkClearValue clear_values[4];
 
@@ -1365,24 +1264,46 @@ private:
 
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline->handle());
 
-        VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &m_mesh->vertex_buffer()->handle(), &offset);
-        vkCmdBindIndexBuffer(cmd_buf->handle(), m_mesh->index_buffer()->handle(), 0, VK_INDEX_TYPE_UINT32);
-
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 0, 1, &m_per_frame_ds->handle(), 1, &dynamic_offset);
+        VkDescriptorSet descriptor_sets[] = {
+            m_scene->descriptor_set()->handle(),
+            m_per_frame_ds->handle()
+        };
 
-        for (uint32_t i = 0; i < m_mesh->sub_mesh_count(); i++)
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 0, 2, descriptor_sets, 1, &dynamic_offset);
+
+        const auto& instances = m_scene->instances();
+
+        for (uint32_t instance_idx = 0; instance_idx < instances.size(); instance_idx++)
         {
-            auto& submesh = m_mesh->sub_meshes()[i];
-            auto& mat     = m_mesh->material(submesh.mat_idx);
+            const auto& instance = instances[instance_idx];
 
-            if (mat->pbr_descriptor_set())
-                vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 1, 1, &mat->pbr_descriptor_set()->handle(), 0, nullptr);
+            if (!instance.mesh.expired())
+            {
+                const auto& mesh      = instance.mesh.lock();
+                const auto& submeshes = mesh->sub_meshes();
 
-            // Issue draw call.
-            vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, 1, submesh.base_index, submesh.base_vertex, 0);
+                VkDeviceSize offset = 0;
+                vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &mesh->vertex_buffer()->handle(), &offset);
+                vkCmdBindIndexBuffer(cmd_buf->handle(), mesh->index_buffer()->handle(), 0, VK_INDEX_TYPE_UINT32);
+
+                for (uint32_t submesh_idx = 0; submesh_idx < submeshes.size(); submesh_idx++)
+                {
+                    auto& submesh = submeshes[submesh_idx];
+                    auto& mat     = m_mesh->material(submesh.mat_idx);
+
+                    GBufferPushConstants push_constants;
+
+                    push_constants.model = instance.transform;
+                    push_constants.material_index = m_scene->material_index(mat->id());
+
+                    vkCmdPushConstants(cmd_buf->handle(), m_g_buffer_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants), &push_constants);
+
+                    // Issue draw call.
+                    vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, 1, submesh.base_index, submesh.base_vertex, 0);
+                }
+            }
         }
 
         vkCmdEndRenderPass(cmd_buf->handle());
@@ -1474,7 +1395,7 @@ private:
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("deferred", cmd_buf);
+        DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
         VkClearValue clear_values[2];
 
@@ -1542,7 +1463,7 @@ private:
 
     void update_uniforms(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("update_uniforms", cmd_buf);
+        DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
         if (m_first_frame)
             m_prev_view_proj = m_main_camera->m_view_projection;
@@ -1551,11 +1472,8 @@ private:
         m_transforms.view_inverse      = glm::inverse(m_main_camera->m_view);
         m_transforms.view_proj_inverse = glm::inverse(m_main_camera->m_projection * m_main_camera->m_view);
         m_transforms.prev_view_proj    = m_prev_view_proj;
-        m_transforms.proj              = m_main_camera->m_projection;
-        m_transforms.view              = m_main_camera->m_view;
-        m_transforms.model             = glm::mat4(1.0f);
+        m_transforms.view_proj         = m_main_camera->m_projection * m_main_camera->m_view;
         m_transforms.cam_pos           = glm::vec4(m_main_camera->m_position, 0.0f);
-        m_transforms.light_dir         = glm::vec4(m_light_direction, 0.0f);
 
         m_prev_view_proj = m_main_camera->m_view_projection;
 
@@ -1607,15 +1525,9 @@ private:
     dw::vk::DescriptorSet::Ptr       m_g_buffer_ds;
     dw::vk::DescriptorSetLayout::Ptr m_g_buffer_ds_layout;
     dw::vk::Buffer::Ptr              m_ubo;
-    dw::vk::Image::Ptr               m_blue_noise;
-    dw::vk::ImageView::Ptr           m_blue_noise_view;
 
     dw::vk::DescriptorSetLayout::Ptr m_combined_sampler_ds_layout;
-    dw::vk::DescriptorSetLayout::Ptr m_acceleration_structure_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr m_storage_image_ds_layout;
-
-    dw::vk::DescriptorSet::Ptr m_acceleration_structure_ds;
-    dw::vk::Sampler::Ptr       m_bilinear_sampler;
 
     // Shadow mask pass
     dw::vk::DescriptorSet::Ptr m_visibility_write_ds;
@@ -1686,7 +1598,7 @@ private:
 
     // Assets.
     dw::Mesh::Ptr  m_mesh;
-    dw::Scene::Ptr m_scene;
+    dw::RayTracedScene::Ptr m_scene;
 
     // Path Tracer
     bool    m_path_trace_mode       = false;
@@ -1704,4 +1616,4 @@ private:
     Transforms m_transforms;
 };
 
-DW_DECLARE_MAIN(Sample)
+DW_DECLARE_MAIN(HybridRendering)

@@ -1,12 +1,22 @@
 #version 460
-#extension GL_NV_ray_tracing : require
+#extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : require
 
 #include "common.glsl"
 
-layout(location = 0) rayPayloadInNV RayPayload ray_payload;
+// ------------------------------------------------------------------------
+// PAYLOADS ---------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(location = 0) rayPayloadInEXT RayPayload ray_payload;
+
+// ------------------------------------------------------------------------
+// MAIN -------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
 void main()
 {
-    ray_payload.color_dist = vec4(0.0f);
+    ray_payload.color = vec3(0.0f);
 }
+
+// ------------------------------------------------------------------------
