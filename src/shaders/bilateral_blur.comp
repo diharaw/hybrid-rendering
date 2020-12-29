@@ -2,7 +2,6 @@
 
 #define BLUR_DEPTH_FACTOR 0.5
 #define GAUSS_BLUR_DEVIATION 1.5
-#define BLUR_KERNEL_SIZE 5
 #define DEPTH_LOD 0.0
 
 // ------------------------------------------------------------------
@@ -34,6 +33,7 @@ layout(push_constant) uniform PushConstants
     vec4 z_buffer_params;
     vec2 direction;
     vec2 pixel_size;
+    int radius; 
 }
 u_PushConstants;
 
@@ -125,9 +125,14 @@ void main()
     ivec2 size      = textureSize(s_InputVisibility, 0);
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
 
-    float visibility = bilateral_blur(tex_coord, u_PushConstants.direction, BLUR_KERNEL_SIZE, u_PushConstants.pixel_size);
+    if (u_PushConstants.radius == 0)
+        imageStore(i_OutputVisibility, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), texture(s_InputVisibility, tex_coord)); 
+    else
+    {
+        float visibility = bilateral_blur(tex_coord, u_PushConstants.direction, u_PushConstants.radius, u_PushConstants.pixel_size);
 
-    imageStore(i_OutputVisibility, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), vec4(visibility, 0.0, 0.0, 1.0));
+        imageStore(i_OutputVisibility, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), vec4(visibility, 0.0, 0.0, 1.0));
+    }
 }
 
 // ------------------------------------------------------------------

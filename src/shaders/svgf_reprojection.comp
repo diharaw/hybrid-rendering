@@ -1,0 +1,235 @@
+#version 450
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS 32
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D i_Color;
+layout(set = 0, binding = 0, r16f) uniform image2D i_Moments;
+layout(set = 0, binding = 0, r16f) uniform image2D i_HistoryLength;
+
+layout(set = 2, binding = 0) uniform sampler2D s_LinearZ;
+layout(set = 2, binding = 1) uniform sampler2D s_MotionVectors;
+layout(set = 2, binding = 2) uniform sampler2D s_PrevColor;
+layout(set = 2, binding = 3) uniform sampler2D s_PrevLinearZ;
+
+// ------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    float alpha;
+    float moments_alpha;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+bool is_reprojection_valid(ivec2 coord, float Z, float Zprev, float fwidthZ, vec3 normal, vec3 normalPrev, float fwidthNormal)
+{
+    const ivec2 imageDim = textureSize(s_PrevColor, 0);
+    // check whether reprojected pixel is inside of the screen
+    if (any(lessThan(coord, ivec2(1,1))) || any(greaterThan(coord, imageDim - ivec2(1,1)))) return false;
+    // check if deviation of depths is acceptable
+    if (abs(Zprev - Z) / (fwidthZ + 1e-4) > 2.0) return false;
+    // check normals for compatibility
+    if (distance(normal, normalPrev) / (fwidthNormal + 1e-2) > 16.0) return false;
+
+    return true;
+}
+
+// ------------------------------------------------------------------
+
+vec3 octohedral_to_direction(uint octo)
+{
+	vec2 e = unpackSnorm2x16(octo); 
+	vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+	if (v.z < 0.0)
+		v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy)*2.0 - vec2(1.0));
+	return normalize(v);
+}
+
+// ------------------------------------------------------------------
+
+float luminance(vec3 rgb)
+{
+    return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+// ------------------------------------------------------------------
+
+bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, out float historyLength)
+{
+    const ivec2 ipos = fragCoord;
+    const vec2 imageDim = vec2(textureSize(s_PrevColor, 0));
+
+    // xy = motion, z = length(fwidth(pos)), w = length(fwidth(normal))
+	vec4 motion = texelFetch(s_MotionVectors, ipos, 0); 
+
+    // +0.5 to account for texel center offset
+    const ivec2 iposPrev = ivec2(vec2(ipos) + motion.xy * imageDim + vec2(0.5,0.5));
+
+    // stores: linearZ, maxChangeZ, prevLinearZ, objNorm
+	vec4 depth = texelFetch(s_LinearZ, ipos, 0);
+    vec3 normal = octohedral_to_direction(floatBitsToUint(depth.w));
+
+    prevColor   = vec4(0,0,0,0);
+
+    bool v[4];
+	const vec2 posPrev = floor(fragCoord.xy) + motion.xy * imageDim;
+    ivec2 offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
+    
+    // check for all 4 taps of the bilinear filter for validity
+	bool valid = false;
+    for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
+    { 
+        ivec2 loc = ivec2(posPrev) + offset[sampleIdx];
+        vec4 depthPrev = texelFetch(s_PrevLinearZ, loc, 0);
+        vec3 normalPrev = octohedral_to_direction(floatBitsToUint(depthPrev.w));
+
+        v[sampleIdx] = is_reprojection_valid(iposPrev, depth.z, depthPrev.x, depth.y, normal, normalPrev, motion.w);
+
+        valid = valid || v[sampleIdx];
+    }    
+
+    if (valid) 
+    {
+        float sumw = 0;
+        float x = fract(posPrev.x);
+        float y = fract(posPrev.y);
+
+        // bilinear weights
+        float w[4] = { (1 - x) * (1 - y), 
+                            x  * (1 - y), 
+                       (1 - x) *      y,
+                            x  *      y };
+
+        prevColor   = vec4(0,0,0,0);
+        prevMoments  = vec4(0,0,0,0);
+
+        // perform the actual bilinear interpolation
+        for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
+        {
+            ivec2 loc = ivec2(posPrev) + offset[sampleIdx];    
+
+            if (v[sampleIdx])
+            {
+                prevColor   += w[sampleIdx] * texelFetch(s_PrevColor, loc, 0);
+                prevMoments  += w[sampleIdx] * imageLoad(i_Moments, loc);
+                sumw         += w[sampleIdx];
+            }
+        }
+
+		// redistribute weights in case not all taps were used
+		valid = (sumw >= 0.01);
+		prevColor   = valid ? prevColor / sumw   : vec4(0, 0, 0, 0);
+		prevMoments  = valid ? prevMoments / sumw  : vec4(0, 0, 0, 0);
+    }
+    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
+    {
+        float cnt = 0.0;
+
+        // this code performs a binary descision for each tap of the cross-bilateral filter
+        const int radius = 1;
+        for (int yy = -radius; yy <= radius; yy++)
+        {
+            for (int xx = -radius; xx <= radius; xx++)
+            {
+                ivec2 p = iposPrev + ivec2(xx, yy);
+                vec4 depthFilter = texelFetch(s_PrevLinearZ, p, 0);
+				vec3 normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
+
+                if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w) )
+                {
+                    prevColor += texelFetch(s_PrevColor, p, 0);
+                    prevMoments += imageLoad(i_Moments, p);
+                    cnt += 1.0;
+                }
+            }
+        }
+        if (cnt > 0)
+        {
+            valid = true;
+            prevColor   /= cnt;
+            prevMoments  /= cnt;
+        }
+    }
+
+    if (valid)
+    {
+        // crude, fixme
+        historyLength = imageLoad(i_HistoryLength, iposPrev).r; 
+    }
+    else
+    {
+        prevColor = vec4(0,0,0,0);
+        prevMoments = vec4(0,0,0,0);
+        historyLength = 0;
+    }
+
+    return valid;
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    ivec2 size      = textureSize(s_PrevColor, 0);
+    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+
+    vec3 color = imageLoad(i_Color, ivec2(gl_GlobalInvocationID.xy)).rgb;
+
+    float history_length;
+    vec4 prev_color, prev_moments;
+	bool success = load_prev_data(ivec2(gl_GlobalInvocationID.xy), 
+                                  prev_color, 
+                                  prev_moments, 
+                                  history_length);
+	history_length = min( 32.0f, success ? history_length + 1.0f : 1.0f );
+
+    // this adjusts the alpha for the case where insufficient history is available.
+    // It boosts the temporal accumulation to give the samples equal weights in
+    // the beginning.
+    const float alpha        = success ? max(u_PushConstants.alpha,         1.0 / history_length) : 1.0;
+    const float alphaMoments = success ? max(u_PushConstants.moments_alpha, 1.0 / history_length) : 1.0;
+
+    // compute first two moments of luminance
+    vec4 moments = vec4(0.0f);
+    moments.r = luminance(color);
+    moments.b = moments.r * moments.r;
+
+    // temporal integration of the moments
+    moments = mix(prev_moments, moments, u_PushConstants.moments_alpha);
+
+    imageStore(i_Moments, ivec2(gl_GlobalInvocationID.xy), moments);
+    imageStore(i_HistoryLength, ivec2(gl_GlobalInvocationID.xy), vec4(history_length));
+
+    float variance = max(0.0f, moments.r - moments.b * moments.b);
+
+    vec4 out_color = mix(prev_color, vec4(color, 0.0f), alpha);
+
+    // variance is propagated through the alpha channel
+    out_color.a = variance;
+    
+    // temporal integration
+    imageStore(i_Color, ivec2(gl_GlobalInvocationID.xy), out_color);
+}
+
+// ------------------------------------------------------------------

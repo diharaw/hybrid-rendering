@@ -21,6 +21,7 @@ layout(location = 3) out vec3 FS_IN_Tangent;
 layout(location = 4) out vec3 FS_IN_Bitangent;
 layout(location = 5) out vec4 FS_IN_CSPos;
 layout(location = 6) out vec4 FS_IN_PrevCSPos;
+layout(location = 7) out vec3 FS_IN_OSNormal;
 
 out gl_PerVertex
 {
@@ -49,6 +50,7 @@ ubo;
 layout(push_constant) uniform PushConstants
 {
     mat4 model;
+    mat4 prev_model;
     uint material_idx;
 }
 u_PushConstants;
@@ -61,6 +63,7 @@ void main()
 {
     // Transform position into world space
     vec4 world_pos = u_PushConstants.model * vec4(VS_IN_Position, 1.0);
+    vec4 prev_world_pos = u_PushConstants.prev_model * vec4(VS_IN_Position, 1.0);
 
     // Transform world position into clip space
     gl_Position = ubo.view_proj * world_pos;
@@ -70,7 +73,10 @@ void main()
 
     // Pass clip space positions for motion vectors
     FS_IN_CSPos     = gl_Position;
-    FS_IN_PrevCSPos = ubo.prev_view_proj * world_pos;
+    FS_IN_PrevCSPos = ubo.prev_view_proj * prev_world_pos;
+
+    // Pass object space normal 
+    FS_IN_OSNormal = VS_IN_Normal;
 
     FS_IN_Texcoord = VS_IN_Texcoord;
 

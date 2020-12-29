@@ -8,6 +8,8 @@
 #include <vk_mem_alloc.h>
 #include <ray_traced_scene.h>
 
+#define NUM_PILLARS 6
+
 // Uniform buffer data structure.
 struct Transforms
 {
@@ -28,6 +30,7 @@ struct Transforms
 struct GBufferPushConstants
 {
     glm::mat4 model;
+    glm::mat4 prev_model;
     uint32_t  material_index;
 };
 
@@ -43,6 +46,7 @@ struct BilateralBlurPushConstants
     glm::vec4 z_buffer_params;
     glm::vec2 direction;
     glm::vec2 pixel_size;
+    int32_t   radius;
 };
 
 class HybridRendering : public dw::Application
@@ -100,14 +104,22 @@ protected:
 
             if (m_debug_gui)
             {
-                ImGui::InputFloat("Light Radius", &m_light_radius);
-                ImGui::SliderFloat("Alpha", &m_alpha, 0.0f, 1.0f);
-                ImGui::Checkbox("Shadow Temporal Filter", &m_temporal_accumulation);
-                ImGui::Checkbox("Shadow Spatial Blur", &m_use_bilateral_blur);
-            }
+                if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen))
+                {
 
-            // Render profiler.
-            dw::profiler::ui();
+                }
+                if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::InputFloat("Light Radius", &m_light_radius);
+                    ImGui::SliderInt("Blur Radius", &m_blur_radius, 1, 10);
+                    ImGui::SliderFloat("Alpha", &m_alpha, 0.0f, 1.0f);
+                    ImGui::Checkbox("Shadow Temporal Filter", &m_temporal_accumulation);
+                    ImGui::Checkbox("Shadow Spatial Blur", &m_use_bilateral_blur);
+
+                }
+                if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
+                    dw::profiler::ui();
+            }
 
             // Update camera.
             update_camera();
@@ -115,13 +127,12 @@ protected:
             // Update uniforms.
             update_uniforms(cmd_buf);
 
-            m_scene->build_tlas(cmd_buf);
+            m_pillars_scene->build_tlas(cmd_buf);
 
             // Render.
             render_gbuffer(cmd_buf);
             ray_trace_shadow_mask(cmd_buf);
-            if (m_use_bilateral_blur)
-                bilateral_blur_shadows(cmd_buf);
+            bilateral_blur_shadows(cmd_buf);
             //ray_trace_reflection(cmd_buf);
 
             render(cmd_buf);
@@ -180,22 +191,24 @@ protected:
         m_shadow_mask_pipeline.reset();
         m_g_buffer_pipeline.reset();
         m_reflection_pipeline.reset();
-        m_g_buffer_fbo.reset();
+        m_g_buffer_fbo.clear();
         m_g_buffer_rp.reset();
         m_g_buffer_1_view.reset();
         m_g_buffer_2_view.reset();
         m_g_buffer_3_view.reset();
+        m_g_buffer_linear_z_view.clear();
         m_g_buffer_depth_view.reset();
         m_g_buffer_1.reset();
         m_g_buffer_2.reset();
         m_g_buffer_3.reset();
+        m_g_buffer_linear_z.clear();
         m_g_buffer_depth.reset();
         m_shadow_mask_sbt.reset();
         m_reflection_sbt.reset();
 
         // Unload assets.
-        m_scene.reset();
-        m_mesh.reset();
+        m_pillars_scene.reset();
+        m_meshes.clear();
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -295,10 +308,12 @@ private:
         m_g_buffer_1.reset();
         m_g_buffer_2.reset();
         m_g_buffer_3.reset();
+        m_g_buffer_linear_z.clear();
         m_g_buffer_depth.reset();
         m_g_buffer_1_view.reset();
         m_g_buffer_2_view.reset();
         m_g_buffer_3_view.reset();
+        m_g_buffer_linear_z_view.clear();
         m_g_buffer_depth_view.reset();
         m_visibility_image.reset();
         m_visibility_view.reset();
@@ -323,11 +338,19 @@ private:
         m_g_buffer_1     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_2     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_g_buffer_3     = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
+        
+        for (int i = 0; i < 2; i++)
+            m_g_buffer_linear_z.push_back(dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT));
+
         m_g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_SAMPLE_COUNT_1_BIT);
 
         m_g_buffer_1_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_2_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_g_buffer_3_view     = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        
+        for (int i = 0; i < 2; i++)
+            m_g_buffer_linear_z_view.push_back(dw::vk::ImageView::create(m_vk_backend, m_g_buffer_linear_z[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT));
+        
         m_g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
 
         m_temp_blur      = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
@@ -338,7 +361,7 @@ private:
 
     void create_render_passes()
     {
-        std::vector<VkAttachmentDescription> attachments(4);
+        std::vector<VkAttachmentDescription> attachments(5);
 
         // GBuffer1 attachment
         attachments[0].format         = VK_FORMAT_R8G8B8A8_UNORM;
@@ -369,18 +392,28 @@ private:
         attachments[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         attachments[2].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
         attachments[2].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        // Depth attachment
-        attachments[3].format         = m_vk_backend->swap_chain_depth_format();
+        
+        // GBuffer Linear Z attachment
+        attachments[3].format         = VK_FORMAT_R32G32B32A32_SFLOAT;
         attachments[3].samples        = VK_SAMPLE_COUNT_1_BIT;
         attachments[3].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
         attachments[3].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[3].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachments[3].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachments[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         attachments[3].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
         attachments[3].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkAttachmentReference gbuffer_references[3];
+        // Depth attachment
+        attachments[4].format         = m_vk_backend->swap_chain_depth_format();
+        attachments[4].samples        = VK_SAMPLE_COUNT_1_BIT;
+        attachments[4].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachments[4].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[4].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachments[4].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachments[4].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        attachments[4].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference gbuffer_references[4];
 
         gbuffer_references[0].attachment = 0;
         gbuffer_references[0].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -391,14 +424,17 @@ private:
         gbuffer_references[2].attachment = 2;
         gbuffer_references[2].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        gbuffer_references[3].attachment = 3;
+        gbuffer_references[3].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
         VkAttachmentReference depth_reference;
-        depth_reference.attachment = 3;
+        depth_reference.attachment = 4;
         depth_reference.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         std::vector<VkSubpassDescription> subpass_description(1);
 
         subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass_description[0].colorAttachmentCount    = 3;
+        subpass_description[0].colorAttachmentCount    = 4;
         subpass_description[0].pColorAttachments       = gbuffer_references;
         subpass_description[0].pDepthStencilAttachment = &depth_reference;
         subpass_description[0].inputAttachmentCount    = 0;
@@ -433,8 +469,10 @@ private:
 
     void create_framebuffers()
     {
-        m_g_buffer_fbo.reset();
-        m_g_buffer_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_g_buffer_rp, { m_g_buffer_1_view, m_g_buffer_2_view, m_g_buffer_3_view, m_g_buffer_depth_view }, m_width, m_height, 1);
+        m_g_buffer_fbo.clear();
+
+        for (int i = 0; i < 2; i++)
+            m_g_buffer_fbo.push_back(dw::vk::Framebuffer::create(m_vk_backend, m_g_buffer_rp, { m_g_buffer_1_view, m_g_buffer_2_view, m_g_buffer_3_view, m_g_buffer_linear_z_view[i], m_g_buffer_depth_view }, m_width, m_height, 1));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -618,7 +656,7 @@ private:
 
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
+            sampler_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
             sampler_image_info.imageView   = m_visibility_view->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -660,7 +698,7 @@ private:
 
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
+            sampler_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
             sampler_image_info.imageView   = m_visibility_filtered_view->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -820,6 +858,30 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void create_svgf_reprojection_pipeline()
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BilateralBlurPushConstants));
+
+        m_svgf_reprojection_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/svgf_reprojection.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_svgf_reprojection_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_svgf_reprojection_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void create_shadow_mask_ray_tracing_pipeline()
     {
         // ---------------------------------------------------------------------------
@@ -849,7 +911,7 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_scene->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_pillars_scene->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_combined_sampler_ds_layout);
         pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
@@ -895,7 +957,7 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_scene->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_pillars_scene->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer_ds_layout);
@@ -927,7 +989,7 @@ private:
         // Create vertex input state
         // ---------------------------------------------------------------------------
 
-        pso_desc.set_vertex_input_state(m_mesh->vertex_input_state_desc());
+        pso_desc.set_vertex_input_state(m_meshes[0]->vertex_input_state_desc());
 
         // ---------------------------------------------------------------------------
         // Create pipeline input assembly state
@@ -1008,6 +1070,7 @@ private:
             .set_blend_constants(0.0f, 0.0f, 0.0f, 0.0f)
             .add_attachment(blend_att_desc)
             .add_attachment(blend_att_desc)
+            .add_attachment(blend_att_desc)
             .add_attachment(blend_att_desc);
 
         pso_desc.set_color_blend_state(blend_state);
@@ -1018,7 +1081,7 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_scene->descriptor_set_layout())
+        pl_desc.add_descriptor_set_layout(m_pillars_scene->descriptor_set_layout())
             .add_descriptor_set_layout(m_per_frame_ds_layout)
             .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants));
 
@@ -1046,22 +1109,56 @@ private:
 
     bool load_mesh()
     {
-        m_mesh = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
+        dw::Mesh::Ptr pillar = dw::Mesh::load(m_vk_backend, "mesh/pillar.obj");
         
-        if (!m_mesh)
+        if (!pillar)
         {
             DW_LOG_ERROR("Failed to load mesh");
             return false;
         }
         
-        m_mesh->initialize_for_ray_tracing(m_vk_backend);
+        pillar->initialize_for_ray_tracing(m_vk_backend);
 
-        dw::RayTracedScene::Instance instance;
+        m_meshes.push_back(pillar);
 
-        instance.mesh = m_mesh;
-        instance.transform = glm::mat4(1.0f);
+        dw::Mesh::Ptr ground = dw::Mesh::load(m_vk_backend, "mesh/ground.obj");
 
-        m_scene = dw::RayTracedScene::create(m_vk_backend, { instance });
+        if (!ground)
+        {
+            DW_LOG_ERROR("Failed to load mesh");
+            return false;
+        }
+
+        ground->initialize_for_ray_tracing(m_vk_backend);
+
+        m_meshes.push_back(ground);
+
+        std::vector<dw::RayTracedScene::Instance> instances;
+
+        float segment_length = (ground->max_extents().z - ground->min_extents().z) / (NUM_PILLARS + 1);
+
+        for (uint32_t i = 0; i < NUM_PILLARS; i++)
+        {
+            dw::RayTracedScene::Instance pillar_instance;
+
+            pillar_instance.mesh      = pillar;
+            pillar_instance.transform = glm::mat4(1.0f);
+
+            glm::vec3 pos = glm::vec3(20.0f, 0.0f, ground->min_extents().z + segment_length * (i + 1));
+
+            pillar_instance.transform = glm::translate(pillar_instance.transform, pos);
+
+            instances.push_back(pillar_instance);
+        }
+
+        dw::RayTracedScene::Instance ground_instance;
+
+        ground_instance.mesh      = ground;
+        ground_instance.transform = glm::mat4(1.0f);
+        
+        instances.push_back(ground_instance);
+
+        m_pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
 
         return true;
     }
@@ -1113,7 +1210,7 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_scene->descriptor_set()->handle(),
+            m_pillars_scene->descriptor_set()->handle(),
             m_visibility_write_ds->handle(),
             m_visibility_filtered_read_ds->handle(),
             m_per_frame_ds->handle(),
@@ -1174,7 +1271,7 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_scene->descriptor_set()->handle(),
+            m_pillars_scene->descriptor_set()->handle(),
             m_reflection_write_ds[m_ping_pong]->handle(),
             m_per_frame_ds->handle(),
             m_g_buffer_ds->handle()
@@ -1209,7 +1306,7 @@ private:
     {
         DW_SCOPED_SAMPLE("G-Buffer", cmd_buf);
 
-        VkClearValue clear_values[4];
+        VkClearValue clear_values[5];
 
         clear_values[0].color.float32[0] = 0.0f;
         clear_values[0].color.float32[1] = 0.0f;
@@ -1226,18 +1323,23 @@ private:
         clear_values[2].color.float32[2] = 0.0f;
         clear_values[2].color.float32[3] = 1.0f;
 
-        clear_values[3].color.float32[0] = 1.0f;
-        clear_values[3].color.float32[1] = 1.0f;
-        clear_values[3].color.float32[2] = 1.0f;
+        clear_values[3].color.float32[0] = 0.0f;
+        clear_values[3].color.float32[1] = 0.0f;
+        clear_values[3].color.float32[2] = 0.0f;
         clear_values[3].color.float32[3] = 1.0f;
+
+        clear_values[4].color.float32[0] = 1.0f;
+        clear_values[4].color.float32[1] = 1.0f;
+        clear_values[4].color.float32[2] = 1.0f;
+        clear_values[4].color.float32[3] = 1.0f;
 
         VkRenderPassBeginInfo info    = {};
         info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         info.renderPass               = m_g_buffer_rp->handle();
-        info.framebuffer              = m_g_buffer_fbo->handle();
+        info.framebuffer              = m_g_buffer_fbo[m_ping_pong]->handle();
         info.renderArea.extent.width  = m_width;
         info.renderArea.extent.height = m_height;
-        info.clearValueCount          = 4;
+        info.clearValueCount          = 5;
         info.pClearValues             = &clear_values[0];
 
         vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
@@ -1267,13 +1369,13 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_scene->descriptor_set()->handle(),
+            m_pillars_scene->descriptor_set()->handle(),
             m_per_frame_ds->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_g_buffer_pipeline_layout->handle(), 0, 2, descriptor_sets, 1, &dynamic_offset);
 
-        const auto& instances = m_scene->instances();
+        const auto& instances = m_pillars_scene->instances();
 
         for (uint32_t instance_idx = 0; instance_idx < instances.size(); instance_idx++)
         {
@@ -1291,12 +1393,13 @@ private:
                 for (uint32_t submesh_idx = 0; submesh_idx < submeshes.size(); submesh_idx++)
                 {
                     auto& submesh = submeshes[submesh_idx];
-                    auto& mat     = m_mesh->material(submesh.mat_idx);
+                    auto& mat     = mesh->material(submesh.mat_idx);
 
                     GBufferPushConstants push_constants;
 
                     push_constants.model = instance.transform;
-                    push_constants.material_index = m_scene->material_index(mat->id());
+                    push_constants.prev_model = instance.transform;
+                    push_constants.material_index = m_pillars_scene->material_index(mat->id());
 
                     vkCmdPushConstants(cmd_buf->handle(), m_g_buffer_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants), &push_constants);
 
@@ -1330,6 +1433,7 @@ private:
 
         push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_main_camera->m_near, 1.0f / m_main_camera->m_near);
         push_constants.pixel_size      = glm::vec2(1.0f / float(m_width), 1.0f / float(m_height));
+        push_constants.radius          = m_use_bilateral_blur ? m_blur_radius : 0;
 
         {
             DW_SCOPED_SAMPLE("Bilateral Blur Horizontal", cmd_buf);
@@ -1560,12 +1664,14 @@ private:
     dw::vk::Image::Ptr            m_g_buffer_1; // RGB: Albedo, A: Metallic
     dw::vk::Image::Ptr            m_g_buffer_2; // RGB: Normal, A: Roughness
     dw::vk::Image::Ptr            m_g_buffer_3; // RGB: Position, A: -
+    std::vector < dw::vk::Image::Ptr>      m_g_buffer_linear_z;
     dw::vk::Image::Ptr            m_g_buffer_depth;
     dw::vk::ImageView::Ptr        m_g_buffer_1_view;
     dw::vk::ImageView::Ptr        m_g_buffer_2_view;
     dw::vk::ImageView::Ptr        m_g_buffer_3_view;
+    std::vector<dw::vk::ImageView::Ptr>    m_g_buffer_linear_z_view;
     dw::vk::ImageView::Ptr        m_g_buffer_depth_view;
-    dw::vk::Framebuffer::Ptr      m_g_buffer_fbo;
+    std::vector<dw::vk::Framebuffer::Ptr> m_g_buffer_fbo;
     dw::vk::RenderPass::Ptr       m_g_buffer_rp;
     dw::vk::GraphicsPipeline::Ptr m_g_buffer_pipeline;
     dw::vk::PipelineLayout::Ptr   m_g_buffer_pipeline_layout;
@@ -1577,6 +1683,14 @@ private:
     dw::vk::ImageView::Ptr       m_temp_blur_view;
     dw::vk::ComputePipeline::Ptr m_bilateral_blur_pipeline;
     dw::vk::PipelineLayout::Ptr  m_bilateral_blur_pipeline_layout;
+
+    // SVGF Reprojection
+    dw::vk::Image::Ptr           m_svgf_moments;
+    dw::vk::ImageView::Ptr       m_svgf_moments_view;
+    dw::vk::Image::Ptr           m_svgf_history_length;
+    dw::vk::ImageView::Ptr       m_svgf_history_length_view;
+    dw::vk::ComputePipeline::Ptr m_svgf_reprojection_pipeline;
+    dw::vk::PipelineLayout::Ptr  m_svgf_reprojection_pipeline_layout;
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
@@ -1597,8 +1711,8 @@ private:
     float m_camera_y;
 
     // Assets.
-    dw::Mesh::Ptr  m_mesh;
-    dw::RayTracedScene::Ptr m_scene;
+    std::vector<dw::Mesh::Ptr> m_meshes;
+    dw::RayTracedScene::Ptr m_pillars_scene;
 
     // Path Tracer
     bool    m_path_trace_mode       = false;
@@ -1611,6 +1725,7 @@ private:
     float   m_light_radius          = 0.01f;
     float   m_alpha                 = 0.15f;
     int32_t m_max_samples           = 10000;
+    int32_t m_blur_radius            = 5;
 
     // Uniforms.
     Transforms m_transforms;
