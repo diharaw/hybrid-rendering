@@ -23,7 +23,8 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     mat4 prev_view_proj;
     mat4 view_proj;
     vec4 cam_pos;
-} ubo;
+}
+ubo;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
@@ -75,7 +76,7 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 {
     // Take texture coordinate and remap to [-1.0, 1.0] range.
     vec2 screen_pos = tex_coords * 2.0 - 1.0;
-    
+
     // // Create NDC position.
     vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
 
@@ -108,9 +109,9 @@ void main()
     float tmin       = 0.001;
     float tmax       = 10000.0;
     vec3  ray_origin = P + N * 0.1f;
-    
+
     vec4 color = vec4(0.0);
-    
+
     if (roughness < 0.1f)
     {
         vec3 R = reflect(V, N.xyz);

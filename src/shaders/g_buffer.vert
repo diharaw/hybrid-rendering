@@ -62,7 +62,7 @@ u_PushConstants;
 void main()
 {
     // Transform position into world space
-    vec4 world_pos = u_PushConstants.model * vec4(VS_IN_Position, 1.0);
+    vec4 world_pos      = u_PushConstants.model * vec4(VS_IN_Position, 1.0);
     vec4 prev_world_pos = u_PushConstants.prev_model * vec4(VS_IN_Position, 1.0);
 
     // Transform world position into clip space
@@ -75,7 +75,7 @@ void main()
     FS_IN_CSPos     = gl_Position;
     FS_IN_PrevCSPos = ubo.prev_view_proj * prev_world_pos;
 
-    // Pass object space normal 
+    // Pass object space normal
     FS_IN_OSNormal = VS_IN_Normal;
 
     FS_IN_Texcoord = VS_IN_Texcoord;

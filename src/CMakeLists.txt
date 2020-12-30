@@ -30,9 +30,9 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rchit
                    ${PROJECT_SOURCE_DIR}/src/shaders/tone_map.frag
-                   ${PROJECT_SOURCE_DIR}/src/shaders/bilateral_blur.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/a_trous.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_reprojection.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_reprojection.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_filter_moments.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_a_trous_filter.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})
@@ -46,7 +46,7 @@ endif()
 target_link_libraries(HybridRendering dwSampleFramework)
 
 if(CLANG_FORMAT_EXE)
-    add_custom_target(HybridRendering-clang-format COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${DD_SOURCES} ${SHADER_SOURCES})
+    add_custom_target(HybridRendering-clang-format COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${PROJECT_SOURCE_DIR}/src/main.cpp ${SHADER_SOURCES})
 endif()
 
 foreach(GLSL ${SHADER_SOURCES})

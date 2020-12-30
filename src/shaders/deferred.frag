@@ -34,7 +34,8 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     mat4 projection;
     vec4 cam_pos;
     vec4 light_dir;
-} ubo;
+}
+ubo;
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -42,14 +43,14 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 
 void main()
 {
-    vec3  albedo     = texture(s_GBuffer1, FS_IN_TexCoord).rgb;
-    vec3  normal     = texture(s_GBuffer2, FS_IN_TexCoord).rgb;
+    vec3 albedo = texture(s_GBuffer1, FS_IN_TexCoord).rgb;
+    vec3 normal = texture(s_GBuffer2, FS_IN_TexCoord).rgb;
     //vec3  reflection = texture(s_Reflection, inUV).rgb;
-    float shadow     = texture(s_Shadow, FS_IN_TexCoord).r;
+    float shadow = texture(s_Shadow, FS_IN_TexCoord).r;
 
     // TODO: TEMP
-    vec3 dir = normalize(vec3(1.0f, 1.0f, 0.0f));
-    vec3 color = shadow * albedo * max(dot(normal, dir), 0.0) + albedo * 0.1;// + reflection;
+    vec3 dir   = normalize(vec3(1.0f, 1.0f, 0.0f));
+    vec3 color = shadow * albedo * max(dot(normal, dir), 0.0) + albedo * 0.1; // + reflection;
     //vec3 color = shadow * vec3(max(dot(normal, ubo.light_dir.xyz), 0.0)) + vec3(0.1);
 
     // Reinhard tone mapping

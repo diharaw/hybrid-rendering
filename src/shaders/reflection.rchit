@@ -32,7 +32,8 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     mat4 prev_view_proj;
     mat4 view_proj;
     vec4 cam_pos;
-} ubo;
+}
+ubo;
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -41,7 +42,7 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 void main()
 {
     const Instance instance = Instances.data[gl_InstanceCustomIndexEXT];
-    const HitInfo hit_info = fetch_hit_info(instance, gl_PrimitiveID, gl_GeometryIndexEXT);
+    const HitInfo  hit_info = fetch_hit_info(instance, gl_PrimitiveID, gl_GeometryIndexEXT);
     const Triangle triangle = fetch_triangle(instance, hit_info);
     const Material material = Materials.data[hit_info.mat_idx];
 
@@ -55,7 +56,7 @@ void main()
     vec3 normal = fetch_normal(material, vertex.tangent.xyz, vertex.tangent.xyz, vertex.normal.xyz, vertex.tex_coord.xy);
 
     // TODO: TEMP
-    vec3 dir = normalize(vec3(1.0f, 1.0f, 0.0f));
+    vec3  dir          = normalize(vec3(1.0f, 1.0f, 0.0f));
     vec3  color        = albedo.rgb * max(dot(normal, dir), 0.0) + albedo.rgb * 0.1;
     float hit_distance = gl_HitTEXT;
 
