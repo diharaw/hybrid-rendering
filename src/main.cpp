@@ -7,6 +7,10 @@
 #include <assimp/scene.h>
 #include <vk_mem_alloc.h>
 #include <ray_traced_scene.h>
+#include <brdf_preintegrate_lut.h>
+#include <hosek_wilkie_sky_model.h>
+#include <cubemap_sh_projection.h>
+#include <cubemap_prefilter.h>
 
 #define NUM_PILLARS 6
 
@@ -60,6 +64,60 @@ struct SVGFATrousFilterPushConstants
     float phi_normal;
 };
 
+void pipeline_barrier(dw::vk::CommandBuffer::Ptr        cmd_buf,
+                      std::vector<VkMemoryBarrier>      memory_barriers,
+                      std::vector<VkImageMemoryBarrier> image_memory_barriers,
+                      VkPipelineStageFlags              srcStageMask,
+                      VkPipelineStageFlags              dstStageMask)
+{
+    vkCmdPipelineBarrier(
+        cmd_buf->handle(),
+        srcStageMask,
+        dstStageMask,
+        0,
+        memory_barriers.size(),
+        memory_barriers.data(),
+        0,
+        nullptr,
+        image_memory_barriers.size(),
+        image_memory_barriers.data());
+}
+
+VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
+                                          VkImageLayout           oldImageLayout,
+                                          VkImageLayout           newImageLayout,
+                                          VkImageSubresourceRange subresourceRange,
+                                          VkAccessFlags           srcAccessFlags,
+                                          VkAccessFlags           dstAccessFlags)
+{
+    // Create an image barrier object
+    VkImageMemoryBarrier memory_barrier;
+    DW_ZERO_MEMORY(memory_barrier);
+
+    memory_barrier.sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    memory_barrier.oldLayout        = oldImageLayout;
+    memory_barrier.newLayout        = newImageLayout;
+    memory_barrier.image            = image->handle();
+    memory_barrier.subresourceRange = subresourceRange;
+    memory_barrier.srcAccessMask    = srcAccessFlags;
+    memory_barrier.dstAccessMask    = dstAccessFlags;
+
+    return memory_barrier;
+}
+
+VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAccessFlags)
+{
+    // Create an image barrier object
+    VkMemoryBarrier memory_barrier;
+    DW_ZERO_MEMORY(memory_barrier);
+
+    memory_barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memory_barrier.srcAccessMask = srcAccessFlags;
+    memory_barrier.dstAccessMask = dstAccessFlags;
+
+    return memory_barrier;
+}
+
 class HybridRendering : public dw::Application
 {
 private:
@@ -77,15 +135,15 @@ private:
         dw::vk::Buffer::Ptr              ubo;
 
         // Shadow mask pass
-        dw::vk::RayTracingPipeline::Ptr shadow_mask_pipeline;
-        dw::vk::PipelineLayout::Ptr     shadow_mask_pipeline_layout;
-        dw::vk::ShaderBindingTable::Ptr shadow_mask_sbt;
-        dw::vk::Image::Ptr              visibility_image;
-        dw::vk::ImageView::Ptr          visibility_view;
-        dw::vk::Image::Ptr              prev_visibility_image;
-        dw::vk::ImageView::Ptr          prev_visibility_view;
-        dw::vk::DescriptorSet::Ptr      visibility_write_ds;
-        dw::vk::DescriptorSet::Ptr      visibility_read_ds;
+        dw::vk::RayTracingPipeline::Ptr         shadow_mask_pipeline;
+        dw::vk::PipelineLayout::Ptr             shadow_mask_pipeline_layout;
+        dw::vk::ShaderBindingTable::Ptr         shadow_mask_sbt;
+        std::vector<dw::vk::Image::Ptr>         visibility_image;
+        std::vector<dw::vk::ImageView::Ptr>     visibility_view;
+        dw::vk::Image::Ptr                      prev_visibility_image;
+        dw::vk::ImageView::Ptr                  prev_visibility_view;
+        std::vector<dw::vk::DescriptorSet::Ptr> visibility_write_ds;
+        std::vector<dw::vk::DescriptorSet::Ptr> visibility_read_ds;
 
         // Reflection pass
         dw::vk::DescriptorSet::Ptr      reflection_write_ds[2];
@@ -125,24 +183,28 @@ private:
         std::vector<dw::vk::DescriptorSet::Ptr> svgf_prev_frame_images_ds;
 
         // SVGF Reprojection
-        dw::vk::Image::Ptr                      svgf_moments_image;
-        dw::vk::ImageView::Ptr                  svgf_moments_view;
-        dw::vk::Image::Ptr                      svgf_history_length_image;
-        dw::vk::ImageView::Ptr                  svgf_history_length_view;
-        dw::vk::ComputePipeline::Ptr            svgf_reprojection_pipeline;
-        dw::vk::PipelineLayout::Ptr             svgf_reprojection_pipeline_layout;
-        dw::vk::DescriptorSet::Ptr              svgf_moments_ds;
-        dw::vk::DescriptorSet::Ptr              svgf_history_length_ds;
+        dw::vk::Image::Ptr           svgf_moments_image;
+        dw::vk::ImageView::Ptr       svgf_moments_view;
+        dw::vk::Image::Ptr           svgf_history_length_image;
+        dw::vk::ImageView::Ptr       svgf_history_length_view;
+        dw::vk::ComputePipeline::Ptr svgf_reprojection_pipeline;
+        dw::vk::PipelineLayout::Ptr  svgf_reprojection_pipeline_layout;
+        dw::vk::DescriptorSet::Ptr   svgf_moments_ds;
+        dw::vk::DescriptorSet::Ptr   svgf_history_length_ds;
 
-        // SVGF Filtered Variance
-        dw::vk::ComputePipeline::Ptr svgf_filtered_variance_pipeline;
-        dw::vk::PipelineLayout::Ptr  svgf_filtered_variance_pipeline_layout;
+        // SVGF Filter Moments
+        dw::vk::ComputePipeline::Ptr svgf_filter_moments_pipeline;
+        dw::vk::PipelineLayout::Ptr  svgf_filter_moments_pipeline_layout;
 
         // SVGF A-Trous Filter
-        dw::vk::Image::Ptr           svgf_ping_pong;
-        dw::vk::ImageView::Ptr       svgf_ping_pong_view;
         dw::vk::ComputePipeline::Ptr svgf_a_trous_filter_pipeline;
         dw::vk::PipelineLayout::Ptr  svgf_a_trous_filter_pipeline_layout;
+
+        // Helpers
+        std::unique_ptr<dw::BRDFIntegrateLUT>    brdf_preintegrate_lut;
+        std::unique_ptr<dw::HosekWilkieSkyModel> hosek_wilkie_sky_model;
+        std::unique_ptr<dw::CubemapSHProjection> cubemap_sh_projection;
+        std::unique_ptr<dw::CubemapPrefiler>     cubemap_prefilter;
     };
 
 protected:
@@ -162,6 +224,11 @@ protected:
             return false;
         }
 
+        m_gpu_resources->brdf_preintegrate_lut = std::unique_ptr<dw::BRDFIntegrateLUT>(new dw::BRDFIntegrateLUT(m_vk_backend));
+        m_gpu_resources->hosek_wilkie_sky_model = std::unique_ptr<dw::HosekWilkieSkyModel>(new dw::HosekWilkieSkyModel(m_vk_backend));
+        m_gpu_resources->cubemap_sh_projection  = std::unique_ptr<dw::CubemapSHProjection>(new dw::CubemapSHProjection(m_vk_backend, m_gpu_resources->hosek_wilkie_sky_model->image()));
+        m_gpu_resources->cubemap_prefilter      = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, m_gpu_resources->hosek_wilkie_sky_model->image()));
+
         create_output_images();
         create_render_passes();
         create_framebuffers();
@@ -173,6 +240,8 @@ protected:
         create_shadow_mask_ray_tracing_pipeline();
         //create_reflection_ray_tracing_pipeline();
         create_svgf_reprojection_pipeline();
+        create_svgf_filter_moments_pipeline();
+        create_svgf_a_trous_filter_pipeline();
 
         // Create camera.
         create_camera();
@@ -196,19 +265,23 @@ protected:
         vkBeginCommandBuffer(cmd_buf->handle(), &begin_info);
 
         {
-            DW_SCOPED_SAMPLE("update", cmd_buf);
+            DW_SCOPED_SAMPLE("Update", cmd_buf);
 
             if (m_debug_gui)
             {
                 if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    ImGui::InputFloat("Light Radius", &m_light_radius);
+                    ImGui::SliderFloat("Light Radius", &m_light_radius, 0.01f, 0.1f);
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                 {
+                    ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
+                    ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
+                    ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
                     ImGui::SliderFloat("Alpha", &m_svgf_alpha, 0.0f, 1.0f);
                     ImGui::SliderFloat("Moments Alpha", &m_svgf_moments_alpha, 0.0f, 1.0f);
-                    ImGui::Checkbox("Temporal Filter", &m_svgf_temporal_filter);
+                    ImGui::Checkbox("Denoise", &m_svgf_shadow_denoise);
+                    ImGui::Checkbox("Use filter output for reprojection", &m_svgf_shadow_use_spatial_for_feedback);
                 }
                 if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
                     dw::profiler::ui();
@@ -221,12 +294,14 @@ protected:
             update_uniforms(cmd_buf);
 
             m_gpu_resources->pillars_scene->build_tlas(cmd_buf);
+            
+            update_ibl(cmd_buf);
 
             // Render.
             clear_images(cmd_buf);
             render_gbuffer(cmd_buf);
             ray_trace_shadows(cmd_buf);
-            svgf_reprojection(cmd_buf);
+            svgf_denoise(cmd_buf);
             deferred_shading(cmd_buf);
         }
 
@@ -353,16 +428,25 @@ private:
         m_gpu_resources->g_buffer_3_view.reset();
         m_gpu_resources->g_buffer_linear_z_view.clear();
         m_gpu_resources->g_buffer_depth_view.reset();
-        m_gpu_resources->visibility_image.reset();
-        m_gpu_resources->visibility_view.reset();
+        m_gpu_resources->visibility_image.clear();
+        m_gpu_resources->visibility_view.clear();
 
-        m_gpu_resources->visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_gpu_resources->visibility_image->set_name("Visibility Image");
-        m_gpu_resources->visibility_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_gpu_resources->visibility_view->set_name("Visibility Image View");
+        for (int i = 0; i < 2; i++)
+        {
+            auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+            image->set_name("Visibility Image " + std::to_string(i));
+
+            m_gpu_resources->visibility_image.push_back(image);
+
+            auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+            image_view->set_name("Visibility Image View " + std::to_string(i));
+
+            m_gpu_resources->visibility_view.push_back(image_view);
+        }
 
         m_gpu_resources->prev_visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->prev_visibility_image->set_name("Prev Visibility Image");
+
         m_gpu_resources->prev_visibility_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->prev_visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->prev_visibility_view->set_name("Prev Visibility Image View");
 
@@ -547,8 +631,8 @@ private:
 
     bool create_uniform_buffer()
     {
-        m_ubo_size = m_vk_backend->aligned_dynamic_ubo_size(sizeof(Transforms));
-        m_gpu_resources->ubo      = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
+        m_ubo_size           = m_vk_backend->aligned_dynamic_ubo_size(sizeof(Transforms));
+        m_gpu_resources->ubo = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
         return true;
     }
@@ -610,7 +694,7 @@ private:
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-    
+
             m_gpu_resources->svgf_prev_frame_images_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
     }
@@ -621,8 +705,6 @@ private:
     {
         m_gpu_resources->per_frame_ds           = m_vk_backend->allocate_descriptor_set(m_gpu_resources->per_frame_ds_layout);
         m_gpu_resources->g_buffer_ds            = m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout);
-        m_gpu_resources->visibility_write_ds    = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
-        m_gpu_resources->visibility_read_ds     = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->svgf_moments_ds        = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->svgf_history_length_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
 
@@ -632,6 +714,8 @@ private:
             m_gpu_resources->reflection_read_ds[i]  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
             m_gpu_resources->svgf_current_frame_images_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_current_frame_images_ds_layout));
             m_gpu_resources->svgf_prev_frame_images_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_prev_frame_images_ds_layout));
+            m_gpu_resources->visibility_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
+            m_gpu_resources->visibility_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
         }
     }
 
@@ -903,44 +987,70 @@ private:
 
         // Visibility write
         {
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
 
-            VkDescriptorImageInfo storage_image_info;
+            image_infos.reserve(2);
+            write_datas.reserve(2);
 
-            storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_gpu_resources->visibility_view->handle();
-            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo storage_image_info;
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write_data.pImageInfo      = &storage_image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_gpu_resources->visibility_write_ds->handle();
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_gpu_resources->visibility_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->visibility_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
         // Visibility read
         {
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
 
-            VkDescriptorImageInfo sampler_image_info;
+            image_infos.reserve(2);
+            write_datas.reserve(2);
 
-            sampler_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-            sampler_image_info.imageView   = m_gpu_resources->visibility_view->handle();
-            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo sampler_image_info;
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &sampler_image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_gpu_resources->visibility_read_ds->handle();
+                sampler_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_gpu_resources->visibility_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->visibility_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
         // SVGF moments write
@@ -1096,6 +1206,53 @@ private:
         comp_desc.set_shader_stage(module, "main");
 
         m_gpu_resources->svgf_reprojection_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_svgf_filter_moments_pipeline()
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->svgf_current_frame_images_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SVGFFilterMomentsPushConstants));
+
+        m_gpu_resources->svgf_filter_moments_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/svgf_filter_moments.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_gpu_resources->svgf_filter_moments_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_gpu_resources->svgf_filter_moments_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_svgf_a_trous_filter_pipeline()
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->svgf_current_frame_images_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SVGFATrousFilterPushConstants));
+
+        m_gpu_resources->svgf_a_trous_filter_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/svgf_a_trous_filter.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_gpu_resources->svgf_a_trous_filter_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_gpu_resources->svgf_a_trous_filter_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1397,12 +1554,14 @@ private:
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
         // Transition ray tracing output image back to general layout
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->visibility_image->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
+
+        {
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_gpu_resources->visibility_image[0], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, {}, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
 
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->shadow_mask_pipeline->handle());
 
@@ -1417,7 +1576,7 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->pillars_scene->descriptor_set()->handle(),
-            m_gpu_resources->visibility_write_ds->handle(),
+            m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->g_buffer_ds->handle()
         };
@@ -1503,38 +1662,36 @@ private:
     {
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-        if (m_svgf_temporal_filter)
+        DW_SCOPED_SAMPLE("Temporal Reprojection", cmd_buf);
+
+        const uint32_t NUM_THREADS = 32;
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline->handle());
+
+        SVGFReprojectionPushConstants push_constants;
+
+        push_constants.alpha         = m_svgf_alpha;
+        push_constants.moments_alpha = m_svgf_moments_alpha;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_gpu_resources->visibility_write_ds[0]->handle(),
+            m_gpu_resources->svgf_moments_ds->handle(),
+            m_gpu_resources->svgf_history_length_ds->handle(),
+            m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle(),
+            m_gpu_resources->svgf_prev_frame_images_ds[m_ping_pong]->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+
+        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+
+        if (!m_svgf_shadow_use_spatial_for_feedback)
         {
-            DW_SCOPED_SAMPLE("SVGF Reprojection", cmd_buf);
-
-            const uint32_t NUM_THREADS = 32;
-
-            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline->handle());
-
-            SVGFReprojectionPushConstants push_constants;
-
-            push_constants.alpha         = m_svgf_alpha;
-            push_constants.moments_alpha = m_svgf_moments_alpha;
-
-            vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-            VkDescriptorSet descriptor_sets[] = {
-                m_gpu_resources->visibility_write_ds->handle(),
-                m_gpu_resources->svgf_moments_ds->handle(),
-                m_gpu_resources->svgf_history_length_ds->handle(),
-                m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle(),
-                m_gpu_resources->svgf_prev_frame_images_ds[m_ping_pong]->handle()
-            };
-
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
-
-            vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
-
-            // Blitt previous image
-
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
-                m_gpu_resources->visibility_image->handle(),
+                m_gpu_resources->visibility_image[0]->handle(),
                 VK_IMAGE_LAYOUT_GENERAL,
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 subresource_range);
@@ -1558,7 +1715,7 @@ private:
             // Issue the copy command
             vkCmdCopyImage(
                 cmd_buf->handle(),
-                m_gpu_resources->visibility_image->handle(),
+                m_gpu_resources->visibility_image[0]->handle(),
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 m_gpu_resources->prev_visibility_image->handle(),
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1567,9 +1724,9 @@ private:
 
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
-                m_gpu_resources->visibility_image->handle(),
+                m_gpu_resources->visibility_image[0]->handle(),
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_IMAGE_LAYOUT_GENERAL,
                 subresource_range);
 
             dw::vk::utilities::set_image_layout(
@@ -1579,14 +1736,193 @@ private:
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
         }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void svgf_filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        DW_SCOPED_SAMPLE("Filter Moments", cmd_buf);
+
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_gpu_resources->svgf_history_length_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_gpu_resources->svgf_moments_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        const uint32_t NUM_THREADS = 32;
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_filter_moments_pipeline->handle());
+
+        SVGFFilterMomentsPushConstants push_constants;
+
+        push_constants.phi_color  = m_svgf_phi_color;
+        push_constants.phi_normal = m_svgf_phi_normal;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->svgf_filter_moments_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_gpu_resources->visibility_write_ds[0]->handle(),
+            m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_filter_moments_pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
+
+        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void svgf_a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        DW_SCOPED_SAMPLE("A-Trous Filter", cmd_buf);
+
+        const uint32_t NUM_THREADS = 32;
+
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline->handle());
+
+        bool    ping_pong = false;
+        int32_t read_idx  = 0;
+        int32_t write_idx = 1;
+
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        {
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_gpu_resources->visibility_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
+
+        for (int i = 0; i < m_a_trous_filter_iterations; i++)
+        {
+            read_idx  = (int32_t)ping_pong;
+            write_idx = (int32_t)!ping_pong;
+
+            SVGFATrousFilterPushConstants push_constants;
+
+            push_constants.radius     = m_a_trous_radius;
+            push_constants.step_size  = 1 << i;
+            push_constants.phi_color  = m_svgf_phi_color;
+            push_constants.phi_normal = m_svgf_phi_normal;
+
+            vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->svgf_a_trous_filter_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+            VkDescriptorSet descriptor_sets[] = {
+                m_gpu_resources->visibility_write_ds[write_idx]->handle(),
+                m_gpu_resources->visibility_write_ds[read_idx]->handle(),
+                m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle()
+            };
+
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+            vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+
+            ping_pong = !ping_pong;
+
+            if (m_svgf_shadow_use_spatial_for_feedback && m_a_trous_feedback_iteration == i)
+            {
+                dw::vk::utilities::set_image_layout(
+                    cmd_buf->handle(),
+                    m_gpu_resources->visibility_image[write_idx]->handle(),
+                    VK_IMAGE_LAYOUT_GENERAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    subresource_range);
+
+                dw::vk::utilities::set_image_layout(
+                    cmd_buf->handle(),
+                    m_gpu_resources->prev_visibility_image->handle(),
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    subresource_range);
+
+                VkImageCopy image_copy_region {};
+                image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                image_copy_region.srcSubresource.layerCount = 1;
+                image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                image_copy_region.dstSubresource.layerCount = 1;
+                image_copy_region.extent.width              = m_width;
+                image_copy_region.extent.height             = m_height;
+                image_copy_region.extent.depth              = 1;
+
+                // Issue the copy command
+                vkCmdCopyImage(
+                    cmd_buf->handle(),
+                    m_gpu_resources->visibility_image[write_idx]->handle(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    m_gpu_resources->prev_visibility_image->handle(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &image_copy_region);
+
+                dw::vk::utilities::set_image_layout(
+                    cmd_buf->handle(),
+                    m_gpu_resources->visibility_image[write_idx]->handle(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_GENERAL,
+                    subresource_range);
+
+                dw::vk::utilities::set_image_layout(
+                    cmd_buf->handle(),
+                    m_gpu_resources->prev_visibility_image->handle(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    subresource_range);
+            }
+
+            if (i != (m_a_trous_filter_iterations - 1))
+                pipeline_barrier(cmd_buf, memory_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
+
+        m_visiblity_read_idx = write_idx;
+
+        {
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_gpu_resources->visibility_image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+                image_memory_barrier(m_gpu_resources->svgf_history_length_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+                image_memory_barrier(m_gpu_resources->svgf_moments_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void svgf_denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        if (m_svgf_shadow_denoise)
+        {
+            DW_SCOPED_SAMPLE("SVGF Denoise", cmd_buf);
+
+            svgf_reprojection(cmd_buf);
+            svgf_filter_moments(cmd_buf);
+            svgf_a_trous_filter(cmd_buf);
+        }
         else
         {
+            VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
-                m_gpu_resources->visibility_image->handle(),
+                m_gpu_resources->visibility_image[0]->handle(),
                 VK_IMAGE_LAYOUT_GENERAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
+
+            m_visiblity_read_idx = 0;
         }
     }
 
@@ -1757,7 +2093,7 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->g_buffer_ds->handle(),
-            m_gpu_resources->visibility_read_ds->handle(),
+            m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
@@ -1790,6 +2126,21 @@ private:
 
         uint8_t* ptr = (uint8_t*)m_gpu_resources->ubo->mapped_ptr();
         memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_transforms, sizeof(Transforms));
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void update_ibl(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        m_gpu_resources->hosek_wilkie_sky_model->update(cmd_buf, m_light_direction);
+        
+        {
+            DW_SCOPED_SAMPLE("Generate Skybox Mipmap", cmd_buf);
+            m_gpu_resources->hosek_wilkie_sky_model->image()->generate_mipmaps(cmd_buf);
+        }
+        
+        m_gpu_resources->cubemap_sh_projection->update(cmd_buf);
+        m_gpu_resources->cubemap_prefilter->update(cmd_buf); 
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1915,14 +2266,20 @@ private:
     float m_camera_y;
 
     // Ray Traced Shadows
-    bool    m_ping_pong            = false;
-    bool    m_svgf_temporal_filter = true;
-    bool    m_svgf_spatial_filter  = true;
-    int32_t m_num_frames           = 0;
-    float   m_light_radius         = 0.1f;
-    int32_t m_max_samples          = 10000;
-    float   m_svgf_alpha           = 0.05f;
-    float   m_svgf_moments_alpha   = 0.2f;
+    bool    m_ping_pong                            = false;
+    bool    m_svgf_shadow_denoise                  = true;
+    bool    m_svgf_shadow_use_spatial_for_feedback = false;
+    int32_t m_num_frames                           = 0;
+    float   m_light_radius                         = 0.1f;
+    int32_t m_max_samples                          = 10000;
+    float   m_svgf_alpha                           = 0.05f;
+    float   m_svgf_moments_alpha                   = 0.2f;
+    float   m_svgf_phi_color                       = 10.0f;
+    float   m_svgf_phi_normal                      = 128.0f;
+    int32_t m_a_trous_radius                       = 1;
+    int32_t m_a_trous_filter_iterations            = 4;
+    int32_t m_a_trous_feedback_iteration           = 1;
+    int32_t m_visiblity_read_idx                   = 0;
 
     // Uniforms.
     Transforms m_transforms;

@@ -30,7 +30,7 @@ layout(set = 2, binding = 3) uniform sampler2D s_HistoryLength;
 
 layout(push_constant) uniform PushConstants
 {
-    int radius;
+    int   radius;
     int   step_size;
     float phi_color;
     float phi_normal;
@@ -66,7 +66,7 @@ float compute_variance_center(ivec2 ipos)
     float sum = 0.0f;
 
     const float kernel[2][2] = {
-        { 1.0 / 4.0, 1.0 / 8.0  },
+        { 1.0 / 4.0, 1.0 / 8.0 },
         { 1.0 / 8.0, 1.0 / 16.0 }
     };
 
@@ -90,25 +90,23 @@ float compute_variance_center(ivec2 ipos)
 
 float normal_distance_cos(vec3 n1, vec3 n2, float power)
 {
-	//return pow(max(0.0, dot(n1, n2)), 128.0);
-	//return pow( saturate(dot(n1,n2)), power);
-	return 1.0f;
+    //return pow(max(0.0, dot(n1, n2)), 128.0);
+    //return pow( saturate(dot(n1,n2)), power);
+    return 1.0f;
 }
 
 // ------------------------------------------------------------------
 
 float compute_weight(
-	float depthCenter, float depthP, float phiDepth,
-	vec3 normalCenter, vec3 normalP, float normPower, 
-	float luminanceCenter, float luminanceP, float phi)
+    float depthCenter, float depthP, float phiDepth, vec3 normalCenter, vec3 normalP, float normPower, float luminanceCenter, float luminanceP, float phi)
 {
-	const float wNormal    = normal_distance_cos(normalCenter, normalP, normPower);
-	const float wZ         = (phiDepth == 0) ? 0.0f : abs(depthCenter - depthP) / phiDepth;
-	const float wL   = abs(luminanceCenter - luminanceP) / phi;
+    const float wNormal = normal_distance_cos(normalCenter, normalP, normPower);
+    const float wZ      = (phiDepth == 0) ? 0.0f : abs(depthCenter - depthP) / phiDepth;
+    const float wL      = abs(luminanceCenter - luminanceP) / phi;
 
-	const float w   = exp(0.0 - max(wL, 0.0)   - max(wZ, 0.0)) * wNormal;
+    const float w = exp(0.0 - max(wL, 0.0) - max(wZ, 0.0)) * wNormal;
 
-	return w;
+    return w;
 }
 
 // ------------------------------------------------------------------
@@ -117,25 +115,25 @@ float compute_weight(
 
 void main()
 {
-    ivec2 size      = textureSize(s_Normals, 0);
-    const ivec2 ipos       = ivec2(gl_GlobalInvocationID.xy);
+    ivec2       size = textureSize(s_Normals, 0);
+    const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
 
     const float epsVariance      = 1e-10;
     const float kernelWeights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };
 
     // constant samplers to prevent the compiler from generating code which
     // fetches the sampler descriptor from memory for each texture access
-    const vec4  colorCenter    = imageLoad(i_Input, ipos);
-    const float lColorCenter   = luminance(colorCenter.rgb);
+    const vec4  colorCenter  = imageLoad(i_Input, ipos);
+    const float lColorCenter = luminance(colorCenter.rgb);
 
     // variance for direct and indirect, filtered using 3x3 gaussin blur
     const float var = compute_variance_center(ipos);
 
     // number of temporally integrated pixels
-    const float historyLength =  texelFetch(s_HistoryLength, ipos, 0).r;
+    const float historyLength = texelFetch(s_HistoryLength, ipos, 0).r;
 
     vec3 normalCenter = texelFetch(s_Normals, ipos, 0).rgb;
-    vec2 zCenter = texelFetch(s_LinearZ, ipos, 0).rg;
+    vec2 zCenter      = texelFetch(s_LinearZ, ipos, 0).rg;
 
     if (zCenter.x < 0)
     {
@@ -143,43 +141,41 @@ void main()
         return;
     }
 
-    const float phiLColor   = u_PushConstants.phi_color * sqrt(max(0.0, epsVariance + var.r));
-    const float phiDepth     = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
+    const float phiLColor = u_PushConstants.phi_color * sqrt(max(0.0, epsVariance + var.r));
+    const float phiDepth  = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
 
     // explicitly store/accumulate center pixel with weight 1 to prevent issues
     // with the edge-stopping functions
-    float sumWColor   = 1.0;
-    vec4  sumColor    = colorCenter;
+    float sumWColor = 1.0;
+    vec4  sumColor  = colorCenter;
 
     for (int yy = -u_PushConstants.radius; yy <= u_PushConstants.radius; yy++)
     {
         for (int xx = -u_PushConstants.radius; xx <= u_PushConstants.radius; xx++)
         {
-            const ivec2 p     = ipos + ivec2(xx, yy) * u_PushConstants.step_size;
-            const bool inside = all(greaterThanEqual(p, ivec2(0,0))) && all(lessThan(p, size));
+            const ivec2 p      = ipos + ivec2(xx, yy) * u_PushConstants.step_size;
+            const bool  inside = all(greaterThanEqual(p, ivec2(0, 0))) && all(lessThan(p, size));
 
             const float kernel = kernelWeights[abs(xx)] * kernelWeights[abs(yy)];
 
             if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
             {
-                const vec4 colorP     = imageLoad(i_Input, p);
+                const vec4 colorP = imageLoad(i_Input, p);
 
                 vec3 normalP = texelFetch(s_Normals, p, 0).rgb;
-                vec2 zP = texelFetch(s_LinearZ, p, 0).rg;
-               
-                const float lColorP   = luminance(colorP.rgb);
+                vec2 zP      = texelFetch(s_LinearZ, p, 0).rg;
+
+                const float lColorP = luminance(colorP.rgb);
 
                 // compute the edge-stopping functions
                 const float w = compute_weight(
-                    zCenter.x, zP.x, phiDepth * length(vec2(xx, yy)),
-					normalCenter, normalP, u_PushConstants.phi_normal, 
-                    lColorCenter, lColorP, phiLColor);
+                    zCenter.x, zP.x, phiDepth * length(vec2(xx, yy)), normalCenter, normalP, u_PushConstants.phi_normal, lColorCenter, lColorP, phiLColor);
 
                 const float wColor = w * kernel;
 
                 // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
                 sumWColor += wColor;
-                sumColor   += vec4(vec3(wColor), wColor * wColor) * colorP;
+                sumColor += vec4(vec3(wColor), wColor * wColor) * colorP;
             }
         }
     }
