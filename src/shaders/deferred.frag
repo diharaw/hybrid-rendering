@@ -29,11 +29,8 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     mat4 proj_inverse;
     mat4 view_proj_inverse;
     mat4 prev_view_proj;
-    mat4 model;
-    mat4 view;
-    mat4 projection;
+    mat4 view_proj;
     vec4 cam_pos;
-    vec4 light_dir;
 }
 ubo;
 
@@ -52,12 +49,6 @@ void main()
     vec3 dir   = normalize(vec3(1.0f, 1.0f, 0.0f));
     vec3 color = shadow * albedo * max(dot(normal, dir), 0.0) + albedo * 0.1; // + reflection;
     //vec3 color = shadow * vec3(max(dot(normal, ubo.light_dir.xyz), 0.0)) + vec3(0.1);
-
-    // Reinhard tone mapping
-    color = color / (1.0 + color);
-
-    // Gamma correction
-    color = pow(color, vec3(1.0 / 2.2));
 
     FS_OUT_Color = vec4(color, 1.0);
 }
