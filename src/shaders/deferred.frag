@@ -43,14 +43,17 @@ void main()
     vec3 albedo = texture(s_GBuffer1, FS_IN_TexCoord).rgb;
     vec3 normal = texture(s_GBuffer2, FS_IN_TexCoord).rgb;
     //vec3  reflection = texture(s_Reflection, inUV).rgb;
-    float shadow = texture(s_Shadow, FS_IN_TexCoord).r;
+    vec4 shadow_ao = texture(s_Shadow, FS_IN_TexCoord);
+
+    if (ubo.cam_pos.w == 0.0f)
+        shadow_ao.g = 1.0f;
 
     // TODO: TEMP
     vec3 dir   = normalize(vec3(1.0f, 1.0f, 0.0f));
-    vec3 color = shadow * albedo * max(dot(normal, dir), 0.0) + albedo * 0.1; // + reflection;
+    vec3 color = shadow_ao.r * albedo * max(dot(normal, dir), 0.0) + shadow_ao.g * albedo * 0.1f; // + reflection;
     //vec3 color = shadow * vec3(max(dot(normal, ubo.light_dir.xyz), 0.0)) + vec3(0.1);
 
-    FS_OUT_Color = vec4(color, 1.0);
+    FS_OUT_Color = vec4(color, 1.0); // vec4(vec3(shadow_ao.g), 1.0f);//
 }
 
 // ------------------------------------------------------------------------

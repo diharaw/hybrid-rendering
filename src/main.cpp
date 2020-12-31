@@ -44,6 +44,14 @@ struct ShadowPushConstants
     uint32_t num_frames;
 };
 
+struct AmbientOcclusionPushConstants
+{
+    uint32_t num_rays;
+    uint32_t num_frames;
+    float    ray_length;
+    float    power;
+};
+
 struct SVGFReprojectionPushConstants
 {
     float alpha;
@@ -140,7 +148,7 @@ private:
         dw::vk::DescriptorSetLayout::Ptr storage_image_ds_layout;
         dw::vk::Buffer::Ptr              ubo;
 
-        // Shadow mask pass
+        // Ray-Traced Shadows
         dw::vk::RayTracingPipeline::Ptr         shadow_mask_pipeline;
         dw::vk::PipelineLayout::Ptr             shadow_mask_pipeline_layout;
         dw::vk::ShaderBindingTable::Ptr         shadow_mask_sbt;
@@ -150,6 +158,11 @@ private:
         dw::vk::ImageView::Ptr                  prev_visibility_view;
         std::vector<dw::vk::DescriptorSet::Ptr> visibility_write_ds;
         std::vector<dw::vk::DescriptorSet::Ptr> visibility_read_ds;
+
+        // RTAO
+        dw::vk::RayTracingPipeline::Ptr rtao_pipeline;
+        dw::vk::PipelineLayout::Ptr     rtao_pipeline_layout;
+        dw::vk::ShaderBindingTable::Ptr rtao_sbt;
 
         // Reflection pass
         dw::vk::DescriptorSet::Ptr      reflection_write_ds[2];
@@ -259,6 +272,7 @@ protected:
         create_deferred_pipeline();
         create_gbuffer_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
+        create_ambient_occlusion_ray_tracing_pipeline();
         //create_reflection_ray_tracing_pipeline();
         create_svgf_reprojection_pipeline();
         create_svgf_filter_moments_pipeline();
@@ -307,6 +321,13 @@ protected:
                     ImGui::Checkbox("Denoise", &m_svgf_shadow_denoise);
                     ImGui::Checkbox("Use filter output for reprojection", &m_svgf_shadow_use_spatial_for_feedback);
                 }
+                if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::Checkbox("Enabled", &m_rtao_enabled);
+                    ImGui::SliderInt("Num Rays", &m_rtao_num_rays, 1, 8);
+                    ImGui::SliderFloat("Ray Length", &m_rtao_ray_length, 1.0f, 100.0f);
+                    ImGui::SliderFloat("Power", &m_rtao_power, 1.0f, 5.0f);
+                }
                 if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
                     dw::profiler::ui();
             }
@@ -325,6 +346,7 @@ protected:
             clear_images(cmd_buf);
             render_gbuffer(cmd_buf);
             ray_trace_shadows(cmd_buf);
+            ray_trace_ambient_occlusion(cmd_buf);
             svgf_denoise(cmd_buf);
             deferred_shading(cmd_buf);
             blit_to_swapchain(cmd_buf);
@@ -1459,6 +1481,51 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void create_ambient_occlusion_ray_tracing_pipeline()
+    {
+        // ---------------------------------------------------------------------------
+        // Create shader modules
+        // ---------------------------------------------------------------------------
+
+        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/ambient_occlusion.rgen.spv");
+        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
+
+        dw::vk::ShaderBindingTable::Desc sbt_desc;
+
+        sbt_desc.add_ray_gen_group(rgen, "main");
+        sbt_desc.add_hit_group(rchit, "main");
+        sbt_desc.add_miss_group(rmiss, "main");
+
+        m_gpu_resources->rtao_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
+
+        dw::vk::RayTracingPipeline::Desc desc;
+
+        desc.set_max_pipeline_ray_recursion_depth(1);
+        desc.set_shader_binding_table(m_gpu_resources->rtao_sbt);
+
+        // ---------------------------------------------------------------------------
+        // Create pipeline layout
+        // ---------------------------------------------------------------------------
+
+        dw::vk::PipelineLayout::Desc pl_desc;
+
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->pillars_scene->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+
+        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(AmbientOcclusionPushConstants));
+
+        m_gpu_resources->rtao_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
+
+        desc.set_pipeline_layout(m_gpu_resources->rtao_pipeline_layout);
+
+        m_gpu_resources->rtao_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void create_reflection_ray_tracing_pipeline()
     {
         // ---------------------------------------------------------------------------
@@ -2102,6 +2169,18 @@ private:
 
         m_gpu_resources->meshes.push_back(pillar);
 
+        dw::Mesh::Ptr bunny = dw::Mesh::load(m_vk_backend, "mesh/bunny.obj");
+
+        if (!bunny)
+        {
+            DW_LOG_ERROR("Failed to load mesh");
+            return false;
+        }
+
+        bunny->initialize_for_ray_tracing(m_vk_backend);
+
+        m_gpu_resources->meshes.push_back(bunny);
+
         dw::Mesh::Ptr ground = dw::Mesh::load(m_vk_backend, "mesh/ground.obj");
 
         if (!ground)
@@ -2138,6 +2217,20 @@ private:
         ground_instance.transform = glm::mat4(1.0f);
 
         instances.push_back(ground_instance);
+
+        {
+            dw::RayTracedScene::Instance bunny_instance;
+
+            bunny_instance.mesh = bunny;
+
+            glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
+            glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, -0.5f, 0.0f));
+
+            bunny_instance.transform = T * R*  S;
+
+            instances.push_back(bunny_instance);
+        }
 
         m_gpu_resources->pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
 
@@ -2198,6 +2291,55 @@ private:
         const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_gpu_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
         const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_gpu_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->shadow_mask_sbt->miss_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->shadow_mask_sbt->hit_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
+
+        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        DW_SCOPED_SAMPLE("Ray Traced Ambient Occlusion", cmd_buf);
+
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, {}, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->rtao_pipeline->handle());
+
+        AmbientOcclusionPushConstants push_constants;
+
+        push_constants.num_frames   = m_num_frames;
+        push_constants.num_rays   = m_rtao_num_rays;
+        push_constants.ray_length   = m_rtao_ray_length;
+        push_constants.power        = m_rtao_power;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->rtao_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
+
+        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_gpu_resources->pillars_scene->descriptor_set()->handle(),
+            m_gpu_resources->visibility_write_ds[0]->handle(),
+            m_gpu_resources->per_frame_ds->handle(),
+            m_gpu_resources->g_buffer_ds->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->rtao_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+
+        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
+
+        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
+        VkDeviceSize group_stride = group_size;
+
+        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_gpu_resources->rtao_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
+        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_gpu_resources->rtao_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->rtao_sbt->miss_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->rtao_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->rtao_sbt->hit_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
         vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
@@ -2807,7 +2949,7 @@ private:
         m_transforms.view_proj_inverse = glm::inverse(m_main_camera->m_projection * m_main_camera->m_view);
         m_transforms.prev_view_proj    = m_prev_view_proj;
         m_transforms.view_proj         = m_main_camera->m_projection * m_main_camera->m_view;
-        m_transforms.cam_pos           = glm::vec4(m_main_camera->m_position, 0.0f);
+        m_transforms.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
 
         m_prev_view_proj = m_main_camera->m_view_projection;
 
@@ -2967,6 +3109,12 @@ private:
     int32_t m_a_trous_filter_iterations            = 4;
     int32_t m_a_trous_feedback_iteration           = 1;
     int32_t m_visiblity_read_idx                   = 0;
+
+    // Ambient Occlusion
+    int32_t m_rtao_num_rays = 2;
+    float   m_rtao_ray_length = 2.0f;
+    float   m_rtao_power      = 2.0f;
+    bool    m_rtao_enabled    = true;
 
     // Uniforms.
     Transforms m_transforms;

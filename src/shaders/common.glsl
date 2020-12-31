@@ -25,9 +25,9 @@ struct RayPayload
     vec3 color;
 };
 
-struct ShadowRayPayload
+struct VisibilityPayload
 {
-    float dist;
+    bool visible;
 };
 
 #endif

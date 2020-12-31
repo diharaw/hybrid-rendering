@@ -26,9 +26,7 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 // ------------------------------------------------------------------------
@@ -43,8 +41,10 @@ layout(location = 0) rayPayloadEXT VisibilityPayload visibility_payload;
 
 layout(push_constant) uniform PushConstants
 {
-    float light_radius;
-    uint  num_frames;
+    uint num_rays;
+    uint num_frames;
+    float ray_length;
+    float power;
 }
 u_PushConstants;
 
@@ -70,6 +70,44 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 }
 
 // ------------------------------------------------------------------------
+
+mat3 make_rotation_matrix(vec3 z)
+{
+    const vec3 ref = abs(dot(z, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
+
+    const vec3 x = normalize(cross(ref, z));
+    const vec3 y = cross(z, x);
+
+    return mat3(x, y, z);
+}
+
+// ------------------------------------------------------------------------
+
+vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
+{
+    vec2 rand_sample = max(vec2(0.00001f), r);
+
+    const float phi = 2.0f * M_PI * rand_sample.y;
+
+    const float cos_theta = sqrt(rand_sample.x);
+    const float sin_theta = sqrt(1 - rand_sample.x);
+
+    vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+
+    return normalize(make_rotation_matrix(n) * t);
+}
+
+void compute_default_basis(const vec3 normal, out vec3 x, out vec3 y, out vec3 z)
+{
+  // ZAP's default coordinate system for compatibility
+  z              = normal;
+  const float yz = -z.y * z.z;
+  y = normalize(((abs(z.z) > 0.99999f) ? vec3(-z.x * z.y, 1.0f - z.y * z.y, yz) : vec3(-z.x * z.z, yz, 1.0f - z.z * z.z)));
+
+  x = cross(y, z);
+}
+
+// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -83,34 +121,41 @@ void main()
 
     vec3 position      = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
     vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
-    vec2 motion_vector = texture(s_GBuffer3, tex_coord).rg;
 
+    vec3  x, y, z;
+    compute_default_basis(normal, x, y, z);
+
+    vec3 ray_origin = position + normal * SHADOW_RAY_BIAS;
     uint  ray_flags = gl_RayFlagsOpaqueEXT;
     uint  cull_mask = 0xff;
-    float tmin      = 0.001;
-    float tmax      = 10000.0;
+    float tmin      = 0.01;
+    float tmax      = u_PushConstants.ray_length;
 
-    vec2 rnd_sample = next_vec2(rng);
+    float ao = 0.0f;
 
-    // TODO: TEMP
-    vec3  light_dir       = normalize(vec3(1.0f, 1.0f, 0.0f));
-    vec3  light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-    vec3  light_bitangent = normalize(cross(light_tangent, light_dir));
-    float light_radius    = u_PushConstants.light_radius;
+    for (uint i = 0; i < u_PushConstants.num_rays; i++)
+    {
+        vec2 rnd_sample = next_vec2(rng);
 
-    // calculate disk point
-    float point_radius = light_radius * sqrt(rnd_sample.x);
-    float point_angle  = rnd_sample.y * 2.0f * M_PI;
-    vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+        float sq = sqrt(1.0 - rnd_sample.y);
 
-    vec3 shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+        vec3 direction = vec3(cos(2 * M_PI * rnd_sample.x) * sq, sin(2 * M_PI * rnd_sample.x) * sq, sqrt(rnd_sample.y));
+        direction      = direction.x * x + direction.y * y + direction.z * z;
 
-    // Ray bias
-    position += normal * SHADOW_RAY_BIAS;
+        vec3 sample_direction = direction;//sample_cosine_lobe(normal, rnd_sample);
 
-    traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
+        traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, sample_direction, tmax, 0);
 
-    imageStore(i_Visibility, ivec2(gl_LaunchIDEXT.xy), vec4(visibility_payload.visible ? 1.0f : 0.0f));
+        ao += visibility_payload.visible ? 1.0f : 0.0f;
+    }
+
+    ao = pow(ao / float(u_PushConstants.num_rays), u_PushConstants.power);
+
+    vec4 visibility = imageLoad(i_Visibility, ivec2(gl_LaunchIDEXT.xy));
+
+    visibility.y = ao;
+
+    imageStore(i_Visibility, ivec2(gl_LaunchIDEXT.xy), visibility);
 }
 
 // ------------------------------------------------------------------------
