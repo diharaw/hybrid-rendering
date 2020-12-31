@@ -7,8 +7,6 @@
 #include "common.glsl"
 #include "scene_descriptor_set.glsl"
 
-#define SHADOW_RAY_BIAS 0.01
-
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -43,6 +41,7 @@ layout(location = 0) rayPayloadEXT VisibilityPayload visibility_payload;
 
 layout(push_constant) uniform PushConstants
 {
+    float bias;
     float light_radius;
     uint  num_frames;
 }
@@ -106,7 +105,7 @@ void main()
     vec3 shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
 
     // Ray bias
-    position += normal * SHADOW_RAY_BIAS;
+    position += normal * u_PushConstants.bias;
 
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 

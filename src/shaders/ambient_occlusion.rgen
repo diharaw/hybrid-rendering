@@ -7,8 +7,6 @@
 #include "common.glsl"
 #include "scene_descriptor_set.glsl"
 
-#define SHADOW_RAY_BIAS 0.01
-
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -45,6 +43,7 @@ layout(push_constant) uniform PushConstants
     uint num_frames;
     float ray_length;
     float power;
+    float bias;
 }
 u_PushConstants;
 
@@ -97,16 +96,6 @@ vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
     return normalize(make_rotation_matrix(n) * t);
 }
 
-void compute_default_basis(const vec3 normal, out vec3 x, out vec3 y, out vec3 z)
-{
-  // ZAP's default coordinate system for compatibility
-  z              = normal;
-  const float yz = -z.y * z.z;
-  y = normalize(((abs(z.z) > 0.99999f) ? vec3(-z.x * z.y, 1.0f - z.y * z.y, yz) : vec3(-z.x * z.z, yz, 1.0f - z.z * z.z)));
-
-  x = cross(y, z);
-}
-
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -122,13 +111,10 @@ void main()
     vec3 position      = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
     vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
 
-    vec3  x, y, z;
-    compute_default_basis(normal, x, y, z);
-
-    vec3 ray_origin = position + normal * SHADOW_RAY_BIAS;
+    vec3 ray_origin = position + normal * u_PushConstants.bias;
     uint  ray_flags = gl_RayFlagsOpaqueEXT;
     uint  cull_mask = 0xff;
-    float tmin      = 0.01;
+    float tmin      = 0.1;
     float tmax      = u_PushConstants.ray_length;
 
     float ao = 0.0f;
@@ -137,12 +123,7 @@ void main()
     {
         vec2 rnd_sample = next_vec2(rng);
 
-        float sq = sqrt(1.0 - rnd_sample.y);
-
-        vec3 direction = vec3(cos(2 * M_PI * rnd_sample.x) * sq, sin(2 * M_PI * rnd_sample.x) * sq, sqrt(rnd_sample.y));
-        direction      = direction.x * x + direction.y * y + direction.z * z;
-
-        vec3 sample_direction = direction;//sample_cosine_lobe(normal, rnd_sample);
+        vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, sample_direction, tmax, 0);
 

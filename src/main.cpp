@@ -40,6 +40,7 @@ struct GBufferPushConstants
 
 struct ShadowPushConstants
 {
+    float    bias;
     float    light_radius;
     uint32_t num_frames;
 };
@@ -50,6 +51,7 @@ struct AmbientOcclusionPushConstants
     uint32_t num_frames;
     float    ray_length;
     float    power;
+    float    bias;
 };
 
 struct SVGFReprojectionPushConstants
@@ -309,10 +311,11 @@ protected:
             {
                 if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    ImGui::SliderFloat("Light Radius", &m_light_radius, 0.01f, 0.1f);
+                    ImGui::SliderFloat("Light Radius", &m_light_radius, 0.0f, 0.1f);
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                 {
+                    ImGui::PushID("RTSS");
                     ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
                     ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
                     ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
@@ -320,13 +323,18 @@ protected:
                     ImGui::SliderFloat("Moments Alpha", &m_svgf_moments_alpha, 0.0f, 1.0f);
                     ImGui::Checkbox("Denoise", &m_svgf_shadow_denoise);
                     ImGui::Checkbox("Use filter output for reprojection", &m_svgf_shadow_use_spatial_for_feedback);
+                    ImGui::InputFloat("Bias", &m_ray_traced_shadows_bias);
+                    ImGui::PopID();
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
                 {
+                    ImGui::PushID("RTAO");
                     ImGui::Checkbox("Enabled", &m_rtao_enabled);
                     ImGui::SliderInt("Num Rays", &m_rtao_num_rays, 1, 8);
                     ImGui::SliderFloat("Ray Length", &m_rtao_ray_length, 1.0f, 100.0f);
                     ImGui::SliderFloat("Power", &m_rtao_power, 1.0f, 5.0f);
+                    ImGui::InputFloat("Bias", &m_rtao_bias);
+                    ImGui::PopID();
                 }
                 if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
                     dw::profiler::ui();
@@ -2157,79 +2165,137 @@ private:
 
     bool load_mesh()
     {
-        dw::Mesh::Ptr pillar = dw::Mesh::load(m_vk_backend, "mesh/pillar.obj");
-
-        if (!pillar)
-        {
-            DW_LOG_ERROR("Failed to load mesh");
-            return false;
-        }
-
-        pillar->initialize_for_ray_tracing(m_vk_backend);
-
-        m_gpu_resources->meshes.push_back(pillar);
-
-        dw::Mesh::Ptr bunny = dw::Mesh::load(m_vk_backend, "mesh/bunny.obj");
-
-        if (!bunny)
-        {
-            DW_LOG_ERROR("Failed to load mesh");
-            return false;
-        }
-
-        bunny->initialize_for_ray_tracing(m_vk_backend);
-
-        m_gpu_resources->meshes.push_back(bunny);
-
-        dw::Mesh::Ptr ground = dw::Mesh::load(m_vk_backend, "mesh/ground.obj");
-
-        if (!ground)
-        {
-            DW_LOG_ERROR("Failed to load mesh");
-            return false;
-        }
-
-        ground->initialize_for_ray_tracing(m_vk_backend);
-
-        m_gpu_resources->meshes.push_back(ground);
-
         std::vector<dw::RayTracedScene::Instance> instances;
 
-        float segment_length = (ground->max_extents().z - ground->min_extents().z) / (NUM_PILLARS + 1);
+        /*{
+            dw::Mesh::Ptr pillar = dw::Mesh::load(m_vk_backend, "mesh/pillar.obj");
 
-        for (uint32_t i = 0; i < NUM_PILLARS; i++)
+            if (!pillar)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            pillar->initialize_for_ray_tracing(m_vk_backend);
+
+            m_gpu_resources->meshes.push_back(pillar);
+
+            dw::Mesh::Ptr bunny = dw::Mesh::load(m_vk_backend, "mesh/bunny.obj");
+
+            if (!bunny)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            bunny->initialize_for_ray_tracing(m_vk_backend);
+
+            m_gpu_resources->meshes.push_back(bunny);
+
+            dw::Mesh::Ptr dragon = dw::Mesh::load(m_vk_backend, "mesh/dragon.obj");
+
+            if (!dragon)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            dragon->initialize_for_ray_tracing(m_vk_backend);
+
+            m_gpu_resources->meshes.push_back(dragon);
+
+            dw::Mesh::Ptr ground = dw::Mesh::load(m_vk_backend, "mesh/ground.obj");
+
+            if (!ground)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            ground->initialize_for_ray_tracing(m_vk_backend);
+
+            m_gpu_resources->meshes.push_back(ground);
+
+            float segment_length = (ground->max_extents().z - ground->min_extents().z) / (NUM_PILLARS + 1);
+
+            for (uint32_t i = 0; i < NUM_PILLARS; i++)
+            {
+                dw::RayTracedScene::Instance pillar_instance;
+
+                pillar_instance.mesh      = pillar;
+                pillar_instance.transform = glm::mat4(1.0f);
+
+                glm::vec3 pos = glm::vec3(20.0f, 0.0f, ground->min_extents().z + segment_length * (i + 1));
+
+                pillar_instance.transform = glm::translate(pillar_instance.transform, pos);
+
+                instances.push_back(pillar_instance);
+            }
+
+            dw::RayTracedScene::Instance ground_instance;
+
+            ground_instance.mesh      = ground;
+            ground_instance.transform = glm::mat4(1.0f);
+
+            instances.push_back(ground_instance);
+
+            {
+                dw::RayTracedScene::Instance bunny_instance;
+
+                bunny_instance.mesh = bunny;
+
+                glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
+                glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(135.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, -0.5f, 0.0f));
+
+                bunny_instance.transform = T * R * S;
+
+                instances.push_back(bunny_instance);
+            }
+        }*/
+
+        //{
+        //    dw::Mesh::Ptr sponza = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
+
+        //    if (!sponza)
+        //    {
+        //        DW_LOG_ERROR("Failed to load mesh");
+        //        return false;
+        //    }
+
+        //    sponza->initialize_for_ray_tracing(m_vk_backend);
+
+        //    m_gpu_resources->meshes.push_back(sponza);
+
+        //    dw::RayTracedScene::Instance sponza_instance;
+
+        //    sponza_instance.mesh      = sponza;
+        //    sponza_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+
+        //    instances.push_back(sponza_instance);
+        //}
+
         {
-            dw::RayTracedScene::Instance pillar_instance;
+            dw::Mesh::Ptr pica_pica = dw::Mesh::load(m_vk_backend, "scene.gltf");
 
-            pillar_instance.mesh      = pillar;
-            pillar_instance.transform = glm::mat4(1.0f);
+            if (!pica_pica)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
 
-            glm::vec3 pos = glm::vec3(20.0f, 0.0f, ground->min_extents().z + segment_length * (i + 1));
+            pica_pica->initialize_for_ray_tracing(m_vk_backend);
 
-            pillar_instance.transform = glm::translate(pillar_instance.transform, pos);
+            m_gpu_resources->meshes.push_back(pica_pica);
 
-            instances.push_back(pillar_instance);
-        }
+            dw::RayTracedScene::Instance pica_pica_instance;
 
-        dw::RayTracedScene::Instance ground_instance;
+            pica_pica_instance.mesh      = pica_pica;
+            pica_pica_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
-        ground_instance.mesh      = ground;
-        ground_instance.transform = glm::mat4(1.0f);
+            instances.push_back(pica_pica_instance);
 
-        instances.push_back(ground_instance);
-
-        {
-            dw::RayTracedScene::Instance bunny_instance;
-
-            bunny_instance.mesh = bunny;
-
-            glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
-            glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, -0.5f, 0.0f));
-
-            bunny_instance.transform = T * R*  S;
-
-            instances.push_back(bunny_instance);
+            m_rtao_ray_length = 7.0f;
         }
 
         m_gpu_resources->pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
@@ -2267,6 +2333,7 @@ private:
 
         ShadowPushConstants push_constants;
 
+        push_constants.bias = m_ray_traced_shadows_bias;
         push_constants.num_frames   = m_num_frames;
         push_constants.light_radius = m_light_radius;
 
@@ -2318,6 +2385,7 @@ private:
         push_constants.num_rays   = m_rtao_num_rays;
         push_constants.ray_length   = m_rtao_ray_length;
         push_constants.power        = m_rtao_power;
+        push_constants.bias         = m_rtao_bias;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->rtao_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -3099,6 +3167,7 @@ private:
     bool    m_svgf_shadow_denoise                  = true;
     bool    m_svgf_shadow_use_spatial_for_feedback = false;
     int32_t m_num_frames                           = 0;
+    float   m_ray_traced_shadows_bias              = 0.1f;
     float   m_light_radius                         = 0.1f;
     int32_t m_max_samples                          = 10000;
     float   m_svgf_alpha                           = 0.05f;
@@ -3112,8 +3181,9 @@ private:
 
     // Ambient Occlusion
     int32_t m_rtao_num_rays = 2;
-    float   m_rtao_ray_length = 2.0f;
-    float   m_rtao_power      = 2.0f;
+    float   m_rtao_ray_length = 30.0f;
+    float   m_rtao_power      = 5.0f;
+    float   m_rtao_bias       = 0.1f;
     bool    m_rtao_enabled    = true;
 
     // Uniforms.
