@@ -2296,6 +2296,7 @@ private:
             instances.push_back(pica_pica_instance);
 
             m_rtao_ray_length = 7.0f;
+            m_rtao_power      = 1.2f;
         }
 
         m_gpu_resources->pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
@@ -2333,7 +2334,7 @@ private:
 
         ShadowPushConstants push_constants;
 
-        push_constants.bias = m_ray_traced_shadows_bias;
+        push_constants.bias         = m_ray_traced_shadows_bias;
         push_constants.num_frames   = m_num_frames;
         push_constants.light_radius = m_light_radius;
 
@@ -2381,11 +2382,11 @@ private:
 
         AmbientOcclusionPushConstants push_constants;
 
-        push_constants.num_frames   = m_num_frames;
+        push_constants.num_frames = m_num_frames;
         push_constants.num_rays   = m_rtao_num_rays;
-        push_constants.ray_length   = m_rtao_ray_length;
-        push_constants.power        = m_rtao_power;
-        push_constants.bias         = m_rtao_bias;
+        push_constants.ray_length = m_rtao_ray_length;
+        push_constants.power      = m_rtao_power;
+        push_constants.bias       = m_rtao_bias;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->rtao_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -3180,7 +3181,7 @@ private:
     int32_t m_visiblity_read_idx                   = 0;
 
     // Ambient Occlusion
-    int32_t m_rtao_num_rays = 2;
+    int32_t m_rtao_num_rays   = 2;
     float   m_rtao_ray_length = 30.0f;
     float   m_rtao_power      = 5.0f;
     float   m_rtao_bias       = 0.1f;

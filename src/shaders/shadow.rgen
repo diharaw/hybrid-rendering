@@ -84,7 +84,7 @@ void main()
     vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
     vec2 motion_vector = texture(s_GBuffer3, tex_coord).rg;
 
-    uint  ray_flags = gl_RayFlagsOpaqueEXT;
+    uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
     uint  cull_mask = 0xff;
     float tmin      = 0.001;
     float tmax      = 10000.0;
@@ -107,6 +107,7 @@ void main()
     // Ray bias
     position += normal * u_PushConstants.bias;
 
+    visibility_payload.visible = false;
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 
     imageStore(i_Visibility, ivec2(gl_LaunchIDEXT.xy), vec4(visibility_payload.visible ? 1.0f : 0.0f));

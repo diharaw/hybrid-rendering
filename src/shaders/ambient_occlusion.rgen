@@ -39,8 +39,8 @@ layout(location = 0) rayPayloadEXT VisibilityPayload visibility_payload;
 
 layout(push_constant) uniform PushConstants
 {
-    uint num_rays;
-    uint num_frames;
+    uint  num_rays;
+    uint  num_frames;
     float ray_length;
     float power;
     float bias;
@@ -108,14 +108,14 @@ void main()
     const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeEXT.xy);
     vec2       d            = tex_coord * 2.0 - 1.0;
 
-    vec3 position      = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
-    vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
+    vec3 position = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
+    vec3 normal   = texture(s_GBuffer2, tex_coord).rgb;
 
-    vec3 ray_origin = position + normal * u_PushConstants.bias;
-    uint  ray_flags = gl_RayFlagsOpaqueEXT;
-    uint  cull_mask = 0xff;
-    float tmin      = 0.1;
-    float tmax      = u_PushConstants.ray_length;
+    vec3  ray_origin = position + normal * u_PushConstants.bias;
+    uint  ray_flags  = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+    uint  cull_mask  = 0xff;
+    float tmin       = 0.1;
+    float tmax       = u_PushConstants.ray_length;
 
     float ao = 0.0f;
 
@@ -125,6 +125,7 @@ void main()
 
         vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 
+        visibility_payload.visible = false;
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, sample_direction, tmax, 0);
 
         ao += visibility_payload.visible ? 1.0f : 0.0f;
