@@ -95,54 +95,14 @@ void main()
 
     const Light light = ubo.light;
 
-    if (light_type(light) == LIGHT_DIRECTIONAL)
-    {
-        vec3 light_tangent   = normalize(cross(light_direction(light), vec3(0.0f, 1.0f, 0.0f)));
-        vec3 light_bitangent = normalize(cross(light_tangent, light_direction(light)));
+    vec3 light_tangent   = normalize(cross(light_direction(light), vec3(0.0f, 1.0f, 0.0f)));
+    vec3 light_bitangent = normalize(cross(light_tangent, light_direction(light)));
 
-        // calculate disk point
-        float point_radius = light_radius(light) * sqrt(rnd_sample.x);
-        float point_angle  = rnd_sample.y * 2.0f * M_PI;
-        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-        shadow_ray_dir     = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-    }
-    else if (light_type(light) == LIGHT_POINT)
-    {
-        vec3  to_light       = light_position(light) - position;
-        vec3  light_dir      = normalize(to_light);
-        float light_distance = length(to_light);
-        float light_radius   = light_radius(light) / light_distance;
-
-        vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-        vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-
-        // calculate disk point
-        float point_radius = light_radius * sqrt(rnd_sample.x);
-        float point_angle  = rnd_sample.y * 2.0f * M_PI;
-        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-
-        shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-    }
-    else
-    {
-        vec3  to_light       = light_position(light) - position;
-        vec3  light_dir      = normalize(to_light);
-        float light_distance = length(to_light);
-        float light_radius   = light_radius(light) / light_distance;
-
-        float angle_attenuation = dot(light_dir, -light_direction(light));
-        angle_attenuation       = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
-
-        vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-        vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-
-        // calculate disk point
-        float point_radius = light_radius * sqrt(rnd_sample.x);
-        float point_angle  = rnd_sample.y * 2.0f * M_PI;
-        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-
-        shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-    }
+    // calculate disk point
+    float point_radius = light_radius(light) * sqrt(rnd_sample.x);
+    float point_angle  = rnd_sample.y * 2.0f * M_PI;
+    vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+    shadow_ray_dir     = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
 
     // Ray bias
     position += normal * u_PushConstants.bias;

@@ -21,28 +21,14 @@ enum SceneType
     SCENE_PICA_PICA
 };
 
-enum LightType
-{
-    LIGHT_DIRECTIONAL,
-    LIGHT_POINT,
-    LIGHT_SPOT
-};
-
 struct Light
 {
     glm::vec4 data0;
     glm::vec4 data1;
-    glm::vec4 data2;
-    glm::vec4 data3;
 };
 
 const std::vector<std::string> light_types = { "Directional", "Point", "Spot" };
 const std::vector<std::string> scene_types = { "Pillars", "Sponza", "Pica Pica" };
-
-void set_light_type(Light& light, float value)
-{
-    light.data0.w = value;
-}
 
 void set_light_direction(Light& light, glm::vec3 value)
 {
@@ -51,38 +37,21 @@ void set_light_direction(Light& light, glm::vec3 value)
     light.data0.z = value.z;
 }
 
-void set_light_position(Light& light, glm::vec3 value)
-{
-    light.data2.x = value.x;
-    light.data2.y = value.y;
-    light.data2.z = value.z;
-}
-
 void set_light_color(Light& light, glm::vec3 value)
 {
-    light.data3.x = value.x;
-    light.data3.y = value.y;
-    light.data3.z = value.z;
+    light.data1.x = value.x;
+    light.data1.y = value.y;
+    light.data1.z = value.z;
 }
 
 void set_light_intensity(Light& light, float value)
 {
-    light.data3.w = value;
+    light.data0.w = value;
 }
 
 void set_light_radius(Light& light, float value)
 {
-    light.data1.x = value;
-}
-
-void set_light_cos_theta_inner(Light& light, float value)
-{
-    light.data1.y = value;
-}
-
-void set_light_cos_theta_outer(Light& light, float value)
-{
-    light.data1.z = value;
+    light.data1.w = value;
 }
 
 // Uniform buffer data structure.
@@ -417,47 +386,11 @@ protected:
                 }
                 if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    if (ImGui::BeginCombo("Type", light_types[m_light_type].c_str()))
-                    {
-                        for (uint32_t i = 0; i < light_types.size(); i++)
-                        {
-                            const bool is_selected = (i == m_light_type);
-
-                            if (ImGui::Selectable(light_types[i].c_str(), is_selected))
-                                m_light_type = (LightType)i;
-
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
-
                     ImGui::ColorEdit3("Color", &m_light_color.x);
                     ImGui::InputFloat("Intensity", &m_light_intensity);
-
-                    if (ImGui::Checkbox("Animation", &m_light_animation))
-                    {
-                        if (!m_light_animation)
-                        {
-                            // reset default light values
-                        }
-                    }
-
-                    ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, m_light_type == LIGHT_DIRECTIONAL ? 0.1f : 10.0f);
-
-                    //if (!m_light_animation)
-                    {
-                        if (m_light_type == LIGHT_DIRECTIONAL || m_light_type == LIGHT_SPOT)
-                            ImGui::InputFloat3("Direction", &m_light_direction.x);
-
-                        if (m_light_type == LIGHT_POINT || m_light_type == LIGHT_SPOT)
-                            ImGui::InputFloat3("Position", &m_light_position.x);
-                    }
-                    if (m_light_type == LIGHT_SPOT)
-                    {
-                        ImGui::InputFloat("Inner Cone Angle", &m_light_inner_cone_angle);
-                        ImGui::InputFloat("Outer Cone Angle", &m_light_outer_cone_angle);
-                    }
+                    ImGui::Checkbox("Animation", &m_light_animation);
+                    ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+                    ImGui::InputFloat3("Direction", &m_light_direction.x);
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                 {
@@ -3332,15 +3265,11 @@ private:
         m_ubo_data.view_proj         = m_main_camera->m_projection * m_main_camera->m_view;
         m_ubo_data.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
 
-        set_light_type(m_ubo_data.light, (float)m_light_type);
         set_light_radius(m_ubo_data.light, m_light_radius);
         set_light_direction(m_ubo_data.light, m_light_direction);
-        set_light_position(m_ubo_data.light, m_light_position);
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
-        set_light_cos_theta_inner(m_ubo_data.light, cosf(glm::radians(m_light_inner_cone_angle)));
-        set_light_cos_theta_outer(m_ubo_data.light, cosf(glm::radians(m_light_outer_cone_angle)));
-
+ 
         m_prev_view_proj = m_main_camera->m_view_projection;
 
         uint8_t* ptr = (uint8_t*)m_gpu_resources->ubo->mapped_ptr();
@@ -3370,15 +3299,10 @@ private:
         {
             double time = glfwGetTime() * 0.5f;
 
-            if (m_light_type == LIGHT_DIRECTIONAL)
-            {
-                m_light_direction.x = sinf(time);
-                m_light_direction.z = cosf(time);
-                m_light_direction.y = 1.0f;
-                m_light_direction   = glm::normalize(m_light_direction);
-            }
-            else if (m_light_type == LIGHT_POINT || m_light_type == LIGHT_SPOT)
-                m_light_position.x = sinf(time) * 20.0f;
+            m_light_direction.x = sinf(time);
+            m_light_direction.z = cosf(time);
+            m_light_direction.y = 1.0f;
+            m_light_direction   = glm::normalize(m_light_direction);
         }
     }
 
@@ -3516,11 +3440,7 @@ private:
     float m_camera_y;
 
     // Light
-    LightType m_light_type             = LIGHT_DIRECTIONAL;
     float     m_light_radius           = 0.1f;
-    float     m_light_inner_cone_angle = 60.0f;
-    float     m_light_outer_cone_angle = 70.0f;
-    glm::vec3 m_light_position         = glm::vec3(0.0f);
     glm::vec3 m_light_direction        = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
     glm::vec3 m_light_color            = glm::vec3(1.0f);
     float     m_light_intensity        = 1.0f;

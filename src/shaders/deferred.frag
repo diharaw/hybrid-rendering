@@ -222,30 +222,8 @@ void main()
         Light light = ubo.light;
 
         vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = vec3(0.0f);
+        vec3 Wi = light_direction(light);
         vec3 Wh = normalize(Wo + Wi);
-
-        if (light_type(light) == LIGHT_DIRECTIONAL)
-            Wi = light_direction(light);
-        else if (light_type(light) == LIGHT_POINT)
-        {
-            vec3 to_light        = light_position(light) - world_pos;
-            Wi                   = normalize(to_light);
-            float light_distance = length(to_light);
-            Li *= (1.0f / (light_distance * light_distance));
-        }
-        else
-        {
-            Wi                   = light_direction(light);
-            vec3  to_light       = light_position(light) - world_pos;
-            vec3  light_dir      = normalize(to_light);
-            float light_distance = length(to_light);
-
-            float angle_attenuation = dot(light_dir, -light_direction(light));
-            angle_attenuation       = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
-
-            Li *= (angle_attenuation / (light_distance * light_distance));
-        }
 
         // Cook-Torrance BRDF
         float NDF = distribution_ggx(N, Wh, roughness);
