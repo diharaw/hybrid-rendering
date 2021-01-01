@@ -21,13 +21,21 @@ enum SceneType
     SCENE_PICA_PICA
 };
 
+enum VisualizationType
+{
+    VISUALIZATION_FINAL,
+    VISUALIZATION_SHADOWS,
+    VISUALIZATION_AMBIENT_OCCLUSION,
+    VISUALIZATION_REFLECTIONS
+};
+
 struct Light
 {
     glm::vec4 data0;
     glm::vec4 data1;
 };
 
-const std::vector<std::string> light_types = { "Directional", "Point", "Spot" };
+const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections" };
 const std::vector<std::string> scene_types = { "Pillars", "Sponza", "Pica Pica" };
 
 void set_light_direction(Light& light, glm::vec3 value)
@@ -121,8 +129,15 @@ struct SkyboxPushConstants
     glm::mat4 view;
 };
 
+struct DeferredShadingPushConstants
+{
+    int shadows;
+    int ao;
+};
+
 struct ToneMapPushConstants
 {
+    int   visualization;
     float exposure;
 };
 
@@ -382,19 +397,35 @@ protected:
                         ImGui::EndCombo();
                     }
 
+                    if (ImGui::BeginCombo("Visualization", visualization_types[m_current_visualization].c_str()))
+                    {
+                        for (uint32_t i = 0; i < visualization_types.size(); i++)
+                        {
+                            const bool is_selected = (i == m_current_visualization);
+
+                            if (ImGui::Selectable(visualization_types[i].c_str(), is_selected))
+                                m_current_visualization = (VisualizationType)i;
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
                     ImGui::InputFloat("Exposure", &m_exposure);
                 }
                 if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     ImGui::ColorEdit3("Color", &m_light_color.x);
                     ImGui::InputFloat("Intensity", &m_light_intensity);
-                    ImGui::Checkbox("Animation", &m_light_animation);
                     ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
                     ImGui::InputFloat3("Direction", &m_light_direction.x);
+                    ImGui::Checkbox("Animation", &m_light_animation);
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     ImGui::PushID("RTSS");
+                    ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
                     ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
                     ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
                     ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
@@ -1547,6 +1578,7 @@ private:
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->pbr_ds_layout);
+        desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredShadingPushConstants));
 
         m_gpu_resources->deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_gpu_resources->deferred_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_gpu_resources->deferred_pipeline_layout, m_gpu_resources->deferred_rp);
@@ -1559,6 +1591,7 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants));
+        desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
 
         m_gpu_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
@@ -3161,7 +3194,15 @@ private:
 
         vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
 
+
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->deferred_pipeline->handle());
+
+        DeferredShadingPushConstants push_constants;
+
+        push_constants.shadows = (float)m_rt_shadows_enabled;
+        push_constants.ao      = (float)m_rtao_enabled;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
@@ -3232,15 +3273,17 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->copy_ds->handle(),
+            m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle()
         };
 
         ToneMapPushConstants push_constants;
 
+        push_constants.visualization = m_current_visualization;
         push_constants.exposure = m_exposure;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->copy_pipeline_layout->handle(), 0, 1, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->copy_pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
@@ -3450,6 +3493,7 @@ private:
     bool    m_ping_pong                            = false;
     bool    m_svgf_shadow_denoise                  = true;
     bool    m_svgf_shadow_use_spatial_for_feedback = false;
+    bool    m_rt_shadows_enabled                   = true;
     int32_t m_num_frames                           = 0;
     float   m_ray_traced_shadows_bias              = 0.1f;
     int32_t m_max_samples                          = 10000;
@@ -3473,6 +3517,7 @@ private:
     UBO       m_ubo_data;
     float     m_exposure      = 1.0f;
     SceneType m_current_scene = SCENE_PILLARS;
+    VisualizationType m_current_visualization = VISUALIZATION_FINAL;
 };
 
 DW_DECLARE_MAIN(HybridRendering)

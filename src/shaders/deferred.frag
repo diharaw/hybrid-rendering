@@ -55,6 +55,17 @@ layout(set = 3, binding = 1) uniform samplerCube s_Prefiltered;
 layout(set = 3, binding = 2) uniform sampler2D s_BRDF;
 
 // ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    int shadow;
+    int ao;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -205,9 +216,9 @@ void main()
     const vec3  albedo     = g_buffer_data_1.rgb;
     const float roughness  = g_buffer_data_1.a;
     const float metallic   = g_buffer_data_2.a;
-    const float visibility = shadow_ao_data.r;
-    const float ao         = shadow_ao_data.g;
-
+    const float visibility = u_PushConstants.shadow == 1.0f ? shadow_ao_data.r : 1.0f;
+    const float ao         = u_PushConstants.ao == 1.0f ? shadow_ao_data.g : 1.0f;
+   
     const vec3 N  = g_buffer_data_2.rgb;
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
     const vec3 R  = reflect(-Wo, N);
