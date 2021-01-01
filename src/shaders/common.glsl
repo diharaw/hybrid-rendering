@@ -20,6 +20,13 @@
 
 #define MAX_RAY_BOUNCES 5
 
+#define LIGHT_DIRECTIONAL 0
+#define LIGHT_POINT 1
+#define LIGHT_SPOT 2
+
+#define LIGHT_DIRECTION(val) val.xyz 
+#define LIGHT_TYPE(val) 
+
 struct RayPayload
 {
     vec3 color;
@@ -29,5 +36,53 @@ struct VisibilityPayload
 {
     bool visible;
 };
+
+struct Light
+{
+    vec4 data0;
+    vec4 data1;
+    vec4 data2;
+    vec4 data3;
+};
+
+float light_type(in Light light)
+{
+    return light.data0.w;
+}
+
+vec3 light_direction(in Light light)
+{
+    return light.data0.xyz;
+}
+
+vec3 light_position(in Light light)
+{
+    return light.data2.xyz;
+}
+
+vec3 light_color(in Light light)
+{
+    return light.data3.xyz;
+}
+
+float light_intensity(in Light light)
+{
+    return light.data3.w;
+}
+
+float light_radius(in Light light)
+{
+    return light.data1.x;
+}
+
+float light_cos_theta_inner(in Light light)
+{
+    return light.data1.y;
+}
+
+float light_cos_theta_outer(in Light light)
+{
+    return light.data1.z;
+}
 
 #endif

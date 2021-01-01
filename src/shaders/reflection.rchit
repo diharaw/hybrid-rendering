@@ -26,12 +26,13 @@ hitAttributeEXT vec2 hit_attribs;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
-    mat4 view_inverse;
-    mat4 proj_inverse;
-    mat4 view_proj_inverse;
-    mat4 prev_view_proj;
-    mat4 view_proj;
-    vec4 cam_pos;
+    mat4  view_inverse;
+    mat4  proj_inverse;
+    mat4  view_proj_inverse;
+    mat4  prev_view_proj;
+    mat4  view_proj;
+    vec4  cam_pos;
+    Light light;
 }
 ubo;
 

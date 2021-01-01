@@ -14,8 +14,79 @@
 
 #define NUM_PILLARS 6
 
+enum SceneType
+{
+    SCENE_PILLARS,
+    SCENE_SPONZA,
+    SCENE_PICA_PICA
+};
+
+enum LightType
+{
+    LIGHT_DIRECTIONAL,
+    LIGHT_POINT,
+    LIGHT_SPOT
+};
+
+struct Light
+{
+    glm::vec4 data0;
+    glm::vec4 data1;
+    glm::vec4 data2;
+    glm::vec4 data3;
+};
+
+const std::vector<std::string> light_types = { "Directional", "Point", "Spot" };
+const std::vector<std::string> scene_types = { "Pillars", "Sponza", "Pica Pica" };
+
+void set_light_type(Light& light, float value)
+{
+    light.data0.w = value;
+}
+
+void set_light_direction(Light& light, glm::vec3 value)
+{
+    light.data0.x = value.x;
+    light.data0.y = value.y;
+    light.data0.z = value.z;
+}
+
+void set_light_position(Light& light, glm::vec3 value)
+{
+    light.data2.x = value.x;
+    light.data2.y = value.y;
+    light.data2.z = value.z;
+}
+
+void set_light_color(Light& light, glm::vec3 value)
+{
+    light.data3.x = value.x;
+    light.data3.y = value.y;
+    light.data3.z = value.z;
+}
+
+void set_light_intensity(Light& light, float value)
+{
+    light.data3.w = value;
+}
+
+void set_light_radius(Light& light, float value)
+{
+    light.data1.x = value;
+}
+
+void set_light_cos_theta_inner(Light& light, float value)
+{
+    light.data1.y = value;
+}
+
+void set_light_cos_theta_outer(Light& light, float value)
+{
+    light.data1.z = value;
+}
+
 // Uniform buffer data structure.
-struct Transforms
+struct UBO
 {
     DW_ALIGNED(16)
     glm::mat4 view_inverse;
@@ -29,6 +100,8 @@ struct Transforms
     glm::mat4 view_proj;
     DW_ALIGNED(16)
     glm::vec4 cam_pos;
+    DW_ALIGNED(16)
+    Light light;
 };
 
 struct GBufferPushConstants
@@ -41,7 +114,6 @@ struct GBufferPushConstants
 struct ShadowPushConstants
 {
     float    bias;
-    float    light_radius;
     uint32_t num_frames;
 };
 
@@ -78,6 +150,11 @@ struct SkyboxPushConstants
 {
     glm::mat4 projection;
     glm::mat4 view;
+};
+
+struct ToneMapPushConstants
+{
+    float exposure;
 };
 
 void pipeline_barrier(dw::vk::CommandBuffer::Ptr        cmd_buf,
@@ -142,6 +219,9 @@ private:
         // Assets.
         std::vector<dw::Mesh::Ptr> meshes;
         dw::RayTracedScene::Ptr    pillars_scene;
+        dw::RayTracedScene::Ptr    sponza_scene;
+        dw::RayTracedScene::Ptr    pica_pica_scene;
+        dw::RayTracedScene::Ptr    current_scene;
 
         // Common
         dw::vk::DescriptorSet::Ptr       per_frame_ds;
@@ -227,6 +307,8 @@ private:
         dw::vk::GraphicsPipeline::Ptr skybox_pipeline;
         dw::vk::PipelineLayout::Ptr   skybox_pipeline_layout;
         dw::vk::DescriptorSet::Ptr    skybox_ds;
+        dw::vk::RenderPass::Ptr       skybox_rp;
+        dw::vk::Framebuffer::Ptr      skybox_fbo;
 
         // SVGF Filter Moments
         dw::vk::ComputePipeline::Ptr svgf_filter_moments_pipeline;
@@ -235,6 +317,10 @@ private:
         // SVGF A-Trous Filter
         dw::vk::ComputePipeline::Ptr svgf_a_trous_filter_pipeline;
         dw::vk::PipelineLayout::Ptr  svgf_a_trous_filter_pipeline_layout;
+
+        // PBR resources
+        dw::vk::DescriptorSetLayout::Ptr pbr_ds_layout;
+        dw::vk::DescriptorSet::Ptr       pbr_ds;
 
         // Helpers
         std::unique_ptr<dw::BRDFIntegrateLUT>    brdf_preintegrate_lut;
@@ -280,13 +366,11 @@ protected:
         create_svgf_filter_moments_pipeline();
         create_svgf_a_trous_filter_pipeline();
         create_skybox_pipeline();
-        create_copy_pipeline();
+        create_tone_map_pipeline();
         create_cube();
 
         // Create camera.
         create_camera();
-
-        m_light_direction = glm::normalize(glm::vec3(0.2f, 0.9770f, 0.2f));
 
         return true;
     }
@@ -309,9 +393,71 @@ protected:
 
             if (m_debug_gui)
             {
-                if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen))
+                if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    ImGui::SliderFloat("Light Radius", &m_light_radius, 0.0f, 0.1f);
+                    if (ImGui::BeginCombo("Scene", scene_types[m_current_scene].c_str()))
+                    {
+                        for (uint32_t i = 0; i < scene_types.size(); i++)
+                        {
+                            const bool is_selected = (i == m_current_scene);
+
+                            if (ImGui::Selectable(scene_types[i].c_str(), is_selected))
+                            {
+                                m_current_scene = (SceneType)i;
+                                set_active_scene();
+                            }
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    ImGui::InputFloat("Exposure", &m_exposure);
+                }
+                if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    if (ImGui::BeginCombo("Type", light_types[m_light_type].c_str()))
+                    {
+                        for (uint32_t i = 0; i < light_types.size(); i++)
+                        {
+                            const bool is_selected = (i == m_light_type);
+
+                            if (ImGui::Selectable(light_types[i].c_str(), is_selected))
+                                m_light_type = (LightType)i;
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    ImGui::ColorEdit3("Color", &m_light_color.x);
+                    ImGui::InputFloat("Intensity", &m_light_intensity);
+
+                    if (ImGui::Checkbox("Animation", &m_light_animation))
+                    {
+                        if (!m_light_animation)
+                        {
+                            // reset default light values
+                        }
+                    }
+
+                    ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, m_light_type == LIGHT_DIRECTIONAL ? 0.1f : 10.0f);
+
+                    //if (!m_light_animation)
+                    {
+                        if (m_light_type == LIGHT_DIRECTIONAL || m_light_type == LIGHT_SPOT)
+                            ImGui::InputFloat3("Direction", &m_light_direction.x);
+
+                        if (m_light_type == LIGHT_POINT || m_light_type == LIGHT_SPOT)
+                            ImGui::InputFloat3("Position", &m_light_position.x);
+                    }
+                    if (m_light_type == LIGHT_SPOT)
+                    {
+                        ImGui::InputFloat("Inner Cone Angle", &m_light_inner_cone_angle);
+                        ImGui::InputFloat("Outer Cone Angle", &m_light_outer_cone_angle);
+                    }
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                 {
@@ -343,10 +489,13 @@ protected:
             // Update camera.
             update_camera();
 
+            // Update light.
+            update_light_animation();
+
             // Update uniforms.
             update_uniforms(cmd_buf);
 
-            m_gpu_resources->pillars_scene->build_tlas(cmd_buf);
+            m_gpu_resources->current_scene->build_tlas(cmd_buf);
 
             update_ibl(cmd_buf);
 
@@ -357,7 +506,8 @@ protected:
             ray_trace_ambient_occlusion(cmd_buf);
             svgf_denoise(cmd_buf);
             deferred_shading(cmd_buf);
-            blit_to_swapchain(cmd_buf);
+            render_skybox(cmd_buf);
+            tone_map(cmd_buf);
         }
 
         vkEndCommandBuffer(cmd_buf->handle());
@@ -680,7 +830,7 @@ private:
         }
 
         {
-            std::vector<VkAttachmentDescription> attachments(2);
+            std::vector<VkAttachmentDescription> attachments(1);
 
             // Deferred attachment
             attachments[0].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -690,13 +840,65 @@ private:
             attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             attachments[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+            attachments[0].finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            VkAttachmentReference deferred_reference;
+
+            deferred_reference.attachment = 0;
+            deferred_reference.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            std::vector<VkSubpassDescription> subpass_description(1);
+
+            subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass_description[0].colorAttachmentCount    = 1;
+            subpass_description[0].pColorAttachments       = &deferred_reference;
+            subpass_description[0].pDepthStencilAttachment = nullptr;
+            subpass_description[0].inputAttachmentCount    = 0;
+            subpass_description[0].pInputAttachments       = nullptr;
+            subpass_description[0].preserveAttachmentCount = 0;
+            subpass_description[0].pPreserveAttachments    = nullptr;
+            subpass_description[0].pResolveAttachments     = nullptr;
+
+            // Subpass dependencies for layout transitions
+            std::vector<VkSubpassDependency> dependencies(2);
+
+            dependencies[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
+            dependencies[0].dstSubpass      = 0;
+            dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependencies[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
+            dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+            dependencies[1].srcSubpass      = 0;
+            dependencies[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
+            dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
+            dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+            m_gpu_resources->deferred_rp = dw::vk::RenderPass::create(m_vk_backend, attachments, subpass_description, dependencies);
+        }
+
+        {
+            std::vector<VkAttachmentDescription> attachments(2);
+
+            // Deferred attachment
+            attachments[0].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
+            attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
+            attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+            attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+            attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            attachments[0].initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             attachments[0].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             // Depth attachment
             attachments[1].format         = m_vk_backend->swap_chain_depth_format();
             attachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
             attachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+            attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             attachments[1].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             attachments[1].initialLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -742,7 +944,7 @@ private:
             dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
             dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-            m_gpu_resources->deferred_rp = dw::vk::RenderPass::create(m_vk_backend, attachments, subpass_description, dependencies);
+            m_gpu_resources->skybox_rp = dw::vk::RenderPass::create(m_vk_backend, attachments, subpass_description, dependencies);
         }
     }
 
@@ -756,14 +958,17 @@ private:
             m_gpu_resources->g_buffer_fbo.push_back(dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->g_buffer_rp, { m_gpu_resources->g_buffer_1_view, m_gpu_resources->g_buffer_2_view, m_gpu_resources->g_buffer_3_view, m_gpu_resources->g_buffer_linear_z_view[i], m_gpu_resources->g_buffer_depth_view }, m_width, m_height, 1));
 
         m_gpu_resources->deferred_fbo.reset();
-        m_gpu_resources->deferred_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->deferred_rp, { m_gpu_resources->deferred_view, m_gpu_resources->g_buffer_depth_view }, m_width, m_height, 1);
+        m_gpu_resources->deferred_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->deferred_rp, { m_gpu_resources->deferred_view }, m_width, m_height, 1);
+
+        m_gpu_resources->skybox_fbo.reset();
+        m_gpu_resources->skybox_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->skybox_rp, { m_gpu_resources->deferred_view, m_gpu_resources->g_buffer_depth_view }, m_width, m_height, 1);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     bool create_uniform_buffer()
     {
-        m_ubo_size           = m_vk_backend->aligned_dynamic_ubo_size(sizeof(Transforms));
+        m_ubo_size           = m_vk_backend->aligned_dynamic_ubo_size(sizeof(UBO));
         m_gpu_resources->ubo = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
         return true;
@@ -780,6 +985,16 @@ private:
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
 
             m_gpu_resources->per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+        }
+
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+
+            m_gpu_resources->pbr_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
 
         {
@@ -841,6 +1056,7 @@ private:
         m_gpu_resources->svgf_history_length_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->skybox_ds              = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->copy_ds                = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
+        m_gpu_resources->pbr_ds                 = m_vk_backend->allocate_descriptor_set(m_gpu_resources->pbr_ds_layout);
 
         for (int i = 0; i < 2; i++)
         {
@@ -933,6 +1149,51 @@ private:
             write_data[3].dstSet          = m_gpu_resources->g_buffer_ds->handle();
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
+        }
+
+        // PBR resources
+        {
+            VkDescriptorImageInfo image_info[3];
+
+            image_info[0].sampler     = m_vk_backend->nearest_sampler()->handle();
+            image_info[0].imageView   = m_gpu_resources->cubemap_sh_projection->image_view()->handle();
+            image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_info[1].sampler     = m_vk_backend->trilinear_sampler()->handle();
+            image_info[1].imageView   = m_gpu_resources->cubemap_prefilter->image_view()->handle();
+            image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_info[2].sampler     = m_vk_backend->bilinear_sampler()->handle();
+            image_info[2].imageView   = m_gpu_resources->brdf_preintegrate_lut->image_view()->handle();
+            image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet write_data[3];
+            DW_ZERO_MEMORY(write_data[0]);
+            DW_ZERO_MEMORY(write_data[1]);
+            DW_ZERO_MEMORY(write_data[2]);
+
+            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[0].descriptorCount = 1;
+            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[0].pImageInfo      = &image_info[0];
+            write_data[0].dstBinding      = 0;
+            write_data[0].dstSet          = m_gpu_resources->pbr_ds->handle();
+
+            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[1].descriptorCount = 1;
+            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[1].pImageInfo      = &image_info[1];
+            write_data[1].dstBinding      = 1;
+            write_data[1].dstSet          = m_gpu_resources->pbr_ds->handle();
+
+            write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[2].descriptorCount = 1;
+            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[2].pImageInfo      = &image_info[2];
+            write_data[2].dstBinding      = 2;
+            write_data[2].dstSet          = m_gpu_resources->pbr_ds->handle();
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
         }
 
         // SVGF Current Frame Resources
@@ -1352,6 +1613,7 @@ private:
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->pbr_ds_layout);
 
         m_gpu_resources->deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_gpu_resources->deferred_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_gpu_resources->deferred_pipeline_layout, m_gpu_resources->deferred_rp);
@@ -1359,14 +1621,15 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void create_copy_pipeline()
+    void create_tone_map_pipeline()
     {
         dw::vk::PipelineLayout::Desc desc;
 
+        desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants));
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
 
         m_gpu_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
-        m_gpu_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/copy.frag.spv", m_gpu_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
+        m_gpu_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_gpu_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1853,7 +2116,7 @@ private:
         // Create pipeline
         // ---------------------------------------------------------------------------
 
-        pso_desc.set_render_pass(m_gpu_resources->deferred_rp);
+        pso_desc.set_render_pass(m_gpu_resources->skybox_rp);
 
         m_gpu_resources->skybox_pipeline = dw::vk::GraphicsPipeline::create(m_vk_backend, pso_desc);
     }
@@ -2165,10 +2428,10 @@ private:
 
     bool load_mesh()
     {
-        std::vector<dw::RayTracedScene::Instance> instances;
+        {
+            std::vector<dw::RayTracedScene::Instance> instances;
 
-        /*{
-            dw::Mesh::Ptr pillar = dw::Mesh::load(m_vk_backend, "mesh/pillar.obj");
+            dw::Mesh::Ptr pillar = dw::Mesh::load(m_vk_backend, "mesh/pillar.gltf");
 
             if (!pillar)
             {
@@ -2180,7 +2443,7 @@ private:
 
             m_gpu_resources->meshes.push_back(pillar);
 
-            dw::Mesh::Ptr bunny = dw::Mesh::load(m_vk_backend, "mesh/bunny.obj");
+            dw::Mesh::Ptr bunny = dw::Mesh::load(m_vk_backend, "mesh/bunny.gltf");
 
             if (!bunny)
             {
@@ -2192,19 +2455,7 @@ private:
 
             m_gpu_resources->meshes.push_back(bunny);
 
-            dw::Mesh::Ptr dragon = dw::Mesh::load(m_vk_backend, "mesh/dragon.obj");
-
-            if (!dragon)
-            {
-                DW_LOG_ERROR("Failed to load mesh");
-                return false;
-            }
-
-            dragon->initialize_for_ray_tracing(m_vk_backend);
-
-            m_gpu_resources->meshes.push_back(dragon);
-
-            dw::Mesh::Ptr ground = dw::Mesh::load(m_vk_backend, "mesh/ground.obj");
+            dw::Mesh::Ptr ground = dw::Mesh::load(m_vk_backend, "mesh/ground.gltf");
 
             if (!ground)
             {
@@ -2225,7 +2476,21 @@ private:
                 pillar_instance.mesh      = pillar;
                 pillar_instance.transform = glm::mat4(1.0f);
 
-                glm::vec3 pos = glm::vec3(20.0f, 0.0f, ground->min_extents().z + segment_length * (i + 1));
+                glm::vec3 pos = glm::vec3(15.0f, 0.0f, ground->min_extents().z + segment_length * (i + 1));
+
+                pillar_instance.transform = glm::translate(pillar_instance.transform, pos);
+
+                instances.push_back(pillar_instance);
+            }
+
+            for (uint32_t i = 0; i < NUM_PILLARS; i++)
+            {
+                dw::RayTracedScene::Instance pillar_instance;
+
+                pillar_instance.mesh      = pillar;
+                pillar_instance.transform = glm::mat4(1.0f);
+
+                glm::vec3 pos = glm::vec3(-15.0f, 0.0f, ground->min_extents().z + segment_length * (i + 1));
 
                 pillar_instance.transform = glm::translate(pillar_instance.transform, pos);
 
@@ -2239,43 +2504,49 @@ private:
 
             instances.push_back(ground_instance);
 
-            {
-                dw::RayTracedScene::Instance bunny_instance;
+            dw::RayTracedScene::Instance bunny_instance;
 
-                bunny_instance.mesh = bunny;
+            bunny_instance.mesh = bunny;
 
-                glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
-                glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(135.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-                glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, -0.5f, 0.0f));
+            glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
+            glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(135.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.5f, 0.0f));
 
-                bunny_instance.transform = T * R * S;
+            bunny_instance.transform = T * R * S;
 
-                instances.push_back(bunny_instance);
-            }
-        }*/
+            instances.push_back(bunny_instance);
 
-        //{
-        //    dw::Mesh::Ptr sponza = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
-
-        //    if (!sponza)
-        //    {
-        //        DW_LOG_ERROR("Failed to load mesh");
-        //        return false;
-        //    }
-
-        //    sponza->initialize_for_ray_tracing(m_vk_backend);
-
-        //    m_gpu_resources->meshes.push_back(sponza);
-
-        //    dw::RayTracedScene::Instance sponza_instance;
-
-        //    sponza_instance.mesh      = sponza;
-        //    sponza_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
-
-        //    instances.push_back(sponza_instance);
-        //}
+            m_gpu_resources->pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
+        }
 
         {
+            std::vector<dw::RayTracedScene::Instance> instances;
+
+            dw::Mesh::Ptr sponza = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
+
+            if (!sponza)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            sponza->initialize_for_ray_tracing(m_vk_backend);
+
+            m_gpu_resources->meshes.push_back(sponza);
+
+            dw::RayTracedScene::Instance sponza_instance;
+
+            sponza_instance.mesh      = sponza;
+            sponza_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+
+            instances.push_back(sponza_instance);
+
+            m_gpu_resources->sponza_scene = dw::RayTracedScene::create(m_vk_backend, instances);
+        }
+
+        {
+            std::vector<dw::RayTracedScene::Instance> instances;
+
             dw::Mesh::Ptr pica_pica = dw::Mesh::load(m_vk_backend, "scene.gltf");
 
             if (!pica_pica)
@@ -2297,9 +2568,11 @@ private:
 
             m_rtao_ray_length = 7.0f;
             m_rtao_power      = 1.2f;
+
+            m_gpu_resources->pica_pica_scene = dw::RayTracedScene::create(m_vk_backend, instances);
         }
 
-        m_gpu_resources->pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
+        set_active_scene();
 
         return true;
     }
@@ -2334,16 +2607,15 @@ private:
 
         ShadowPushConstants push_constants;
 
-        push_constants.bias         = m_ray_traced_shadows_bias;
-        push_constants.num_frames   = m_num_frames;
-        push_constants.light_radius = m_light_radius;
+        push_constants.bias       = m_ray_traced_shadows_bias;
+        push_constants.num_frames = m_num_frames;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_gpu_resources->pillars_scene->descriptor_set()->handle(),
+            m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->g_buffer_ds->handle()
@@ -2393,7 +2665,7 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_gpu_resources->pillars_scene->descriptor_set()->handle(),
+            m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->g_buffer_ds->handle()
@@ -2445,7 +2717,7 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_gpu_resources->pillars_scene->descriptor_set()->handle(),
+            m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->reflection_write_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->g_buffer_ds->handle()
@@ -2813,13 +3085,13 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_gpu_resources->pillars_scene->descriptor_set()->handle(),
+            m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->g_buffer_pipeline_layout->handle(), 0, 2, descriptor_sets, 1, &dynamic_offset);
 
-        const auto& instances = m_gpu_resources->pillars_scene->instances();
+        const auto& instances = m_gpu_resources->current_scene->instances();
 
         for (uint32_t instance_idx = 0; instance_idx < instances.size(); instance_idx++)
         {
@@ -2843,7 +3115,7 @@ private:
 
                     push_constants.model          = instance.transform;
                     push_constants.prev_model     = instance.transform;
-                    push_constants.material_index = m_gpu_resources->pillars_scene->material_index(mat->id());
+                    push_constants.material_index = m_gpu_resources->current_scene->material_index(mat->id());
 
                     vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->g_buffer_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants), &push_constants);
 
@@ -2860,6 +3132,39 @@ private:
 
     void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
+        DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
+
+        VkRenderPassBeginInfo info    = {};
+        info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        info.renderPass               = m_gpu_resources->skybox_rp->handle();
+        info.framebuffer              = m_gpu_resources->skybox_fbo->handle();
+        info.renderArea.extent.width  = m_width;
+        info.renderArea.extent.height = m_height;
+        info.clearValueCount          = 0;
+        info.pClearValues             = nullptr;
+
+        vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport vp;
+
+        vp.x        = 0.0f;
+        vp.y        = 0.0f;
+        vp.width    = (float)m_width;
+        vp.height   = (float)m_height;
+        vp.minDepth = 0.0f;
+        vp.maxDepth = 1.0f;
+
+        vkCmdSetViewport(cmd_buf->handle(), 0, 1, &vp);
+
+        VkRect2D scissor_rect;
+
+        scissor_rect.extent.width  = m_width;
+        scissor_rect.extent.height = m_height;
+        scissor_rect.offset.x      = 0;
+        scissor_rect.offset.y      = 0;
+
+        vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
+
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->skybox_pipeline->handle());
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->skybox_pipeline_layout->handle(), 0, 1, &m_gpu_resources->skybox_ds->handle(), 0, nullptr);
 
@@ -2875,6 +3180,8 @@ private:
         vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &buffer, &size);
 
         vkCmdDraw(cmd_buf->handle(), 36, 1, 0, 0);
+
+        vkCmdEndRenderPass(cmd_buf->handle());
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2928,23 +3235,22 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->g_buffer_ds->handle(),
             m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle(),
-            m_gpu_resources->per_frame_ds->handle()
+            m_gpu_resources->per_frame_ds->handle(),
+            m_gpu_resources->pbr_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->deferred_pipeline_layout->handle(), 0, 3, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->deferred_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
-
-        render_skybox(cmd_buf);
 
         vkCmdEndRenderPass(cmd_buf->handle());
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void blit_to_swapchain(dw::vk::CommandBuffer::Ptr cmd_buf)
+    void tone_map(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("Blit", cmd_buf);
+        DW_SCOPED_SAMPLE("Tone Map", cmd_buf);
 
         VkClearValue clear_values[2];
 
@@ -2995,6 +3301,12 @@ private:
             m_gpu_resources->copy_ds->handle(),
         };
 
+        ToneMapPushConstants push_constants;
+
+        push_constants.exposure = m_exposure;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
+
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->copy_pipeline_layout->handle(), 0, 1, descriptor_sets, 0, nullptr);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
@@ -3013,17 +3325,26 @@ private:
         if (m_first_frame)
             m_prev_view_proj = m_main_camera->m_view_projection;
 
-        m_transforms.proj_inverse      = glm::inverse(m_main_camera->m_projection);
-        m_transforms.view_inverse      = glm::inverse(m_main_camera->m_view);
-        m_transforms.view_proj_inverse = glm::inverse(m_main_camera->m_projection * m_main_camera->m_view);
-        m_transforms.prev_view_proj    = m_prev_view_proj;
-        m_transforms.view_proj         = m_main_camera->m_projection * m_main_camera->m_view;
-        m_transforms.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
+        m_ubo_data.proj_inverse      = glm::inverse(m_main_camera->m_projection);
+        m_ubo_data.view_inverse      = glm::inverse(m_main_camera->m_view);
+        m_ubo_data.view_proj_inverse = glm::inverse(m_main_camera->m_projection * m_main_camera->m_view);
+        m_ubo_data.prev_view_proj    = m_prev_view_proj;
+        m_ubo_data.view_proj         = m_main_camera->m_projection * m_main_camera->m_view;
+        m_ubo_data.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
+
+        set_light_type(m_ubo_data.light, (float)m_light_type);
+        set_light_radius(m_ubo_data.light, m_light_radius);
+        set_light_direction(m_ubo_data.light, m_light_direction);
+        set_light_position(m_ubo_data.light, m_light_position);
+        set_light_color(m_ubo_data.light, m_light_color);
+        set_light_intensity(m_ubo_data.light, m_light_intensity);
+        set_light_cos_theta_inner(m_ubo_data.light, cosf(glm::radians(m_light_inner_cone_angle)));
+        set_light_cos_theta_outer(m_ubo_data.light, cosf(glm::radians(m_light_outer_cone_angle)));
 
         m_prev_view_proj = m_main_camera->m_view_projection;
 
         uint8_t* ptr = (uint8_t*)m_gpu_resources->ubo->mapped_ptr();
-        memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_transforms, sizeof(Transforms));
+        memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_ubo_data, sizeof(UBO));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3039,6 +3360,26 @@ private:
 
         m_gpu_resources->cubemap_sh_projection->update(cmd_buf);
         m_gpu_resources->cubemap_prefilter->update(cmd_buf);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void update_light_animation()
+    {
+        if (m_light_animation)
+        {
+            double time = glfwGetTime() * 0.5f;
+
+            if (m_light_type == LIGHT_DIRECTIONAL)
+            {
+                m_light_direction.x = sinf(time);
+                m_light_direction.z = cosf(time);
+                m_light_direction.y = 1.0f;
+                m_light_direction   = glm::normalize(m_light_direction);
+            }
+            else if (m_light_type == LIGHT_POINT || m_light_type == LIGHT_SPOT)
+                m_light_position.x = sinf(time) * 20.0f;
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3139,6 +3480,18 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void set_active_scene()
+    {
+        if (m_current_scene == SCENE_PILLARS)
+            m_gpu_resources->current_scene = m_gpu_resources->pillars_scene;
+        else if (m_current_scene == SCENE_SPONZA)
+            m_gpu_resources->current_scene = m_gpu_resources->sponza_scene;
+        else if (m_current_scene == SCENE_PICA_PICA)
+            m_gpu_resources->current_scene = m_gpu_resources->pica_pica_scene;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
 private:
     std::unique_ptr<GPUResources> m_gpu_resources;
 
@@ -3150,18 +3503,28 @@ private:
     glm::mat4                   m_prev_view_proj;
 
     // Camera controls.
-    bool      m_mouse_look         = false;
-    float     m_heading_speed      = 0.0f;
-    float     m_sideways_speed     = 0.0f;
-    float     m_camera_sensitivity = 0.05f;
-    float     m_camera_speed       = 0.2f;
-    float     m_offset             = 0.1f;
-    bool      m_debug_gui          = false;
-    glm::vec3 m_light_direction    = glm::vec3(0.0f);
+    bool  m_mouse_look         = false;
+    float m_heading_speed      = 0.0f;
+    float m_sideways_speed     = 0.0f;
+    float m_camera_sensitivity = 0.05f;
+    float m_camera_speed       = 0.2f;
+    float m_offset             = 0.1f;
+    bool  m_debug_gui          = false;
 
     // Camera orientation.
     float m_camera_x;
     float m_camera_y;
+
+    // Light
+    LightType m_light_type             = LIGHT_DIRECTIONAL;
+    float     m_light_radius           = 0.1f;
+    float     m_light_inner_cone_angle = 60.0f;
+    float     m_light_outer_cone_angle = 70.0f;
+    glm::vec3 m_light_position         = glm::vec3(0.0f);
+    glm::vec3 m_light_direction        = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
+    glm::vec3 m_light_color            = glm::vec3(1.0f);
+    float     m_light_intensity        = 1.0f;
+    bool      m_light_animation        = false;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;
@@ -3169,7 +3532,6 @@ private:
     bool    m_svgf_shadow_use_spatial_for_feedback = false;
     int32_t m_num_frames                           = 0;
     float   m_ray_traced_shadows_bias              = 0.1f;
-    float   m_light_radius                         = 0.1f;
     int32_t m_max_samples                          = 10000;
     float   m_svgf_alpha                           = 0.05f;
     float   m_svgf_moments_alpha                   = 0.2f;
@@ -3188,7 +3550,9 @@ private:
     bool    m_rtao_enabled    = true;
 
     // Uniforms.
-    Transforms m_transforms;
+    UBO       m_ubo_data;
+    float     m_exposure      = 1.0f;
+    SceneType m_current_scene = SCENE_PILLARS;
 };
 
 DW_DECLARE_MAIN(HybridRendering)
