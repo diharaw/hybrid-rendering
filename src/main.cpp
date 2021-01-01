@@ -36,7 +36,7 @@ struct Light
 };
 
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections" };
-const std::vector<std::string> scene_types = { "Pillars", "Sponza", "Pica Pica" };
+const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
 
 void set_light_direction(Light& light, glm::vec3 value)
 {
@@ -3194,7 +3194,6 @@ private:
 
         vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
 
-
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->deferred_pipeline->handle());
 
         DeferredShadingPushConstants push_constants;
@@ -3279,7 +3278,7 @@ private:
         ToneMapPushConstants push_constants;
 
         push_constants.visualization = m_current_visualization;
-        push_constants.exposure = m_exposure;
+        push_constants.exposure      = m_exposure;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
 
@@ -3312,7 +3311,7 @@ private:
         set_light_direction(m_ubo_data.light, m_light_direction);
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
- 
+
         m_prev_view_proj = m_main_camera->m_view_projection;
 
         uint8_t* ptr = (uint8_t*)m_gpu_resources->ubo->mapped_ptr();
@@ -3483,11 +3482,11 @@ private:
     float m_camera_y;
 
     // Light
-    float     m_light_radius           = 0.1f;
-    glm::vec3 m_light_direction        = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
-    glm::vec3 m_light_color            = glm::vec3(1.0f);
-    float     m_light_intensity        = 1.0f;
-    bool      m_light_animation        = false;
+    float     m_light_radius    = 0.1f;
+    glm::vec3 m_light_direction = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
+    glm::vec3 m_light_color     = glm::vec3(1.0f);
+    float     m_light_intensity = 1.0f;
+    bool      m_light_animation = false;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;
@@ -3514,9 +3513,9 @@ private:
     bool    m_rtao_enabled    = true;
 
     // Uniforms.
-    UBO       m_ubo_data;
-    float     m_exposure      = 1.0f;
-    SceneType m_current_scene = SCENE_PILLARS;
+    UBO               m_ubo_data;
+    float             m_exposure              = 1.0f;
+    SceneType         m_current_scene         = SCENE_PILLARS;
     VisualizationType m_current_visualization = VISUALIZATION_FINAL;
 };
 

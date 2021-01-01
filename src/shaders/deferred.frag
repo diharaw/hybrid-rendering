@@ -218,7 +218,7 @@ void main()
     const float metallic   = g_buffer_data_2.a;
     const float visibility = u_PushConstants.shadow == 1.0f ? shadow_ao_data.r : 1.0f;
     const float ao         = u_PushConstants.ao == 1.0f ? shadow_ao_data.g : 1.0f;
-   
+
     const vec3 N  = g_buffer_data_2.rgb;
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
     const vec3 R  = reflect(-Wo, N);
