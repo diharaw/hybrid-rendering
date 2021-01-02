@@ -23,6 +23,7 @@ layout(location = 0) out vec4 FS_OUT_Color;
 
 layout(set = 0, binding = 0) uniform sampler2D samplerColor;
 layout(set = 1, binding = 0) uniform sampler2D samplerShadowAO;
+layout(set = 2, binding = 0) uniform sampler2D samplerReflections;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -72,6 +73,17 @@ void main()
         color = texture(samplerShadowAO, inUV).rrr;
     else if (u_PushConstants.visualization == VISUALIZATION_AMBIENT_OCCLUSION)
         color = texture(samplerShadowAO, inUV).ggg;
+    else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS)
+    {    
+        color = texture(samplerReflections, inUV).rgb;
+
+        // Apply exposure
+        color *= u_PushConstants.exposure;
+
+        // HDR tonemap and gamma correct
+        color = aces_film(color);
+        color = pow(color, vec3(1.0 / 2.2));
+    }
 
     FS_OUT_Color = vec4(color, 1.0);
 }

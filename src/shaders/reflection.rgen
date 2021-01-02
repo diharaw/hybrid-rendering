@@ -13,7 +13,6 @@
 // ------------------------------------------------------------------------
 
 layout(set = 1, binding = 0, rgba16f) uniform image2D i_Reflections;
-layout(set = 1, binding = 1) uniform sampler2D i_PrevReflections;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
@@ -31,6 +30,17 @@ layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Ro
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
 layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
+
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    float bias;
+    uint  num_frames;
+}
+u_PushConstants;
 
 // ------------------------------------------------------------------------
 // PAYLOADS ---------------------------------------------------------------
@@ -96,29 +106,38 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 void main()
 {
+    RNG rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
+
     const vec2 pixel_center = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
     const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeEXT.xy);
-    vec2       d            = tex_coord * 2.0 - 1.0;
 
     float roughness = texture(s_GBuffer1, tex_coord).a;
     vec3  P         = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
     vec3  N         = texture(s_GBuffer2, tex_coord).rgb;
-    vec3  V         = normalize(P.xyz - ubo.cam_pos.xyz);
+    vec3  Wo         = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
     uint  cull_mask  = 0xff;
     float tmin       = 0.001;
     float tmax       = 10000.0;
-    vec3  ray_origin = P + N * 0.1f;
+    vec3  ray_origin = P + N * u_PushConstants.bias;
 
     vec4 color = vec4(0.0);
+    float pdf = 0.0f;
 
     if (roughness < 0.1f)
     {
-        vec3 R = reflect(V, N.xyz);
+        vec3 R = reflect(-Wo, N.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, R, tmax, 0);
-        color = vec4(ray_payload.color, 1.0f);
     }
+    else
+    {
+        vec4 Wh_pdf = importance_sample_ggx(next_vec2(rng), N, roughness);
+        vec3 Wi = reflect(-Wo, Wh_pdf.xyz);
+        traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
+    }
+
+    color = vec4(ray_payload.color, pdf);
 
     imageStore(i_Reflections, ivec2(gl_LaunchIDEXT.xy), color);
 }

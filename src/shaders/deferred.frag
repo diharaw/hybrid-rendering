@@ -133,22 +133,6 @@ vec3 evaluate_sh9_irradiance(in vec3 direction)
 
 // ------------------------------------------------------------------
 
-float distribution_ggx(vec3 N, vec3 H, float roughness)
-{
-    float a      = roughness * roughness;
-    float a2     = a * a;
-    float NdotH  = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float nom   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom       = Pi * denom * denom;
-
-    return nom / max(EPSILON, denom);
-}
-
-// ------------------------------------------------------------------
-
 vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 {
     // Take texture coordinate and remap to [-1.0, 1.0] range.
@@ -164,6 +148,22 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
     world_pos = world_pos / world_pos.w;
 
     return world_pos.xyz;
+}
+
+// ------------------------------------------------------------------
+
+float distribution_ggx(vec3 N, vec3 H, float roughness)
+{
+    float a      = roughness * roughness;
+    float a2     = a * a;
+    float NdotH  = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float nom   = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom       = Pi * denom * denom;
+
+    return nom / max(EPSILON, denom);
 }
 
 // ------------------------------------------------------------------
