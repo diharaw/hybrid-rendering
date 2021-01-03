@@ -123,10 +123,9 @@ void main()
     float tmax       = 10000.0;
     vec3  ray_origin = P + N * u_PushConstants.bias;
 
-    vec4 color = vec4(0.0);
     float pdf = 0.0f;
 
-    if (roughness < 0.1f)
+    if (roughness < 0.05f)
     {
         vec3 R = reflect(-Wo, N.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, R, tmax, 0);
@@ -134,11 +133,14 @@ void main()
     else
     {
         vec4 Wh_pdf = importance_sample_ggx(next_vec2(rng), N, roughness);
+        pdf = Wh_pdf.w;
         vec3 Wi = reflect(-Wo, Wh_pdf.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
     }
 
-    imageStore(i_Color, ivec2(gl_LaunchIDEXT.xy), vec4(ray_payload.color, pdf));
+    vec3 clamped_color = min(ray_payload.color, vec3(0.7f));
+
+    imageStore(i_Color, ivec2(gl_LaunchIDEXT.xy), vec4(clamped_color, pdf));
     imageStore(i_Hit, ivec2(gl_LaunchIDEXT.xy), vec4(ray_payload.hit_position, 0.0f));
 }
 

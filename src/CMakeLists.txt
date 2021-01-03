@@ -40,7 +40,8 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/svgf_a_trous_filter.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.frag
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_spatial_resolve.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_spatial_resolve.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_reprojection.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})

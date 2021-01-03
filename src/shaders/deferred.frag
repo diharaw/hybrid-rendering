@@ -38,7 +38,9 @@ layout(set = 0, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(set = 1, binding = 0) uniform sampler2D s_Shadow;
 
-layout(set = 2, binding = 0) uniform PerFrameUBO
+layout(set = 2, binding = 0) uniform sampler2D s_Reflections;
+
+layout(set = 3, binding = 0) uniform PerFrameUBO
 {
     mat4  view_inverse;
     mat4  proj_inverse;
@@ -50,9 +52,9 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 3, binding = 0) uniform sampler2D s_IrradianceSH;
-layout(set = 3, binding = 1) uniform samplerCube s_Prefiltered;
-layout(set = 3, binding = 2) uniform sampler2D s_BRDF;
+layout(set = 4, binding = 0) uniform sampler2D s_IrradianceSH;
+layout(set = 4, binding = 1) uniform samplerCube s_Prefiltered;
+layout(set = 4, binding = 2) uniform sampler2D s_BRDF;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -191,11 +193,14 @@ float geometry_smith(vec3 N, vec3 V, vec3 L, float roughness)
     return ggx1 * ggx2;
 }
 // ----------------------------------------------------------------------------
+
 vec3 fresnel_schlick(float cosTheta, vec3 F0)
 {
     return F0 + (1.0 - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
+
 // ----------------------------------------------------------------------------
+
 vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
@@ -269,7 +274,7 @@ void main()
 
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
     const float MAX_REFLECTION_LOD = 4.0;
-    vec3        prefilteredColor   = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec3        prefilteredColor   = textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb * 30.0f;  // textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
     vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
 
