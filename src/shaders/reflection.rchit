@@ -12,7 +12,7 @@
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadInEXT RayPayload ray_payload;
+layout(location = 0) rayPayloadInEXT ReflectionPayload ray_payload;
 
 // ------------------------------------------------------------------------
 // HIT ATTRIBUTE ----------------------------------------------------------
@@ -148,6 +148,7 @@ void main()
     }
 
     ray_payload.color = direct;
+    ray_payload.hit_position = vertex.position.xyz;
 }
 
 // ------------------------------------------------------------------------

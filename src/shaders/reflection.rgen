@@ -12,7 +12,8 @@
 // DESCRIPTOR SETS --------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(set = 1, binding = 0, rgba16f) uniform image2D i_Reflections;
+layout(set = 1, binding = 0, rgba16f) uniform image2D i_Color;
+layout(set = 1, binding = 1, rgba32f) uniform image2D i_Hit;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
@@ -46,7 +47,7 @@ u_PushConstants;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadEXT RayPayload ray_payload;
+layout(location = 0) rayPayloadEXT ReflectionPayload ray_payload;
 
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
@@ -114,7 +115,7 @@ void main()
     float roughness = texture(s_GBuffer1, tex_coord).a;
     vec3  P         = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
     vec3  N         = texture(s_GBuffer2, tex_coord).rgb;
-    vec3  Wo         = normalize(ubo.cam_pos.xyz - P.xyz);
+    vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
     uint  cull_mask  = 0xff;
@@ -137,9 +138,8 @@ void main()
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
     }
 
-    color = vec4(ray_payload.color, pdf);
-
-    imageStore(i_Reflections, ivec2(gl_LaunchIDEXT.xy), color);
+    imageStore(i_Color, ivec2(gl_LaunchIDEXT.xy), vec4(ray_payload.color, pdf));
+    imageStore(i_Hit, ivec2(gl_LaunchIDEXT.xy), vec4(ray_payload.hit_position, 0.0f));
 }
 
 // ------------------------------------------------------------------------

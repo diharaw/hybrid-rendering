@@ -25,6 +25,12 @@ struct RayPayload
     vec3 color;
 };
 
+struct ReflectionPayload
+{
+    vec3 color;
+    vec3 hit_position;
+};
+
 struct VisibilityPayload
 {
     bool visible;
