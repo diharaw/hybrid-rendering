@@ -150,6 +150,7 @@ struct DeferredShadingPushConstants
 {
     int shadows;
     int ao;
+    int reflections;
 };
 
 struct ToneMapPushConstants
@@ -478,6 +479,7 @@ protected:
                 if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     ImGui::PushID("RTR");
+                    ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                     ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
                     ImGui::Checkbox("Spatial Resolve", &m_ray_traced_reflections_spatial_resolve);
                     ImGui::SliderFloat("Alpha", &m_ray_traced_reflections_alpha, 0.0f, 1.0f);
@@ -3574,6 +3576,7 @@ private:
 
         push_constants.shadows = (float)m_rt_shadows_enabled;
         push_constants.ao      = (float)m_rtao_enabled;
+        push_constants.reflections = (float)m_rt_reflections_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -3884,6 +3887,7 @@ private:
     // Ray Traced Reflections
     float m_ray_traced_reflections_bias = 0.1f;
     bool  m_ray_traced_reflections_spatial_resolve = true;
+    bool  m_rt_reflections_enabled = true;
     float m_ray_traced_reflections_alpha           = 0.05f;
 
     // Ambient Occlusion

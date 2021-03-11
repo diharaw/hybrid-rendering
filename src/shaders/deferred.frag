@@ -64,6 +64,7 @@ layout(push_constant) uniform PushConstants
 {
     int shadow;
     int ao;
+    int reflections;
 }
 u_PushConstants;
 
@@ -221,8 +222,8 @@ void main()
     const vec3  albedo     = g_buffer_data_1.rgb;
     const float roughness  = g_buffer_data_1.a;
     const float metallic   = g_buffer_data_2.a;
-    const float visibility = u_PushConstants.shadow == 1.0f ? shadow_ao_data.r : 1.0f;
-    const float ao         = u_PushConstants.ao == 1.0f ? shadow_ao_data.g : 1.0f;
+    const float visibility = u_PushConstants.shadow == 1 ? shadow_ao_data.r : 1.0f;
+    const float ao         = u_PushConstants.ao == 1 ? shadow_ao_data.g : 1.0f;
 
     const vec3 N  = g_buffer_data_2.rgb;
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
@@ -274,7 +275,7 @@ void main()
 
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
     const float MAX_REFLECTION_LOD = 4.0;
-    vec3        prefilteredColor   = textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb * 30.0f;  // textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb * 30.0f : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
     vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
 
