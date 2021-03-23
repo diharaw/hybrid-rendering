@@ -306,13 +306,11 @@ private:
         dw::vk::GraphicsPipeline::Ptr         g_buffer_pipeline;
         dw::vk::PipelineLayout::Ptr           g_buffer_pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr      g_buffer_ds_layout;
-        dw::vk::DescriptorSet::Ptr            g_buffer_ds;
+        std::vector<dw::vk::DescriptorSet::Ptr> g_buffer_ds;
 
         // SVGF Common
-        dw::vk::DescriptorSetLayout::Ptr        svgf_current_frame_images_ds_layout;
-        dw::vk::DescriptorSetLayout::Ptr        svgf_prev_frame_images_ds_layout;
-        std::vector<dw::vk::DescriptorSet::Ptr> svgf_current_frame_images_ds;
-        std::vector<dw::vk::DescriptorSet::Ptr> svgf_prev_frame_images_ds;
+        dw::vk::DescriptorSetLayout::Ptr        svgf_output_read_ds_layout;
+        dw::vk::DescriptorSet::Ptr svgf_output_read_ds;
 
         // SVGF Reprojection
         dw::vk::Image::Ptr           svgf_moments_image;
@@ -321,8 +319,8 @@ private:
         dw::vk::ImageView::Ptr       svgf_history_length_view;
         dw::vk::ComputePipeline::Ptr svgf_reprojection_pipeline;
         dw::vk::PipelineLayout::Ptr  svgf_reprojection_pipeline_layout;
-        dw::vk::DescriptorSet::Ptr   svgf_moments_ds;
-        dw::vk::DescriptorSet::Ptr   svgf_history_length_ds;
+        dw::vk::DescriptorSet::Ptr   svgf_moments_write_ds;
+        dw::vk::DescriptorSet::Ptr   svgf_history_length_write_ds;
 
         // Skybox
         dw::vk::Buffer::Ptr           cube_vbo;
@@ -652,10 +650,13 @@ private:
         m_gpu_resources->visibility_image.clear();
         m_gpu_resources->visibility_view.clear();
 
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
         for (int i = 0; i < 2; i++)
         {
             {
-                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
                 image->set_name("Visibility Image " + std::to_string(i));
 
                 m_gpu_resources->visibility_image.push_back(image);
@@ -668,7 +669,7 @@ private:
 
 
             {
-                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
                 image->set_name("Reflection Temporal Image " + std::to_string(i));
 
                 m_gpu_resources->reflection_temporal_image.push_back(image);
@@ -686,35 +687,35 @@ private:
         m_gpu_resources->deferred_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->deferred_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->deferred_view->set_name("Deferred Image View");
 
-        m_gpu_resources->prev_visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->prev_visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->prev_visibility_image->set_name("Prev Visibility Image");
 
         m_gpu_resources->prev_visibility_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->prev_visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->prev_visibility_view->set_name("Prev Visibility Image View");
 
-        m_gpu_resources->svgf_history_length_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->svgf_history_length_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->svgf_history_length_image->set_name("SVGF History Length Image");
         m_gpu_resources->svgf_history_length_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->svgf_history_length_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->svgf_history_length_view->set_name("SVGF History Length Image View");
 
-        m_gpu_resources->svgf_moments_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->svgf_moments_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->svgf_moments_image->set_name("SVGF Moments Image");
         m_gpu_resources->svgf_moments_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->svgf_moments_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->svgf_moments_view->set_name("SVGF Moments Image View");
 
-        m_gpu_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_rt_color_image->set_name("Reflection RT Color Image");
                                        
         m_gpu_resources->reflection_rt_color_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_rt_color_view->set_name("Reflection RT Color Image View");
 
-        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_rt_hit_image->set_name("Reflection RT Hit Image");
                                        
         m_gpu_resources->reflection_rt_hit_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_hit_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_rt_hit_view->set_name("Reflection RT Hit Image View");
 
-        m_gpu_resources->reflection_resolve_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_resolve_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_resolve_image->set_name("Reflection Resolve Image");
                                     
         m_gpu_resources->reflection_resolve_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_resolve_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1082,22 +1083,10 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
-            m_gpu_resources->svgf_current_frame_images_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
-        }
-
-        {
-            dw::vk::DescriptorSetLayout::Desc desc;
-
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
-            m_gpu_resources->svgf_prev_frame_images_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+  
+            m_gpu_resources->svgf_output_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
     }
 
@@ -1106,9 +1095,8 @@ private:
     void create_descriptor_sets()
     {
         m_gpu_resources->per_frame_ds           = m_vk_backend->allocate_descriptor_set(m_gpu_resources->per_frame_ds_layout);
-        m_gpu_resources->g_buffer_ds            = m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout);
-        m_gpu_resources->svgf_moments_ds        = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
-        m_gpu_resources->svgf_history_length_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        m_gpu_resources->svgf_moments_write_ds                = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        m_gpu_resources->svgf_history_length_write_ds         = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->skybox_ds              = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->copy_ds                = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->pbr_ds                 = m_vk_backend->allocate_descriptor_set(m_gpu_resources->pbr_ds_layout);
@@ -1116,11 +1104,11 @@ private:
         m_gpu_resources->reflection_rt_read_ds                = m_vk_backend->allocate_descriptor_set(m_gpu_resources->reflection_rt_read_ds_layout);
         m_gpu_resources->reflection_resolve_write_ds      = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->reflection_resolve_read_ds      = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
-        
+        m_gpu_resources->svgf_output_read_ds =  m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_output_read_ds_layout);
+
         for (int i = 0; i < 2; i++)
         {
-            m_gpu_resources->svgf_current_frame_images_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_current_frame_images_ds_layout));
-            m_gpu_resources->svgf_prev_frame_images_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_prev_frame_images_ds_layout));
+            m_gpu_resources->g_buffer_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout));
             m_gpu_resources->visibility_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
             m_gpu_resources->visibility_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
             m_gpu_resources->reflection_temporal_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
@@ -1155,59 +1143,74 @@ private:
 
         // G-Buffer
         {
-            VkDescriptorImageInfo image_info[4];
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo image_info[5];
 
-            image_info[0].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[0].imageView   = m_gpu_resources->g_buffer_1_view->handle();
-            image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info[0].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[0].imageView   = m_gpu_resources->g_buffer_1_view->handle();
+                image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[1].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[1].imageView   = m_gpu_resources->g_buffer_2_view->handle();
-            image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info[1].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[1].imageView   = m_gpu_resources->g_buffer_2_view->handle();
+                image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[2].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[2].imageView   = m_gpu_resources->g_buffer_3_view->handle();
-            image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info[2].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[2].imageView   = m_gpu_resources->g_buffer_3_view->handle();
+                image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[3].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[3].imageView   = m_gpu_resources->g_buffer_depth_view->handle();
-            image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info[3].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[3].imageView   = m_gpu_resources->g_buffer_depth_view->handle();
+                image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            VkWriteDescriptorSet write_data[4];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
-            DW_ZERO_MEMORY(write_data[2]);
-            DW_ZERO_MEMORY(write_data[3]);
+                image_info[4].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[4].imageView   = m_gpu_resources->g_buffer_linear_z_view[i]->handle();
+                image_info[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[0].descriptorCount = 1;
-            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[0].pImageInfo      = &image_info[0];
-            write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_gpu_resources->g_buffer_ds->handle();
+                VkWriteDescriptorSet write_data[5];
+                DW_ZERO_MEMORY(write_data[0]);
+                DW_ZERO_MEMORY(write_data[1]);
+                DW_ZERO_MEMORY(write_data[2]);
+                DW_ZERO_MEMORY(write_data[3]);
+                DW_ZERO_MEMORY(write_data[4]);
 
-            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[1].descriptorCount = 1;
-            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[1].pImageInfo      = &image_info[1];
-            write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_gpu_resources->g_buffer_ds->handle();
+                write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[0].descriptorCount = 1;
+                write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[0].pImageInfo      = &image_info[0];
+                write_data[0].dstBinding      = 0;
+                write_data[0].dstSet          = m_gpu_resources->g_buffer_ds[i]->handle();
 
-            write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[2].descriptorCount = 1;
-            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[2].pImageInfo      = &image_info[2];
-            write_data[2].dstBinding      = 2;
-            write_data[2].dstSet          = m_gpu_resources->g_buffer_ds->handle();
+                write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[1].descriptorCount = 1;
+                write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[1].pImageInfo      = &image_info[1];
+                write_data[1].dstBinding      = 1;
+                write_data[1].dstSet          = m_gpu_resources->g_buffer_ds[i]->handle();
 
-            write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[3].descriptorCount = 1;
-            write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[3].pImageInfo      = &image_info[3];
-            write_data[3].dstBinding      = 3;
-            write_data[3].dstSet          = m_gpu_resources->g_buffer_ds->handle();
+                write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[2].descriptorCount = 1;
+                write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[2].pImageInfo      = &image_info[2];
+                write_data[2].dstBinding      = 2;
+                write_data[2].dstSet          = m_gpu_resources->g_buffer_ds[i]->handle();
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
+                write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[3].descriptorCount = 1;
+                write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[3].pImageInfo      = &image_info[3];
+                write_data[3].dstBinding      = 3;
+                write_data[3].dstSet          = m_gpu_resources->g_buffer_ds[i]->handle();
+
+                write_data[4].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[4].descriptorCount = 1;
+                write_data[4].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[4].pImageInfo      = &image_info[4];
+                write_data[4].dstBinding      = 4;
+                write_data[4].dstSet          = m_gpu_resources->g_buffer_ds[i]->handle();
+
+                vkUpdateDescriptorSets(m_vk_backend->device(), 5, &write_data[0], 0, nullptr);
+            }
         }
 
         // PBR resources
@@ -1255,186 +1258,79 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
         }
 
-        // SVGF Current Frame Resources
+        // SVGF Output Read
         {
             std::vector<VkDescriptorImageInfo> image_infos;
             std::vector<VkWriteDescriptorSet>  write_datas;
             VkWriteDescriptorSet               write_data;
 
-            image_infos.reserve(16);
-            write_datas.reserve(16);
+            image_infos.reserve(3);
+            write_datas.reserve(3);
 
-            for (int i = 0; i < 2; i++)
-            {
-                // ------------------------------------------------------------------------------
+            // ------------------------------------------------------------------------------
 
-                VkDescriptorImageInfo linear_z_image_info;
+            VkDescriptorImageInfo prev_visibility_image_info;
 
-                linear_z_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                linear_z_image_info.imageView   = m_gpu_resources->g_buffer_linear_z_view[i]->handle();
-                linear_z_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            prev_visibility_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+            prev_visibility_image_info.imageView   = m_gpu_resources->prev_visibility_view->handle();
+            prev_visibility_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-                image_infos.push_back(linear_z_image_info);
+            image_infos.push_back(prev_visibility_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_gpu_resources->svgf_current_frame_images_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
-                write_datas.push_back(write_data);
+            write_datas.push_back(write_data);
 
-                // ------------------------------------------------------------------------------
+            // ------------------------------------------------------------------------------
 
-                VkDescriptorImageInfo normals_image_info;
+            VkDescriptorImageInfo moments_image_info;
 
-                normals_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                normals_image_info.imageView   = m_gpu_resources->g_buffer_2_view->handle();
-                normals_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            moments_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+            moments_image_info.imageView   = m_gpu_resources->svgf_moments_view->handle();
+            moments_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-                image_infos.push_back(normals_image_info);
+            image_infos.push_back(moments_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 1;
-                write_data.dstSet          = m_gpu_resources->svgf_current_frame_images_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
-                write_datas.push_back(write_data);
+            write_datas.push_back(write_data);
 
-                // ------------------------------------------------------------------------------
+            // ------------------------------------------------------------------------------
 
-                VkDescriptorImageInfo moments_image_info;
+            VkDescriptorImageInfo history_length_image_info;
 
-                moments_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                moments_image_info.imageView   = m_gpu_resources->svgf_moments_view->handle();
-                moments_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            history_length_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+            history_length_image_info.imageView   = m_gpu_resources->svgf_history_length_view->handle();
+            history_length_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-                image_infos.push_back(moments_image_info);
+            image_infos.push_back(history_length_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 2;
-                write_data.dstSet          = m_gpu_resources->svgf_current_frame_images_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 3;
+            write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
-                write_datas.push_back(write_data);
+            write_datas.push_back(write_data);
 
-                // ------------------------------------------------------------------------------
-
-                VkDescriptorImageInfo history_length_image_info;
-
-                history_length_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                history_length_image_info.imageView   = m_gpu_resources->svgf_history_length_view->handle();
-                history_length_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(history_length_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 3;
-                write_data.dstSet          = m_gpu_resources->svgf_current_frame_images_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-
-                // ------------------------------------------------------------------------------
-
-                VkDescriptorImageInfo motion_vectors_image_info;
-
-                motion_vectors_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                motion_vectors_image_info.imageView   = m_gpu_resources->g_buffer_3_view->handle();
-                motion_vectors_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(motion_vectors_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 4;
-                write_data.dstSet          = m_gpu_resources->svgf_current_frame_images_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-
-                // ------------------------------------------------------------------------------
-            }
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
-
-        // SVGF Prev Frame Resources
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(16);
-            write_datas.reserve(16);
-
-            for (int i = 0; i < 2; i++)
-            {
-                uint32_t current_idx = i;
-                uint32_t prev_idx    = (uint32_t)(!(bool)current_idx);
-
-                // ------------------------------------------------------------------------------
-
-                VkDescriptorImageInfo prev_visibility_image_info;
-
-                prev_visibility_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                prev_visibility_image_info.imageView   = m_gpu_resources->prev_visibility_view->handle();
-                prev_visibility_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(prev_visibility_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_gpu_resources->svgf_prev_frame_images_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-
-                // ------------------------------------------------------------------------------
-
-                VkDescriptorImageInfo prev_linear_z_info;
-
-                prev_linear_z_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-                prev_linear_z_info.imageView   = m_gpu_resources->g_buffer_linear_z_view[prev_idx]->handle();
-                prev_linear_z_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(prev_linear_z_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 1;
-                write_data.dstSet          = m_gpu_resources->svgf_prev_frame_images_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-
-                // ------------------------------------------------------------------------------
-            }
+            // ------------------------------------------------------------------------------
 
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
@@ -1523,7 +1419,7 @@ private:
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             write_data.pImageInfo      = &storage_image_info;
             write_data.dstBinding      = 0;
-            write_data.dstSet          = m_gpu_resources->svgf_moments_ds->handle();
+            write_data.dstSet          = m_gpu_resources->svgf_moments_write_ds->handle();
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
@@ -1544,7 +1440,7 @@ private:
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             write_data.pImageInfo      = &storage_image_info;
             write_data.dstBinding      = 0;
-            write_data.dstSet          = m_gpu_resources->svgf_history_length_ds->handle();
+            write_data.dstSet          = m_gpu_resources->svgf_history_length_write_ds->handle();
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
@@ -2046,6 +1942,7 @@ private:
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->reflection_rt_read_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflectionsTemporalPushConstants));
@@ -2842,7 +2739,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds->handle()
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->shadow_mask_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2857,7 +2754,10 @@ private:
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->shadow_mask_sbt->hit_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2892,7 +2792,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds->handle()
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->rtao_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2907,7 +2807,10 @@ private:
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->rtao_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->rtao_sbt->hit_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2948,7 +2851,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->reflection_rt_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds->handle()
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->reflection_rt_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2963,7 +2866,10 @@ private:
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->reflection_rt_sbt->hit_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
@@ -3010,13 +2916,16 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->reflection_resolve_write_ds->handle(),
             m_gpu_resources->reflection_rt_read_ds->handle(),
-            m_gpu_resources->g_buffer_ds->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_resolve_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
 
-        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
     
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -3071,13 +2980,17 @@ private:
             m_gpu_resources->reflection_temporal_write_ds[write_idx]->handle(),
             m_gpu_resources->reflection_resolve_read_ds->handle(),
             m_gpu_resources->reflection_temporal_read_ds[read_idx]->handle(),
-            m_gpu_resources->g_buffer_ds->handle(),
+            m_gpu_resources->reflection_rt_read_ds->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_temporal_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_temporal_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
-        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
 
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -3109,15 +3022,18 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->visibility_write_ds[0]->handle(),
-            m_gpu_resources->svgf_moments_ds->handle(),
-            m_gpu_resources->svgf_history_length_ds->handle(),
+            m_gpu_resources->svgf_moments_write_ds->handle(),
+            m_gpu_resources->svgf_history_length_write_ds->handle(),
             m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle(),
             m_gpu_resources->svgf_prev_frame_images_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
 
-        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
 
         if (!m_svgf_shadow_use_spatial_for_feedback)
         {
@@ -3140,8 +3056,8 @@ private:
             image_copy_region.srcSubresource.layerCount = 1;
             image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             image_copy_region.dstSubresource.layerCount = 1;
-            image_copy_region.extent.width              = m_width;
-            image_copy_region.extent.height             = m_height;
+            image_copy_region.extent.width              = rt_image_width;
+            image_copy_region.extent.height             = rt_image_height;
             image_copy_region.extent.depth              = 1;
 
             // Issue the copy command
@@ -3207,7 +3123,10 @@ private:
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_filter_moments_pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
 
-        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+        vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3260,7 +3179,10 @@ private:
 
             vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
-            vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+            uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+            uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
+
+            vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
 
             ping_pong = !ping_pong;
 
@@ -3285,8 +3207,8 @@ private:
                 image_copy_region.srcSubresource.layerCount = 1;
                 image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 image_copy_region.dstSubresource.layerCount = 1;
-                image_copy_region.extent.width              = m_width;
-                image_copy_region.extent.height             = m_height;
+                image_copy_region.extent.width              = rt_image_width;
+                image_copy_region.extent.height             = rt_image_height;
                 image_copy_region.extent.depth              = 1;
 
                 // Issue the copy command
@@ -3583,7 +3505,7 @@ private:
         const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_gpu_resources->g_buffer_ds->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle(),
             m_gpu_resources->reflection_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
@@ -3866,6 +3788,9 @@ private:
     glm::vec3 m_light_color     = glm::vec3(1.0f);
     float     m_light_intensity = 1.0f;
     bool      m_light_animation = false;
+
+    // General Ray Tracing Settings
+    bool m_quarter_resolution = false;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;
