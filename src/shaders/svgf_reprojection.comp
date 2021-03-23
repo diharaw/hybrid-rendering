@@ -29,7 +29,7 @@ layout(set = 3, binding = 4) uniform sampler2D s_LinearZ;
 // Previous G-Buffer DS
 layout(set = 4, binding = 4) uniform sampler2D s_PrevLinearZ;
 
-// Previous Visiblity Read DS
+// Current SVGF Read DS
 layout(set = 5, binding = 0) uniform sampler2D s_PrevColor;
 
 // ------------------------------------------------------------------

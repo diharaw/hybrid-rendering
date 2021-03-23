@@ -1060,6 +1060,7 @@ private:
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_gpu_resources->g_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -1085,6 +1086,7 @@ private:
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
   
             m_gpu_resources->svgf_output_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -1325,7 +1327,7 @@ private:
             write_data.descriptorCount = 1;
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data.pImageInfo      = &image_infos.back();
-            write_data.dstBinding      = 3;
+            write_data.dstBinding      = 2;
             write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
             write_datas.push_back(write_data);
@@ -1711,8 +1713,9 @@ private:
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->svgf_current_frame_images_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->svgf_prev_frame_images_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->svgf_output_read_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SVGFReprojectionPushConstants));
 
@@ -1735,7 +1738,8 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->svgf_current_frame_images_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->svgf_output_read_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SVGFFilterMomentsPushConstants));
 
@@ -1759,7 +1763,8 @@ private:
 
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->svgf_current_frame_images_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->svgf_output_read_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SVGFATrousFilterPushConstants));
 
@@ -3024,11 +3029,12 @@ private:
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->svgf_moments_write_ds->handle(),
             m_gpu_resources->svgf_history_length_write_ds->handle(),
-            m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle(),
-            m_gpu_resources->svgf_prev_frame_images_ds[m_ping_pong]->handle()
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->g_buffer_ds[!m_ping_pong]->handle(),
+            m_gpu_resources->svgf_output_read_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
 
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
@@ -3118,10 +3124,11 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->visibility_write_ds[0]->handle(),
-            m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle()
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->svgf_output_read_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_filter_moments_pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_filter_moments_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 
@@ -3174,10 +3181,11 @@ private:
             VkDescriptorSet descriptor_sets[] = {
                 m_gpu_resources->visibility_write_ds[write_idx]->handle(),
                 m_gpu_resources->visibility_write_ds[read_idx]->handle(),
-                m_gpu_resources->svgf_current_frame_images_ds[m_ping_pong]->handle()
+                m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+                m_gpu_resources->svgf_output_read_ds->handle()
             };
 
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
             uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
             uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height; 

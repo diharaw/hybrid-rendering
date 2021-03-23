@@ -23,8 +23,8 @@ layout(set = 1, binding = 1) uniform sampler2D s_Normals;
 layout(set = 1, binding = 4) uniform sampler2D s_LinearZ;
 
 // Current SVGF Read DS
-layout(set = 2, binding = 0) uniform sampler2D s_Moments;
-layout(set = 2, binding = 1) uniform sampler2D s_HistoryLength;
+layout(set = 2, binding = 1) uniform sampler2D s_Moments;
+layout(set = 2, binding = 2) uniform sampler2D s_HistoryLength;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
