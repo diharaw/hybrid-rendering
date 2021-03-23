@@ -120,24 +120,24 @@ float geometry_smith(vec3 N, vec3 V, vec3 L, float roughness)
 
 void local_brdf(in vec2 uv, in ivec2 coord, in vec3 start_pos, in float roughness, in vec3 N, in vec3 Wo, out vec3 sample_color, out float weight)
 {
-    vec4 value0 = textureLod(i_Color, uv, 0.0f);
+    vec4 value0  = textureLod(i_Color, uv, 0.0f);
     vec3 end_pos = texelFetch(i_Hit, coord, 0).rgb;
 
-    vec3 Li = value0.rgb;
+    vec3  Li  = value0.rgb;
     float pdf = value0.a;
-    vec3 Wi = normalize(end_pos - start_pos);
-    vec3 Wh = normalize(Wo + Wi);
+    vec3  Wi  = normalize(end_pos - start_pos);
+    vec3  Wh  = normalize(Wo + Wi);
 
     // Cook-Torrance BRDF
     float NDF = distribution_ggx(N, Wh, roughness);
     float G   = geometry_smith(N, Wo, Wi, roughness);
 
     float nominator   = NDF * G;
-    float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); 
+    float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0);
     float specular    = (nominator) / max(EPSILON, denominator);
 
     sample_color = Li;
-    weight = specular / max(EPSILON, pdf);
+    weight       = specular / max(EPSILON, pdf);
 }
 
 // ------------------------------------------------------------------
@@ -147,14 +147,14 @@ void local_brdf(in vec2 uv, in ivec2 coord, in vec3 start_pos, in float roughnes
 void main()
 {
     ivec2 size      = textureSize(s_GBuffer1, 0);
-    vec2 rcp_size = 1.0f / vec2(size);
+    vec2  rcp_size  = 1.0f / vec2(size);
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
 
     vec4 g_buffer_data_1 = texelFetch(s_GBuffer1, ivec2(gl_GlobalInvocationID.xy), 0);
     vec4 g_buffer_data_2 = texelFetch(s_GBuffer2, ivec2(gl_GlobalInvocationID.xy), 0);
 
-    const vec3  world_pos  = world_position_from_depth(tex_coord, texelFetch(s_GBufferDepth, ivec2(gl_GlobalInvocationID.xy), 0).r);
-    const float roughness  = g_buffer_data_1.a;
+    const vec3  world_pos = world_position_from_depth(tex_coord, texelFetch(s_GBufferDepth, ivec2(gl_GlobalInvocationID.xy), 0).r);
+    const float roughness = g_buffer_data_1.a;
 
     const vec3 N  = g_buffer_data_2.rgb;
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
@@ -167,7 +167,7 @@ void main()
         return;
     }
 
-    vec3 sum_color = vec3(0.0f);
+    vec3  sum_color  = vec3(0.0f);
     float sum_weight = 0.0f;
 
     for (int y = -RADIUS; y <= RADIUS; y++)
@@ -175,13 +175,13 @@ void main()
         for (int x = -RADIUS; x <= RADIUS; x++)
         {
             ivec2 offset = ivec2(x, y) * SPATIAL_REUSE_SIZE;
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy) + offset;
-            vec2 uv = tex_coord + vec2(offset) * rcp_size;
+            ivec2 coord  = ivec2(gl_GlobalInvocationID.xy) + offset;
+            vec2  uv     = tex_coord + vec2(offset) * rcp_size;
 
-            if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, size - ivec2(1, 1)))) 
+            if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, size - ivec2(1, 1))))
                 continue;
 
-            vec3 sample_color;
+            vec3  sample_color;
             float weight;
 
             local_brdf(uv, coord, world_pos, roughness, N, Wo, sample_color, weight);

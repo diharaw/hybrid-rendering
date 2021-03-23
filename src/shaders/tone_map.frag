@@ -74,7 +74,7 @@ void main()
     else if (u_PushConstants.visualization == VISUALIZATION_AMBIENT_OCCLUSION)
         color = texture(samplerShadowAO, inUV).ggg;
     else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS)
-    {    
+    {
         color = texture(samplerReflections, inUV).rgb;
 
         // Apply exposure

@@ -106,9 +106,9 @@ void main()
 
     transform_vertex(instance, vertex);
 
-    const vec3 albedo = fetch_albedo(material, vertex.tex_coord.xy).rgb;
-    const float roughness  = fetch_roughness(material, vertex.tex_coord.xy);
-    const float metallic   = fetch_metallic(material, vertex.tex_coord.xy);
+    const vec3  albedo    = fetch_albedo(material, vertex.tex_coord.xy).rgb;
+    const float roughness = fetch_roughness(material, vertex.tex_coord.xy);
+    const float metallic  = fetch_metallic(material, vertex.tex_coord.xy);
 
     const vec3 N  = fetch_normal(material, vertex.tangent.xyz, vertex.tangent.xyz, vertex.normal.xyz, vertex.tex_coord.xy);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - vertex.position.xyz);
@@ -147,7 +147,7 @@ void main()
         direct += (kD * albedo / M_PI + specular) * Li * NdotL;
     }
 
-    ray_payload.color = direct;
+    ray_payload.color        = direct;
     ray_payload.hit_position = vertex.position.xyz;
 }
 

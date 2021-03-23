@@ -51,7 +51,7 @@ ubo;
 
 layout(push_constant) uniform PushConstants
 {
-    uint first_frame;
+    uint  first_frame;
     float alpha;
 }
 u_PushConstants;
@@ -63,9 +63,9 @@ u_PushConstants;
 void main()
 {
     ivec2 size      = textureSize(s_GBuffer1, 0);
-    vec2 rcp_size = 1.0f / vec2(size);
+    vec2  rcp_size  = 1.0f / vec2(size);
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
-    vec4 motion = texelFetch(s_GBuffer3, ivec2(gl_GlobalInvocationID.xy), 0);
+    vec4  motion    = texelFetch(s_GBuffer3, ivec2(gl_GlobalInvocationID.xy), 0);
 
     vec4 current = texelFetch(s_Color, ivec2(gl_GlobalInvocationID.xy), 0);
 
@@ -73,8 +73,8 @@ void main()
         imageStore(i_ReprojectedColor, ivec2(gl_GlobalInvocationID.xy), current);
     else
     {
-        ivec2 prev_coord = ivec2(gl_GlobalInvocationID.xy) + ivec2(motion.xy * vec2(size)+ vec2(0.5, 0.5));
-        vec4 prev = texelFetch(s_PrevColor, prev_coord, 0);
+        ivec2 prev_coord = ivec2(gl_GlobalInvocationID.xy) + ivec2(motion.xy * vec2(size) + vec2(0.5, 0.5));
+        vec4  prev       = texelFetch(s_PrevColor, prev_coord, 0);
         imageStore(i_ReprojectedColor, ivec2(gl_GlobalInvocationID.xy), mix(prev, current, u_PushConstants.alpha));
     }
 }

@@ -133,8 +133,8 @@ void main()
     else
     {
         vec4 Wh_pdf = importance_sample_ggx(next_vec2(rng), N, roughness);
-        pdf = Wh_pdf.w;
-        vec3 Wi = reflect(-Wo, Wh_pdf.xyz);
+        pdf         = Wh_pdf.w;
+        vec3 Wi     = reflect(-Wo, Wh_pdf.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
     }
 
