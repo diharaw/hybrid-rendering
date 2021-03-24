@@ -301,18 +301,16 @@ private:
         dw::vk::ImageView::Ptr                  g_buffer_3_view;
         std::vector<dw::vk::ImageView::Ptr>     g_buffer_linear_z_view;
         dw::vk::ImageView::Ptr                  g_buffer_depth_view;
-
-        dw::vk::Image::Ptr                  downsampled_g_buffer_1; // RGB: Albedo, A: Metallic
-        dw::vk::Image::Ptr                  downsampled_g_buffer_2; // RGB: Normal, A: Roughness
-        dw::vk::Image::Ptr                  downsampled_g_buffer_3; // RGB: Position, A: -
-        std::vector<dw::vk::Image::Ptr>     downsampled_g_buffer_linear_z;
-        dw::vk::Image::Ptr                  downsampled_g_buffer_depth;
-        dw::vk::ImageView::Ptr              downsampled_g_buffer_1_view;
-        dw::vk::ImageView::Ptr              downsampled_g_buffer_2_view;
-        dw::vk::ImageView::Ptr              downsampled_g_buffer_3_view;
-        std::vector<dw::vk::ImageView::Ptr> downsampled_g_buffer_linear_z_view;
-        dw::vk::ImageView::Ptr              downsampled_g_buffer_depth_view;
-
+        dw::vk::Image::Ptr                      downsampled_g_buffer_1; // RGB: Albedo, A: Metallic
+        dw::vk::Image::Ptr                      downsampled_g_buffer_2; // RGB: Normal, A: Roughness
+        dw::vk::Image::Ptr                      downsampled_g_buffer_3; // RGB: Position, A: -
+        std::vector<dw::vk::Image::Ptr>         downsampled_g_buffer_linear_z;
+        dw::vk::Image::Ptr                      downsampled_g_buffer_depth;
+        dw::vk::ImageView::Ptr                  downsampled_g_buffer_1_view;
+        dw::vk::ImageView::Ptr                  downsampled_g_buffer_2_view;
+        dw::vk::ImageView::Ptr                  downsampled_g_buffer_3_view;
+        std::vector<dw::vk::ImageView::Ptr>     downsampled_g_buffer_linear_z_view;
+        dw::vk::ImageView::Ptr                  downsampled_g_buffer_depth_view;
         std::vector<dw::vk::Framebuffer::Ptr>   g_buffer_fbo;
         dw::vk::RenderPass::Ptr                 g_buffer_rp;
         dw::vk::GraphicsPipeline::Ptr           g_buffer_pipeline;
@@ -672,7 +670,7 @@ private:
         m_gpu_resources->downsampled_g_buffer_2.reset();
         m_gpu_resources->downsampled_g_buffer_3.reset();
         m_gpu_resources->downsampled_g_buffer_linear_z.clear();
-        
+
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
@@ -756,10 +754,10 @@ private:
         {
             auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
             image->set_name("G-Buffer Linear-Z Image " + std::to_string(i));
-            
+
             auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
             image_view->set_name("G-Buffer Linear-Z Image View " + std::to_string(i));
-            
+
             m_gpu_resources->g_buffer_linear_z.push_back(image);
             m_gpu_resources->g_buffer_linear_z_view.push_back(image_view);
         }
@@ -778,7 +776,7 @@ private:
 
         m_gpu_resources->g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
         m_gpu_resources->g_buffer_depth_view->set_name("G-Buffer Depth Image View");
-    
+
         // Downsampled G-Buffer
         for (int i = 0; i < 2; i++)
         {
@@ -797,19 +795,19 @@ private:
 
         m_gpu_resources->downsampled_g_buffer_1 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->downsampled_g_buffer_1->set_name("Downsampled G-Buffer 1 Image");
-                         
+
         m_gpu_resources->downsampled_g_buffer_2 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->downsampled_g_buffer_2->set_name("Downsampled G-Buffer 2 Image");
-                         
+
         m_gpu_resources->downsampled_g_buffer_3 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->downsampled_g_buffer_3->set_name("Downsampled G-Buffer 3 Image");
 
         m_gpu_resources->downsampled_g_buffer_1_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->downsampled_g_buffer_1_view->set_name("Downsampled G-Buffer 1 Image View");
-                         
+
         m_gpu_resources->downsampled_g_buffer_2_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->downsampled_g_buffer_2_view->set_name("Downsampled G-Buffer 2 Image View");
-                         
+
         m_gpu_resources->downsampled_g_buffer_3_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->downsampled_g_buffer_3_view->set_name("Downsampled G-Buffer 3 Image View");
 
