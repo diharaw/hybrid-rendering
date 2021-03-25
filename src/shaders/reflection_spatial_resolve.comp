@@ -10,7 +10,7 @@
 
 #define NUM_THREADS 32
 #define RADIUS 1
-#define SPATIAL_REUSE_SIZE 3
+#define SPATIAL_REUSE_SIZE 1
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------

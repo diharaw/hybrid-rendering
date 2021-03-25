@@ -645,6 +645,7 @@ protected:
     // -----------------------------------------------------------------------------------------------------------------------------------
 
 private:
+
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     void create_output_images()
@@ -2872,7 +2873,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
+            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->shadow_mask_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2925,7 +2926,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->visibility_write_ds[0]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
+            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->rtao_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2984,7 +2985,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->reflection_rt_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
+            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->reflection_rt_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -3049,7 +3050,7 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->reflection_resolve_write_ds->handle(),
             m_gpu_resources->reflection_rt_read_ds->handle(),
-            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
@@ -3058,7 +3059,7 @@ private:
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
-        vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
 
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -3114,7 +3115,7 @@ private:
             m_gpu_resources->reflection_resolve_read_ds->handle(),
             m_gpu_resources->reflection_temporal_read_ds[read_idx]->handle(),
             m_gpu_resources->reflection_rt_read_ds->handle(),
-            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
@@ -4000,7 +4001,7 @@ private:
     bool      m_light_animation = false;
 
     // General Ray Tracing Settings
-    bool m_quarter_resolution = true;
+    bool m_quarter_resolution = false;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;
