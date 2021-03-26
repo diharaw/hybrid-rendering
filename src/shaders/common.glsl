@@ -29,6 +29,8 @@ struct ReflectionPayload
 {
     vec3 color;
     vec3 hit_position;
+    float roughness;
+    bool hit;
 };
 
 struct VisibilityPayload

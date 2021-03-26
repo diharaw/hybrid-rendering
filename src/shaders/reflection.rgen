@@ -125,6 +125,8 @@ void main()
 
     float pdf = 0.0f;
 
+    ray_payload.roughness = roughness;
+
     if (roughness < 0.05f)
     {
         vec3 R = reflect(-Wo, N.xyz);
@@ -140,7 +142,7 @@ void main()
 
     vec3 clamped_color = min(ray_payload.color, vec3(0.7f));
 
-    imageStore(i_Color, ivec2(gl_LaunchIDEXT.xy), vec4(clamped_color, pdf));
+    imageStore(i_Color, ivec2(gl_LaunchIDEXT.xy), vec4(clamped_color, float(ray_payload.hit)));
     imageStore(i_Hit, ivec2(gl_LaunchIDEXT.xy), vec4(ray_payload.hit_position, 0.0f));
 }
 

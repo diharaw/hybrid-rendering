@@ -261,7 +261,7 @@ private:
         dw::vk::ImageView::Ptr           reflection_rt_hit_view;
         dw::vk::ShaderBindingTable::Ptr  reflection_rt_sbt;
 
-        // Reflection resolve pass
+        // Reflection spatial pass
         dw::vk::ComputePipeline::Ptr reflection_resolve_pipeline;
         dw::vk::PipelineLayout::Ptr  reflection_resolve_pipeline_layout;
         dw::vk::Image::Ptr           reflection_resolve_image;
@@ -690,7 +690,7 @@ private:
             }
 
             {
-                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
                 image->set_name("Reflection Temporal Image " + std::to_string(i));
 
                 m_gpu_resources->reflection_temporal_image.push_back(image);
@@ -736,7 +736,7 @@ private:
         m_gpu_resources->reflection_rt_hit_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_hit_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_rt_hit_view->set_name("Reflection RT Hit Image View");
 
-        m_gpu_resources->reflection_resolve_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_resolve_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_resolve_image->set_name("Reflection Resolve Image");
 
         m_gpu_resources->reflection_resolve_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_resolve_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1086,9 +1086,9 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
-            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
 
             m_gpu_resources->pbr_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -2034,6 +2034,7 @@ private:
         pl_desc.add_descriptor_set_layout(m_gpu_resources->reflection_rt_write_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->pbr_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ReflectionsPushConstants));
 
         m_gpu_resources->reflection_rt_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
@@ -2985,10 +2986,11 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->reflection_rt_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
+            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->pbr_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->reflection_rt_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->reflection_rt_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
         auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
 
@@ -3050,16 +3052,13 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->reflection_resolve_write_ds->handle(),
             m_gpu_resources->reflection_rt_read_ds->handle(),
-            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_resolve_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
 
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -3115,16 +3114,13 @@ private:
             m_gpu_resources->reflection_resolve_read_ds->handle(),
             m_gpu_resources->reflection_temporal_read_ds[read_idx]->handle(),
             m_gpu_resources->reflection_rt_read_ds->handle(),
-            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_temporal_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        vkCmdDispatch(cmd_buf->handle(), rt_image_width / NUM_THREADS, rt_image_height / NUM_THREADS, 1);
+        vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
 
         // Prepare ray tracing output image as transfer source
         dw::vk::utilities::set_image_layout(
@@ -3967,8 +3963,8 @@ private:
         else if (m_current_scene == SCENE_PICA_PICA)
             m_gpu_resources->current_scene = m_gpu_resources->pica_pica_scene;
     }
-
     // -----------------------------------------------------------------------------------------------------------------------------------
+
 
 private:
     std::unique_ptr<GPUResources> m_gpu_resources;
@@ -4001,7 +3997,7 @@ private:
     bool      m_light_animation = false;
 
     // General Ray Tracing Settings
-    bool m_quarter_resolution = false;
+    bool m_quarter_resolution = true;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;

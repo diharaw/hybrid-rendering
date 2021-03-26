@@ -4,8 +4,6 @@
 
 #include "common.glsl"
 
-#define INDIRECT_INTENSITY 0.3f
-
 // ------------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -26,6 +24,7 @@ const float Pi       = 3.141592654;
 const float CosineA0 = Pi;
 const float CosineA1 = (2.0 * Pi) / 3.0;
 const float CosineA2 = Pi * 0.25;
+const float IndirectSpecularStrength = 2.0f;
 
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------
@@ -275,13 +274,13 @@ void main()
 
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
     const float MAX_REFLECTION_LOD = 4.0;
-    vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb * 30.0f : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
-    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
+    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y) * IndirectSpecularStrength;
 
     indirect = (kD * diffuse + specular) * ao;
 
-    vec3 Li = direct + indirect * INDIRECT_INTENSITY;
+    vec3 Li = direct + indirect;
 
     FS_OUT_Color = vec4(Li, 1.0);
 }

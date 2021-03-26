@@ -9,6 +9,15 @@
 #include "scene_descriptor_set.glsl"
 
 // ------------------------------------------------------------------------
+// CONSTANTS --------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+const float Pi       = 3.141592654;
+const float CosineA0 = Pi;
+const float CosineA1 = (2.0 * Pi) / 3.0;
+const float CosineA2 = Pi * 0.25;
+
+// ------------------------------------------------------------------------
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -36,9 +45,77 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
+layout(set = 4, binding = 0) uniform sampler2D s_IrradianceSH;
+layout(set = 4, binding = 1) uniform samplerCube s_Prefiltered;
+layout(set = 4, binding = 2) uniform sampler2D s_BRDF;
+
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
 // ------------------------------------------------------------------------
+
+struct SH9
+{
+    float c[9];
+};
+
+// ------------------------------------------------------------------
+
+struct SH9Color
+{
+    vec3 c[9];
+};
+
+// ------------------------------------------------------------------
+
+void project_onto_sh9(in vec3 dir, inout SH9 sh)
+{
+    // Band 0
+    sh.c[0] = 0.282095;
+
+    // Band 1
+    sh.c[1] = -0.488603 * dir.y;
+    sh.c[2] = 0.488603 * dir.z;
+    sh.c[3] = -0.488603 * dir.x;
+
+    // Band 2
+    sh.c[4] = 1.092548 * dir.x * dir.y;
+    sh.c[5] = -1.092548 * dir.y * dir.z;
+    sh.c[6] = 0.315392 * (3.0 * dir.z * dir.z - 1.0);
+    sh.c[7] = -1.092548 * dir.x * dir.z;
+    sh.c[8] = 0.546274 * (dir.x * dir.x - dir.y * dir.y);
+}
+
+// ------------------------------------------------------------------
+
+vec3 evaluate_sh9_irradiance(in vec3 direction)
+{
+    SH9 basis;
+
+    project_onto_sh9(direction, basis);
+
+    basis.c[0] *= CosineA0;
+    basis.c[1] *= CosineA1;
+    basis.c[2] *= CosineA1;
+    basis.c[3] *= CosineA1;
+    basis.c[4] *= CosineA2;
+    basis.c[5] *= CosineA2;
+    basis.c[6] *= CosineA2;
+    basis.c[7] *= CosineA2;
+    basis.c[8] *= CosineA2;
+
+    vec3 color = vec3(0.0);
+
+    for (int i = 0; i < 9; i++)
+        color += texelFetch(s_IrradianceSH, ivec2(i, 0), 0).rgb * basis.c[i];
+
+    color.x = max(0.0, color.x);
+    color.y = max(0.0, color.y);
+    color.z = max(0.0, color.z);
+
+    return color / Pi;
+}
+
+// ------------------------------------------------------------------
 
 float distribution_ggx(vec3 N, vec3 H, float roughness)
 {
@@ -111,12 +188,13 @@ void main()
     const float metallic  = fetch_metallic(material, vertex.tex_coord.xy);
 
     const vec3 N  = fetch_normal(material, vertex.tangent.xyz, vertex.tangent.xyz, vertex.normal.xyz, vertex.tex_coord.xy);
-    const vec3 Wo = normalize(ubo.cam_pos.xyz - vertex.position.xyz);
+    const vec3 Wo = -gl_WorldRayDirectionEXT;
     const vec3 R  = reflect(-Wo, N);
 
     vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
     vec3 direct = vec3(0.0f);
+    vec3 indirect = vec3(0.0f);
 
     // Direct Lighting
     {
@@ -147,8 +225,29 @@ void main()
         direct += (kD * albedo / M_PI + specular) * Li * NdotL;
     }
 
-    ray_payload.color        = direct;
+    // Indirect lighting
+    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    vec3 irradiance = evaluate_sh9_irradiance(N);
+    vec3 diffuse    = irradiance * albedo;
+
+    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
+    const float MAX_REFLECTION_LOD = 4.0;
+    vec3        prefilteredColor   = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
+    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
+
+    indirect = (kD * diffuse + specular);
+
+    vec3 Li = direct + indirect;
+
+    ray_payload.color        = Li;
     ray_payload.hit_position = vertex.position.xyz;
+    ray_payload.hit = true;
 }
 
 // ------------------------------------------------------------------------
