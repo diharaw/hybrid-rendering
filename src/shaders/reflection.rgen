@@ -109,6 +109,7 @@ void main()
 {
     RNG rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
+    const ivec2 quarter_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy);
     const ivec2 full_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy) * 2;
     const ivec2 full_res_size = ivec2(gl_LaunchSizeEXT.xy) * 2;
     const vec2 pixel_center = vec2(full_res_pixel_coord) + vec2(0.5);
@@ -144,8 +145,8 @@ void main()
 
     vec3 clamped_color = min(ray_payload.color, vec3(0.7f));
 
-    imageStore(i_Color, full_res_pixel_coord, vec4(clamped_color, float(ray_payload.hit)));
-    imageStore(i_Hit, full_res_pixel_coord, vec4(ray_payload.hit_position, 0.0f));
+    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, float(ray_payload.hit)));
+    imageStore(i_Hit, quarter_res_pixel_coord, vec4(ray_payload.hit_position, 0.0f));
 }
 
 // ------------------------------------------------------------------------

@@ -13,6 +13,7 @@
 #include <cubemap_prefilter.h>
 
 #define NUM_PILLARS 6
+#define HALTON_SAMPLES 16
 
 enum SceneType
 {
@@ -213,6 +214,20 @@ VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAc
     return memory_barrier;
 }
 
+float halton_sequence(int base, int index)
+{
+    float result = 0;
+    float f      = 1;
+    while (index > 0)
+    {
+        f /= base;
+        result += f * (index % base);
+        index = floor(index / base);
+    }
+
+    return result;
+}
+
 class HybridRendering : public dw::Application
 {
 private:
@@ -405,6 +420,9 @@ protected:
         // Create camera.
         create_camera();
 
+        for (int i = 1; i <= HALTON_SAMPLES; i++)
+            m_jitter_samples.push_back(glm::vec2((halton_sequence(2, i) - 0.5f), (halton_sequence(3, i) - 0.5f)));
+
         return true;
     }
 
@@ -461,6 +479,8 @@ protected:
                         ImGui::EndCombo();
                     }
 
+                    ImGui::Checkbox("TAA", &m_taa);
+         
                     ImGui::InputFloat("Exposure", &m_exposure);
                 }
                 if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
@@ -724,13 +744,13 @@ private:
         m_gpu_resources->svgf_moments_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->svgf_moments_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->svgf_moments_view->set_name("SVGF Moments Image View");
 
-        m_gpu_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_rt_color_image->set_name("Reflection RT Color Image");
 
         m_gpu_resources->reflection_rt_color_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_rt_color_view->set_name("Reflection RT Color Image View");
 
-        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_rt_hit_image->set_name("Reflection RT Hit Image");
 
         m_gpu_resources->reflection_rt_hit_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_hit_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -3641,7 +3661,7 @@ private:
 
         SkyboxPushConstants push_constants;
 
-        push_constants.projection = m_main_camera->m_projection;
+        push_constants.projection = m_projection;
         push_constants.view       = m_main_camera->m_view;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->skybox_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
@@ -3787,7 +3807,7 @@ private:
 
         push_constants.visualization = m_current_visualization;
         push_constants.exposure      = m_exposure;
-
+   
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->copy_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
@@ -3805,14 +3825,14 @@ private:
     {
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
-        if (m_first_frame)
-            m_prev_view_proj = m_main_camera->m_view_projection;
+        glm::mat4 jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f));
+        m_projection     = m_taa ? jitter * m_main_camera->m_projection : m_main_camera->m_projection;
 
-        m_ubo_data.proj_inverse      = glm::inverse(m_main_camera->m_projection);
-        m_ubo_data.view_inverse      = glm::inverse(m_main_camera->m_view);
-        m_ubo_data.view_proj_inverse = glm::inverse(m_main_camera->m_projection * m_main_camera->m_view);
-        m_ubo_data.prev_view_proj    = m_prev_view_proj;
-        m_ubo_data.view_proj         = m_main_camera->m_projection * m_main_camera->m_view;
+        m_ubo_data.proj_inverse      = glm::inverse(m_projection);
+        m_ubo_data.view_inverse = glm::inverse(m_main_camera->m_view);
+        m_ubo_data.view_proj         = m_projection * m_main_camera->m_view;
+        m_ubo_data.view_proj_inverse = glm::inverse(m_ubo_data.view_proj);
+        m_ubo_data.prev_view_proj    = m_first_frame ? m_ubo_data.view_proj : m_prev_view_proj;
         m_ubo_data.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
 
         set_light_radius(m_ubo_data.light, m_light_radius);
@@ -3820,7 +3840,7 @@ private:
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
 
-        m_prev_view_proj = m_main_camera->m_view_projection;
+        m_prev_view_proj = m_ubo_data.view_proj;
 
         uint8_t* ptr = (uint8_t*)m_gpu_resources->ubo->mapped_ptr();
         memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_ubo_data, sizeof(UBO));
@@ -3860,6 +3880,18 @@ private:
 
     void update_camera()
     {
+        if (m_taa)
+        {
+            m_prev_jitter    = m_current_jitter;
+            glm::vec2 halton = m_jitter_samples[m_num_frames % (m_jitter_samples.size())];
+            m_current_jitter = glm::vec2(halton.x / float(m_width), halton.y / float(m_height));
+        }
+        else
+        {
+            m_prev_jitter    = glm::vec2(0.0f);
+            m_current_jitter = glm::vec2(0.0f);
+        }
+        
         dw::Camera* current = m_main_camera.get();
 
         float forward_delta = m_heading_speed * m_delta;
@@ -3974,7 +4006,12 @@ private:
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
+    glm::mat4                   m_projection;
     glm::mat4                   m_prev_view_proj;
+    std::vector<glm::vec2>      m_jitter_samples;
+    glm::vec2                   m_prev_jitter = glm::vec2(0.0f);
+    glm::vec2                   m_current_jitter = glm::vec2(0.0f);
+    bool                        m_taa            = true;
 
     // Camera controls.
     bool  m_mouse_look         = false;
