@@ -143,8 +143,8 @@ void main()
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
 
     float center_roughness = texelFetch(s_GBuffer1, ivec2(gl_GlobalInvocationID.xy), 0).a;
-    vec4 center_radiance = textureLod(s_Color, tex_coord, 0.0f);
-    vec3 center_normal = texelFetch(s_GBuffer2, ivec2(gl_GlobalInvocationID.xy), 0).rgb;
+    vec4  center_radiance  = textureLod(s_Color, tex_coord, 0.0f);
+    vec3  center_normal    = texelFetch(s_GBuffer2, ivec2(gl_GlobalInvocationID.xy), 0).rgb;
     float center_lin_depth = texelFetch(s_GBufferLinearDepth, ivec2(gl_GlobalInvocationID.xy), 0).x;
 
     if (center_radiance.w == 0.0f || u_PushConstants.bypass == 1)
@@ -181,12 +181,12 @@ void main()
         ivec2 offset = reuse_offsets[i];
         ivec2 coord  = ivec2(gl_GlobalInvocationID.xy) + offset;
         vec2  uv     = tex_coord + vec2(offset) * rcp_size;
-        
+
         if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, size - ivec2(1, 1))))
             continue;
-        
-        vec3 sample_radiance = textureLod(s_Color, uv, 0.0f).rgb;
-        vec3 sample_normal = texelFetch(s_GBuffer2, coord, 0).xyz;
+
+        vec3  sample_radiance  = textureLod(s_Color, uv, 0.0f).rgb;
+        vec3  sample_normal    = texelFetch(s_GBuffer2, coord, 0).xyz;
         float sample_lin_depth = texelFetch(s_GBufferLinearDepth, coord, 0).x;
 
         float weight = normal_edge_stopping_weight(center_normal, sample_normal) * depth_edge_stopping_weight(center_lin_depth, sample_lin_depth);

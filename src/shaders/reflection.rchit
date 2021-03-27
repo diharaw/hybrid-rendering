@@ -193,7 +193,7 @@ void main()
 
     vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
-    vec3 direct = vec3(0.0f);
+    vec3 direct   = vec3(0.0f);
     vec3 indirect = vec3(0.0f);
 
     // Direct Lighting
@@ -247,7 +247,7 @@ void main()
 
     ray_payload.color        = Li;
     ray_payload.hit_position = vertex.position.xyz;
-    ray_payload.hit = true;
+    ray_payload.hit          = true;
 }
 
 // ------------------------------------------------------------------------

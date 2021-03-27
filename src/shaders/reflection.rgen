@@ -110,10 +110,10 @@ void main()
     RNG rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
     const ivec2 quarter_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy);
-    const ivec2 full_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy) * 2;
-    const ivec2 full_res_size = ivec2(gl_LaunchSizeEXT.xy) * 2;
-    const vec2 pixel_center = vec2(full_res_pixel_coord) + vec2(0.5);
-    const vec2 tex_coord    = pixel_center / vec2(full_res_size);
+    const ivec2 full_res_pixel_coord    = ivec2(gl_LaunchIDEXT.xy) * 2;
+    const ivec2 full_res_size           = ivec2(gl_LaunchSizeEXT.xy) * 2;
+    const vec2  pixel_center            = vec2(full_res_pixel_coord) + vec2(0.5);
+    const vec2  tex_coord               = pixel_center / vec2(full_res_size);
 
     float roughness = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).a;
     vec3  P         = world_position_from_depth(tex_coord, texelFetch(s_GBufferDepth, full_res_pixel_coord, 0).r);

@@ -25,8 +25,8 @@ layout(location = 0) rayPayloadInEXT ReflectionPayload ray_payload;
 void main()
 {
     const float MAX_REFLECTION_LOD = 4.0;
-    ray_payload.color = textureLod(s_Prefiltered, gl_WorldRayDirectionEXT, ray_payload.roughness * MAX_REFLECTION_LOD).rgb;
-    ray_payload.hit = false;
+    ray_payload.color              = textureLod(s_Prefiltered, gl_WorldRayDirectionEXT, ray_payload.roughness * MAX_REFLECTION_LOD).rgb;
+    ray_payload.hit                = false;
 }
 
 // ------------------------------------------------------------------------

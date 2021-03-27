@@ -4,36 +4,37 @@
 
 #include "noise.glsl"
 
-#define USE_DILATION
-#define MINMAX_3X3_ROUNDED
-#define USE_CLIPPING
-
 // GLSL port of the Temporal Anti-Aliasing implementation from Playdead
 // https://github.com/playdeadgames/temporal/
 
 // ------------------------------------------------------------------
-// OUTPUT VARIABLES  ------------------------------------------------
+// DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-layout (location = 0) out vec3 FS_OUT_Buffer;
-layout (location = 1) out vec3 FS_OUT_Screen;
+#define NUM_THREADS 32
+#define USE_DILATION
+#define MINMAX_3X3_ROUNDED
+#define USE_CLIPPING
+#define USE_YCOCG
 
 // ------------------------------------------------------------------
-// INPUT VARIABLES  -------------------------------------------------
+// INPUTS -----------------------------------------------------------
 // ------------------------------------------------------------------
 
-layout (location = 0) in vec2 FS_IN_TexCoord;
+layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
 
 // ------------------------------------------------------------------
-// UNIFORMS  --------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(set = 0, binding = 0) uniform sampler2D s_Current;
-layout(set = 0, binding = 1) uniform sampler2D s_Prev;
+layout(set = 0, binding = 0, rgba16f) uniform image2D i_Color;
 
-layout(set = 1, binding = 2) uniform sampler2D s_Velocity;
-layout(set = 1, binding = 4) uniform sampler2D s_Depth;
+layout(set = 1, binding = 0) uniform sampler2D s_Current;
 
+layout(set = 2, binding = 0) uniform sampler2D s_Prev;
+
+layout(set = 3, binding = 2) uniform sampler2D s_Velocity;
+layout(set = 3, binding = 4) uniform sampler2D s_Depth;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -44,7 +45,6 @@ layout(push_constant) uniform PushConstants
 	vec4 u_TexelSize;
 	vec4 u_CurrentPrevJitter;
 	vec4 u_TimeParams;
-	float u_MotionScale;
 	float u_FeedbackMin;
 	float u_FeedbackMax;
 	int u_Sharpen;
@@ -58,6 +58,13 @@ const float FLT_EPS = 0.00000001;
 
 // ------------------------------------------------------------------
 // FUNCTIONS  -------------------------------------------------------
+// ------------------------------------------------------------------
+
+float luminance(vec3 color)
+{
+    return max(dot(color, vec3(0.299, 0.587, 0.114)), 0.0001);
+}
+
 // ------------------------------------------------------------------
 
 // https://software.intel.com/en-us/node/503873
@@ -357,10 +364,13 @@ vec4 temporal_reprojection(vec2 ss_txc, vec2 ss_vel, float vs_dist)
 
 void main()
 {
+	ivec2 size      = textureSize(s_Current, 0);
+    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+
 #if defined(UNJITTER_REPROJECTION)
-	vec2 uv = FS_IN_TexCoord - u_CurrentPrevJitter.xy;
+	vec2 uv = tex_coord - u_CurrentPrevJitter.xy;
 #else
-	vec2 uv = FS_IN_TexCoord;
+	vec2 uv = tex_coord;
 #endif
 
 #if defined(USE_DILATION)
@@ -377,10 +387,10 @@ void main()
 	float vs_dist = c_frag.z;
 #else
 	vec2 ss_vel = texture(s_Velocity, uv).xy;
-	float vs_dist = texture(s_Depth, uv);
+	float vs_dist = texture(s_Depth, uv).x;
 #endif
 	// temporal resolve
-	vec4 color_temporal = temporal_reprojection(FS_IN_TexCoord, ss_vel, vs_dist);
+	vec4 color_temporal = temporal_reprojection(tex_coord, ss_vel, vs_dist);
 	// prepare outputs
 	vec4 to_buffer = resolve_color(color_temporal);
 	
@@ -390,9 +400,8 @@ void main()
 	//to_screen.g += 100.0 * length(ss_vel);
 	//to_screen = vec4(100.0 * abs(ss_vel), 0.0, 0.0);
 	// add noise
-	vec4 noise4 = srand4(FS_IN_TexCoord + u_TimeParams.y + 0.6959174) / 510.0;
-	FS_OUT_Buffer = clamp(to_buffer + noise4, 0.0, 1.0).xyz;
-	FS_OUT_Screen = clamp(to_screen + noise4, 0.0, 1.0).xyz;
+	//vec4 noise4 = srand4(tex_coord + u_TimeParams.y + 0.6959174) / 510.0;
+	imageStore(i_Color, ivec2(gl_GlobalInvocationID.xy), vec4(clamp(to_buffer , 0.0, 1.0).xyz, 1.0f));
 }
 
 // ------------------------------------------------------------------

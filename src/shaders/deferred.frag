@@ -20,10 +20,10 @@ layout(location = 0) out vec4 FS_OUT_Color;
 // CONSTANTS --------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-const float Pi       = 3.141592654;
-const float CosineA0 = Pi;
-const float CosineA1 = (2.0 * Pi) / 3.0;
-const float CosineA2 = Pi * 0.25;
+const float Pi                       = 3.141592654;
+const float CosineA0                 = Pi;
+const float CosineA1                 = (2.0 * Pi) / 3.0;
+const float CosineA2                 = Pi * 0.25;
 const float IndirectSpecularStrength = 2.0f;
 
 // ------------------------------------------------------------------------
