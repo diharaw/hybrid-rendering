@@ -724,13 +724,13 @@ private:
         m_gpu_resources->svgf_moments_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->svgf_moments_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->svgf_moments_view->set_name("SVGF Moments Image View");
 
-        m_gpu_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_rt_color_image->set_name("Reflection RT Color Image");
 
         m_gpu_resources->reflection_rt_color_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_rt_color_view->set_name("Reflection RT Color Image View");
 
-        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_rt_hit_image->set_name("Reflection RT Hit Image");
 
         m_gpu_resources->reflection_rt_hit_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_hit_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -2986,7 +2986,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->reflection_rt_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->pbr_ds->handle()
         };
 

@@ -109,12 +109,14 @@ void main()
 {
     RNG rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
-    const vec2 pixel_center = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
-    const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeEXT.xy);
+    const ivec2 full_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy) * 2;
+    const ivec2 full_res_size = ivec2(gl_LaunchSizeEXT.xy) * 2;
+    const vec2 pixel_center = vec2(full_res_pixel_coord) + vec2(0.5);
+    const vec2 tex_coord    = pixel_center / vec2(full_res_size);
 
-    float roughness = texture(s_GBuffer1, tex_coord).a;
-    vec3  P         = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
-    vec3  N         = texture(s_GBuffer2, tex_coord).rgb;
+    float roughness = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).a;
+    vec3  P         = world_position_from_depth(tex_coord, texelFetch(s_GBufferDepth, full_res_pixel_coord, 0).r);
+    vec3  N         = texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rgb;
     vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
@@ -142,8 +144,8 @@ void main()
 
     vec3 clamped_color = min(ray_payload.color, vec3(0.7f));
 
-    imageStore(i_Color, ivec2(gl_LaunchIDEXT.xy), vec4(clamped_color, float(ray_payload.hit)));
-    imageStore(i_Hit, ivec2(gl_LaunchIDEXT.xy), vec4(ray_payload.hit_position, 0.0f));
+    imageStore(i_Color, full_res_pixel_coord, vec4(clamped_color, float(ray_payload.hit)));
+    imageStore(i_Hit, full_res_pixel_coord, vec4(ray_payload.hit_position, 0.0f));
 }
 
 // ------------------------------------------------------------------------
