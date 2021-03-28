@@ -9,8 +9,6 @@
 // ------------------------------------------------------------------
 
 #define NUM_THREADS 32
-#define RADIUS 1
-#define SPATIAL_REUSE_SIZE 3
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -62,21 +60,27 @@ u_PushConstants;
 
 void main()
 {
-    ivec2 size      = textureSize(s_GBuffer1, 0);
-    vec2  rcp_size  = 1.0f / vec2(size);
-    vec2  tex_coord = (vec2(gl_GlobalInvocationID.xy) + 0.5f) / vec2(size);
-    vec4  motion    = texelFetch(s_GBuffer3, ivec2(gl_GlobalInvocationID.xy), 0);
+    // Query the G-Buffer image size
+    ivec2 size = textureSize(s_GBuffer1, 0);
 
-    vec4 current = texelFetch(s_Color, ivec2(gl_GlobalInvocationID.xy), 0);
+    // Compute current pixel coord
+    ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    
+    // Sample the motion vector for the current pixel
+    vec4 motion = texelFetch(s_GBuffer3, current_coord, 0);
+    
+    // Compute previous pixel coord using motion vector
+    ivec2 prev_coord = current_coord + ivec2(motion.xy * vec2(size));
 
-    if (u_PushConstants.first_frame == 1)
-        imageStore(i_ReprojectedColor, ivec2(gl_GlobalInvocationID.xy), current);
-    else
-    {
-        ivec2 prev_coord = ivec2(gl_GlobalInvocationID.xy) + ivec2(motion.xy * vec2(size) + vec2(0.5, 0.5));
-        vec4  prev       = texelFetch(s_PrevColor, prev_coord, 0);
-        imageStore(i_ReprojectedColor, ivec2(gl_GlobalInvocationID.xy), mix(prev, current, u_PushConstants.alpha));
-    }
+    // Fetch current and previous pixels
+    vec4 current = texelFetch(s_Color, current_coord, 0);
+    vec4 prev    = texelFetch(s_PrevColor, prev_coord, 0);
+
+    // Blend previous and current sample
+    vec4 blended_sample = mix(prev, current, u_PushConstants.alpha);
+
+    // Store blended sample into the storage image
+    imageStore(i_ReprojectedColor, current_coord, blended_sample);
 }
 
 // ------------------------------------------------------------------
