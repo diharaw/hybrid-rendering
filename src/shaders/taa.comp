@@ -16,6 +16,10 @@
 #define MINMAX_3X3_ROUNDED
 #define USE_CLIPPING
 #define USE_YCOCG
+#define UNJITTER_REPROJECTION
+#define UNJITTER_COLORSAMPLES
+#define UNJITTER_NEIGHBORHOOD
+#define HDR_CORRECTION
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -100,19 +104,19 @@ vec3 YCoCg_RGB(vec3 c)
 vec4 sample_color(sampler2D tex, vec2 uv)
 {
 #ifdef USE_YCOCG
-	vec4 c = texture(tex, uv);
+	vec4 c = textureLod(tex, uv, 0.0f);
 	return vec4(RGB_YCoCg(c.rgb), c.a);
 #else
-	return texture(tex, uv);
+	return textureLod(tex, uv, 0.0f);
 #endif
 }
 
 // ------------------------------------------------------------------
 
-vec4 resolve_color(vec4 c)
+vec3 resolve_color(vec3 c)
 {
 #ifdef USE_YCOCG
-	return vec4(YCoCg_RGB(c.rgb).rgb, c.a);
+	return YCoCg_RGB(c.rgb).rgb;
 #else
 	return c;
 #endif
@@ -241,20 +245,34 @@ vec4 sample_color_motion(sampler2D tex, vec2 uv, vec2 ss_vel)
 
 // ------------------------------------------------------------------
 
-vec4 temporal_reprojection(vec2 ss_txc, vec2 ss_vel, float vs_dist)
+vec3 tonemap(vec3 x)
+{
+	return x / (x + vec3(1.0f)); // Reinhard tonemap
+}
+
+// ------------------------------------------------------------------
+
+vec3 inverse_tonemap(vec3 x)
+{
+	return x / max((vec3(1.0f) - x), vec3(FLT_EPS));
+}
+
+// ------------------------------------------------------------------
+
+vec3 temporal_reprojection(vec2 ss_txc, vec2 ss_vel, float vs_dist)
 {
 	// read texels
 #if defined(UNJITTER_COLORSAMPLES)
-	vec4 texel0 = sample_color(s_Current, ss_txc - u_CurrentPrevJitter.xy);
+	vec4 texel0 = sample_color(s_Current, ss_txc + u_CurrentPrevJitter.xy);
 #else
 	vec4 texel0 = sample_color(s_Current, ss_txc);
 #endif
 
-	vec4 texel1 = sample_color(s_Prev, ss_txc - ss_vel);
+	vec4 texel1 = sample_color(s_Prev, ss_txc + ss_vel);
 
 	// calc min-max of current neighbourhood
 #if defined(UNJITTER_NEIGHBORHOOD)
-	vec2 uv = ss_txc - u_CurrentPrevJitter.xy;
+	vec2 uv = ss_txc + u_CurrentPrevJitter.xy;
 #else
 	vec2 uv = ss_txc;
 #endif
@@ -354,8 +372,19 @@ vec4 temporal_reprojection(vec2 ss_txc, vec2 ss_vel, float vs_dist)
 		texel0 = sum;
 	}
 
+#if defined(HDR_CORRECTION)
+	texel0.rgb = tonemap(texel0.rgb);
+	texel1.rgb = tonemap(texel1.rgb);
+#endif
+
 	// output
-	return mix(texel0, texel1, k_feedback);
+	vec3 blended = mix(texel0.rgb, texel1.rgb, k_feedback);
+
+#if defined(HDR_CORRECTION)
+	blended = inverse_tonemap(blended);
+#endif
+	
+	return blended;
 }
 
 // ------------------------------------------------------------------
@@ -364,11 +393,10 @@ vec4 temporal_reprojection(vec2 ss_txc, vec2 ss_vel, float vs_dist)
 
 void main()
 {
-	ivec2 size      = textureSize(s_Current, 0);
-    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    vec2 tex_coord = (vec2(gl_GlobalInvocationID.xy) +  0.5f) * u_TexelSize.xy;
 
 #if defined(UNJITTER_REPROJECTION)
-	vec2 uv = tex_coord - u_CurrentPrevJitter.xy;
+	vec2 uv = tex_coord + u_CurrentPrevJitter.xy;
 #else
 	vec2 uv = tex_coord;
 #endif
@@ -390,18 +418,11 @@ void main()
 	float vs_dist = texture(s_Depth, uv).x;
 #endif
 	// temporal resolve
-	vec4 color_temporal = temporal_reprojection(tex_coord, ss_vel, vs_dist);
+	vec3 color_temporal = temporal_reprojection(tex_coord, ss_vel, vs_dist);
 	// prepare outputs
-	vec4 to_buffer = resolve_color(color_temporal);
-	
-	vec4 to_screen = resolve_color(color_temporal);
+	vec3 to_buffer = resolve_color(color_temporal);
 
-	//// NOTE: velocity debug
-	//to_screen.g += 100.0 * length(ss_vel);
-	//to_screen = vec4(100.0 * abs(ss_vel), 0.0, 0.0);
-	// add noise
-	//vec4 noise4 = srand4(tex_coord + u_TimeParams.y + 0.6959174) / 510.0;
-	imageStore(i_Color, ivec2(gl_GlobalInvocationID.xy), vec4(clamp(to_buffer , 0.0, 1.0).xyz, 1.0f));
+	imageStore(i_Color, ivec2(gl_GlobalInvocationID.xy), vec4(clamp(to_buffer, 0.0, 1.0).xyz, 1.0f));
 }
 
 // ------------------------------------------------------------------

@@ -64,7 +64,7 @@ void main()
 {
     ivec2 size      = textureSize(s_GBuffer1, 0);
     vec2  rcp_size  = 1.0f / vec2(size);
-    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    vec2  tex_coord = (vec2(gl_GlobalInvocationID.xy) + 0.5f) / vec2(size);
     vec4  motion    = texelFetch(s_GBuffer3, ivec2(gl_GlobalInvocationID.xy), 0);
 
     vec4 current = texelFetch(s_Color, ivec2(gl_GlobalInvocationID.xy), 0);

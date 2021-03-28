@@ -140,7 +140,7 @@ void main()
 {
     ivec2 size      = textureSize(s_GBuffer1, 0);
     vec2  rcp_size  = 1.0f / vec2(size);
-    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y + 0.5f) / vec2(size);
 
     float center_roughness = texelFetch(s_GBuffer1, ivec2(gl_GlobalInvocationID.xy), 0).a;
     vec4  center_radiance  = textureLod(s_Color, tex_coord, 0.0f);

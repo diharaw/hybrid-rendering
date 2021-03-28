@@ -49,6 +49,8 @@ layout(set = 4, binding = 0) uniform sampler2D s_IrradianceSH;
 layout(set = 4, binding = 1) uniform samplerCube s_Prefiltered;
 layout(set = 4, binding = 2) uniform sampler2D s_BRDF;
 
+layout(set = 5, binding = 0) uniform samplerCube s_Cubemap;
+
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -155,16 +157,34 @@ float geometry_smith(vec3 N, vec3 V, vec3 L, float roughness)
 
     return ggx1 * ggx2;
 }
+
 // ----------------------------------------------------------------------------
+
 vec3 fresnel_schlick(float cosTheta, vec3 F0)
 {
     return F0 + (1.0 - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
+
 // ----------------------------------------------------------------------------
+
 vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
+
+// ----------------------------------------------------------------------------
+
+//vec3 direct_lighting()
+//{
+//
+//}
+
+// ----------------------------------------------------------------------------
+
+//vec3 indirect_lighting()
+//{
+//
+//}
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------

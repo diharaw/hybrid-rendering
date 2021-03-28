@@ -440,7 +440,7 @@ protected:
         create_camera();
 
         for (int i = 1; i <= HALTON_SAMPLES; i++)
-            m_jitter_samples.push_back(glm::vec2((halton_sequence(2, i) - 0.5f), (halton_sequence(3, i) - 0.5f)));
+            m_jitter_samples.push_back(glm::vec2((2.0f * halton_sequence(2, i) - 1.0f), (2.0f * halton_sequence(3, i) - 1.0f)));
 
         return true;
     }
@@ -1195,7 +1195,7 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_gpu_resources->combined_sampler_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -2166,6 +2166,7 @@ private:
         pl_desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->pbr_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ReflectionsPushConstants));
 
         m_gpu_resources->reflection_rt_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
@@ -3142,10 +3143,11 @@ private:
             m_gpu_resources->reflection_rt_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
-            m_gpu_resources->pbr_ds->handle()
+            m_gpu_resources->pbr_ds->handle(),
+            m_gpu_resources->skybox_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->reflection_rt_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->reflection_rt_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
         auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
 
@@ -4159,7 +4161,9 @@ private:
         if (m_taa_enabled)
         {
             m_prev_jitter    = m_current_jitter;
-            glm::vec2 halton = m_jitter_samples[m_num_frames % (m_jitter_samples.size())];
+            uint32_t  sample_idx = m_num_frames % (m_jitter_samples.size());
+            glm::vec2 halton = m_jitter_samples[sample_idx];
+
             m_current_jitter = glm::vec2(halton.x / float(m_width), halton.y / float(m_height));
         }
         else
@@ -4325,7 +4329,7 @@ private:
     int32_t m_num_frames                           = 0;
     float   m_ray_traced_shadows_bias              = 0.1f;
     int32_t m_max_samples                          = 10000;
-    float   m_svgf_alpha                           = 0.05f;
+    float   m_svgf_alpha                           = 0.01f;
     float   m_svgf_moments_alpha                   = 0.2f;
     float   m_svgf_phi_color                       = 10.0f;
     float   m_svgf_phi_normal                      = 128.0f;

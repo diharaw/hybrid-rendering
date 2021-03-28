@@ -12,6 +12,8 @@ layout(set = 4, binding = 0) uniform sampler2D s_IrradianceSH;
 layout(set = 4, binding = 1) uniform samplerCube s_Prefiltered;
 layout(set = 4, binding = 2) uniform sampler2D s_BRDF;
 
+layout(set = 5, binding = 0) uniform samplerCube s_Cubemap;
+
 // ------------------------------------------------------------------------
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -24,8 +26,7 @@ layout(location = 0) rayPayloadInEXT ReflectionPayload ray_payload;
 
 void main()
 {
-    const float MAX_REFLECTION_LOD = 4.0;
-    ray_payload.color              = textureLod(s_Prefiltered, gl_WorldRayDirectionEXT, ray_payload.roughness * MAX_REFLECTION_LOD).rgb;
+    ray_payload.color              = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
     ray_payload.hit                = false;
 }
 
