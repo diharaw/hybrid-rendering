@@ -29,7 +29,7 @@ struct ReflectionPayload
 {
     vec3 color;
     vec3 hit_position;
-    float roughness;
+    float ray_length;
     bool hit;
 };
 

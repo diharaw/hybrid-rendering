@@ -28,6 +28,7 @@ void main()
 {
     ray_payload.color              = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
     ray_payload.hit                = false;
+    ray_payload.ray_length = 0.0f;
 }
 
 // ------------------------------------------------------------------------

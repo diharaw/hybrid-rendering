@@ -267,6 +267,7 @@ void main()
 
     ray_payload.color        = Li;
     ray_payload.hit_position = vertex.position.xyz;
+    ray_payload.ray_length   = gl_RayTminEXT + gl_HitTEXT;
     ray_payload.hit          = true;
 }
 
