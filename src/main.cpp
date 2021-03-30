@@ -104,14 +104,15 @@ struct ReflectionsPushConstants
 struct ReflectionsSpatialResolvePushConstants
 {
     glm::vec4 z_buffer_params;
-    uint32_t bypass;
+    uint32_t  bypass;
 };
 
 struct ReflectionsTemporalPushConstants
 {
-    uint32_t  first_frame;
+    uint32_t first_frame;
     uint32_t neighborhood_clamping;
-    float     alpha;
+    float    neighborhood_std_scale;
+    float    alpha;
 };
 
 struct AmbientOcclusionPushConstants
@@ -532,6 +533,7 @@ protected:
                     ImGui::Checkbox("Spatial Resolve", &m_ray_traced_reflections_spatial_resolve);
                     ImGui::Checkbox("Neighborhood Clamping", &m_rt_reflections_neighborhood_clamping);
                     ImGui::SliderFloat("Alpha", &m_ray_traced_reflections_alpha, 0.0f, 1.0f);
+                    ImGui::SliderFloat("Standard Deviation Scale", &m_ray_traced_reflections_std_scale, 0.0f, 20.0f);
                     ImGui::PopID();
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
@@ -3204,7 +3206,7 @@ private:
         float z_buffer_params_x = -1.0 + (m_near_plane / m_far_plane);
 
         push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_near_plane, 1.0f / m_near_plane);
-        push_constants.bypass = (uint32_t)!m_ray_traced_reflections_spatial_resolve;
+        push_constants.bypass          = (uint32_t)!m_ray_traced_reflections_spatial_resolve;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->reflection_resolve_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -3266,9 +3268,10 @@ private:
 
         ReflectionsTemporalPushConstants push_constants;
 
-        push_constants.first_frame = (uint32_t)m_first_frame;
-        push_constants.neighborhood_clamping = (uint32_t)m_rt_reflections_neighborhood_clamping;
-        push_constants.alpha       = m_ray_traced_reflections_alpha;
+        push_constants.first_frame            = (uint32_t)m_first_frame;
+        push_constants.neighborhood_clamping  = (uint32_t)m_rt_reflections_neighborhood_clamping;
+        push_constants.neighborhood_std_scale = m_ray_traced_reflections_std_scale;
+        push_constants.alpha                  = m_ray_traced_reflections_alpha;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->reflection_temporal_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -4168,9 +4171,9 @@ private:
     {
         if (m_taa_enabled)
         {
-            m_prev_jitter    = m_current_jitter;
+            m_prev_jitter        = m_current_jitter;
             uint32_t  sample_idx = m_num_frames % (m_jitter_samples.size());
-            glm::vec2 halton = m_jitter_samples[sample_idx];
+            glm::vec2 halton     = m_jitter_samples[sample_idx];
 
             m_current_jitter = glm::vec2(halton.x / float(m_width), halton.y / float(m_height));
         }
@@ -4354,6 +4357,7 @@ private:
     bool  m_rt_reflections_enabled                 = true;
     bool  m_rt_reflections_neighborhood_clamping   = true;
     float m_ray_traced_reflections_alpha           = 0.05f;
+    float m_ray_traced_reflections_std_scale       = 5.0f;
 
     // Ambient Occlusion
     int32_t m_rtao_num_rays   = 2;

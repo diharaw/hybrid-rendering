@@ -53,6 +53,7 @@ layout(push_constant) uniform PushConstants
 {
     uint  first_frame;
     uint  neighborhood_clamping;
+    float neighborhood_std_scale;
     float alpha;
 }
 u_PushConstants;
@@ -72,12 +73,12 @@ vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
     // Transform into clip space
     vec3 color_vector_clip = color_vector / extent_clip;
     // Find max absolute component
-    color_vector_clip = abs(color_vector_clip);
+    color_vector_clip  = abs(color_vector_clip);
     float max_abs_unit = max(max(color_vector_clip.x, color_vector_clip.y), color_vector_clip.z);
 
     if (max_abs_unit > 1.0)
         return aabb_center + color_vector / max_abs_unit; // clip towards color vector
-    else 
+    else
         return history_sample; // point is inside aabb
 }
 
@@ -85,10 +86,10 @@ vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
 
 vec3 neighborhood_standard_deviation(ivec2 coord)
 {
-    vec3 color_sum = vec3(0.0f);
+    vec3 color_sum         = vec3(0.0f);
     vec3 color_sum_squared = vec3(0.0f);
 
-    int radius = 1;
+    int   radius = 1;
     float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
 
     for (int dx = -radius; dx <= radius; dx++)
@@ -96,7 +97,7 @@ vec3 neighborhood_standard_deviation(ivec2 coord)
         for (int dy = -radius; dy <= radius; dy++)
         {
             ivec2 sample_coord = coord + ivec2(dx, dy);
-            vec3 sample_color = texelFetch(s_Color, sample_coord, 0).rgb;
+            vec3  sample_color = texelFetch(s_Color, sample_coord, 0).rgb;
 
             color_sum += sample_color;
             color_sum_squared += sample_color * sample_color;
@@ -119,8 +120,8 @@ ivec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
 ivec2 hit_point_reprojection(vec3 ray_origin, float ray_length, ivec2 size)
 {
     vec3 camera_ray = ray_origin - ubo.cam_pos.xyz;
-        
-    float camera_ray_length = length(camera_ray);
+
+    float camera_ray_length     = length(camera_ray);
     float reflection_ray_length = ray_length;
 
     camera_ray = normalize(camera_ray);
@@ -171,15 +172,15 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 vec4 sample_history(ivec2 current_coord, ivec2 history_coord, vec3 aabb_min, vec3 aabb_max, out float weight)
 {
-    vec4 history_color  = texelFetch(s_PrevColor, history_coord, 0);
+    vec4 history_color = texelFetch(s_PrevColor, history_coord, 0);
 
     if (u_PushConstants.neighborhood_clamping == 1)
         history_color.xyz = clip_aabb(aabb_min, aabb_max, history_color.xyz).xyz;
-    
-    vec3  current_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
-    vec3  history_normal = texelFetch(s_GBuffer2, history_coord, 0).rgb;
 
-    weight = normal_edge_stopping_weight(current_normal, history_normal);
+    vec3 current_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
+    vec3 history_normal = texelFetch(s_GBuffer2, history_coord, 0).rgb;
+
+    weight = 1.0f; // normal_edge_stopping_weight(current_normal, history_normal);
 
     return history_color;
 }
@@ -195,14 +196,14 @@ void main()
 
     // Compute current pixel coord
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
-    
-    // Compute the texture coord
-    vec2 tex_coord = (vec2(current_coord) + vec2(0.5f)) / vec2(size); 
 
-    // Compute world position for the current pixel 
+    // Compute the texture coord
+    vec2 tex_coord = (vec2(current_coord) + vec2(0.5f)) / vec2(size);
+
+    // Compute world position for the current pixel
     vec3 world_pos = world_position_from_depth(tex_coord, textureLod(s_GBufferDepth, tex_coord, 0.0f).r);
 
-    // Sample the ray length for the current pixel 
+    // Sample the ray length for the current pixel
     float ray_length = texelFetch(s_Hit, current_coord, 0).a;
 
     // Sample the motion vector for the current pixel
@@ -213,14 +214,14 @@ void main()
 
     // Compute the reprojected surface point coord
     ivec2 surface_point_coord = surface_point_reprojection(current_coord, motion.xy, size);
-    
+
     // Compute the reprojected hit point coord
     ivec2 hit_point_coord = hit_point_reprojection(world_pos, ray_length, size);
-    
+
     // If the pixel roughness is below the glossy roughness threshold, use the reprojected hit point coord,
     // otherwise you the reprojected surface point coord.
     ivec2 reprojected_coord = (roughness < GLOSSY_ROUGHNESS_THRESHOLD && ray_length > 0.0f) ? hit_point_coord : surface_point_coord;
-    
+
     // Fetch current and previous pixels
     vec4 current = texelFetch(s_Color, current_coord, 0);
     vec4 prev    = vec4(0.0f);
@@ -230,17 +231,18 @@ void main()
     if (any(greaterThanEqual(current_coord, ivec2(0, 0))) && any(lessThan(current_coord, size)))
     {
         vec3 color_std = neighborhood_standard_deviation(current_coord);
-        color_std *= 2.2;
+        color_std *= u_PushConstants.neighborhood_std_scale;
+        ;
 
         vec3 radiance_min = current.xyz - color_std;
         vec3 radiance_max = current.xyz + color_std;
 
         prev = sample_history(current_coord, reprojected_coord, radiance_min, radiance_max, feedback_weight);
     }
-    
+
     // Blend previous and current sample
-    float feedback = (1.0f - u_PushConstants.alpha) * feedback_weight;
-    vec4 blended_sample = mix(current, prev, feedback);
+    float feedback       = (1.0f - u_PushConstants.alpha) * feedback_weight;
+    vec4  blended_sample = mix(current, prev, feedback);
 
     // Store blended sample into the storage image
     imageStore(i_ReprojectedColor, current_coord, blended_sample);

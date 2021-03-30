@@ -147,7 +147,7 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 void main()
 {
-    ivec2 size      = textureSize(s_GBuffer1, 0);
+    ivec2 size                  = textureSize(s_GBuffer1, 0);
     ivec2 full_res_center_coord = ivec2(gl_GlobalInvocationID.xy);
     ivec2 half_res_center_coord = full_res_center_coord / 2;
 
@@ -187,9 +187,9 @@ void main()
 
     for (int i = 0; i < sample_count; i++)
     {
-        ivec2 offset = reuse_offsets[i];
-        ivec2 full_res_sample_coord  = full_res_center_coord + offset;
-        ivec2 half_res_sample_coord  = half_res_center_coord + offset;
+        ivec2 offset                = reuse_offsets[i];
+        ivec2 full_res_sample_coord = full_res_center_coord + offset;
+        ivec2 half_res_sample_coord = half_res_center_coord + offset;
 
         if (any(lessThan(full_res_sample_coord, ivec2(1, 1))) || any(greaterThan(full_res_sample_coord, size - ivec2(1, 1))))
             continue;
