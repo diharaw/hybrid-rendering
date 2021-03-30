@@ -84,7 +84,7 @@ void main()
     FS_OUT_GBuffer1.rgb = albedo.rgb;
 
     // Normal.
-    FS_OUT_GBuffer2.rgb = fetch_normal(material, FS_IN_Tangent, FS_IN_Bitangent, FS_IN_Normal, FS_IN_Texcoord);
+    FS_OUT_GBuffer2.rgb = normalize(fetch_normal(material, FS_IN_Tangent, FS_IN_Bitangent, FS_IN_Normal, FS_IN_Texcoord));
 
     // Roughness
     FS_OUT_GBuffer1.a = fetch_roughness(material, FS_IN_Texcoord);

@@ -103,13 +103,14 @@ struct ReflectionsPushConstants
 
 struct ReflectionsSpatialResolvePushConstants
 {
+    glm::vec4 z_buffer_params;
     uint32_t bypass;
 };
 
 struct ReflectionsTemporalPushConstants
 {
-    uint32_t first_frame;
-    float    alpha;
+    uint32_t  first_frame;
+    float     alpha;
 };
 
 struct AmbientOcclusionPushConstants
@@ -678,7 +679,7 @@ protected:
     void window_resized(int width, int height) override
     {
         // Override window resized method to update camera projection.
-        m_main_camera->update_projection(60.0f, 0.1f, 10000.0f, float(m_width) / float(m_height));
+        m_main_camera->update_projection(60.0f, m_near_plane, m_far_plane, float(m_width) / float(m_height));
 
         m_vk_backend->wait_idle();
 
@@ -2992,8 +2993,7 @@ private:
 
     void create_camera()
     {
-        m_main_camera = std::make_unique<dw::Camera>(
-            60.0f, 1.0f, 10000.0f, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+        m_main_camera = std::make_unique<dw::Camera>(60.0f, m_near_plane, m_far_plane, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3199,6 +3199,9 @@ private:
 
         ReflectionsSpatialResolvePushConstants push_constants;
 
+        float z_buffer_params_x = -1.0 + (m_near_plane / m_far_plane);
+
+        push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_near_plane, 1.0f / m_near_plane);
         push_constants.bypass = (uint32_t)!m_ray_traced_reflections_spatial_resolve;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->reflection_resolve_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -4105,14 +4108,14 @@ private:
     {
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
-        glm::mat4 jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f));
-        m_projection     = m_taa_enabled ? jitter * m_main_camera->m_projection : m_main_camera->m_projection;
+        glm::mat4 current_jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f));
+        m_projection             = m_taa_enabled ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
 
         m_ubo_data.proj_inverse      = glm::inverse(m_projection);
         m_ubo_data.view_inverse      = glm::inverse(m_main_camera->m_view);
         m_ubo_data.view_proj         = m_projection * m_main_camera->m_view;
         m_ubo_data.view_proj_inverse = glm::inverse(m_ubo_data.view_proj);
-        m_ubo_data.prev_view_proj    = m_first_frame ? m_ubo_data.view_proj : m_prev_view_proj;
+        m_ubo_data.prev_view_proj    = m_first_frame ? m_main_camera->m_prev_view_projection : current_jitter * m_main_camera->m_prev_view_projection;
         m_ubo_data.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
 
         set_light_radius(m_ubo_data.light, m_light_radius);
@@ -4293,6 +4296,8 @@ private:
     std::vector<glm::vec2>      m_jitter_samples;
     glm::vec2                   m_prev_jitter    = glm::vec2(0.0f);
     glm::vec2                   m_current_jitter = glm::vec2(0.0f);
+    float                       m_near_plane     = 0.1f;
+    float                       m_far_plane      = 1000.0f;
 
     // TAA
     bool  m_taa_enabled      = true;

@@ -10,6 +10,7 @@
 
 #define NUM_THREADS 32
 #define GLOSSY_ROUGHNESS_THRESHOLD 0.05f
+#define EPSILON 0.0001f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -66,7 +67,7 @@ ivec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
 
 // ------------------------------------------------------------------
 
-ivec2 hit_point_reprojection(vec3 ray_origin, float ray_length, vec2 motion_vector, ivec2 size)
+ivec2 hit_point_reprojection(vec3 ray_origin, float ray_length, ivec2 size)
 {
     vec3 camera_ray = ray_origin - ubo.cam_pos.xyz;
         
@@ -103,6 +104,34 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
     return world_pos.xyz;
 }
 
+// ------------------------------------------------------------------------
+
+float normal_edge_stopping_weight(vec3 a, vec3 b)
+{
+    return pow(max(dot(a, b), 0.0f), 32);
+}
+
+// ------------------------------------------------------------------------
+
+float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
+{
+    return clamp(1.0f - abs(center_lin_depth - sample_lin_depth), 0.0f, 1.0f);
+}
+
+// ------------------------------------------------------------------
+
+vec4 sample_history(ivec2 current_coord, ivec2 history_coord, out float weight)
+{
+    vec4 history_color  = texelFetch(s_PrevColor, history_coord, 0);
+    
+    vec3  current_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
+    vec3  history_normal = texelFetch(s_GBuffer2, history_coord, 0).rgb;
+
+    weight = normal_edge_stopping_weight(current_normal, history_normal);
+
+    return history_color;
+}
+
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
@@ -134,18 +163,20 @@ void main()
     ivec2 surface_point_coord = surface_point_reprojection(current_coord, motion.xy, size);
     
     // Compute the reprojected hit point coord
-    ivec2 hit_point_coord = hit_point_reprojection(world_pos, ray_length, motion.xy, size);
+    ivec2 hit_point_coord = hit_point_reprojection(world_pos, ray_length, size);
     
     // If the pixel roughness is below the glossy roughness threshold, use the reprojected hit point coord,
     // otherwise you the reprojected surface point coord.
     ivec2 reprojected_coord = (roughness < GLOSSY_ROUGHNESS_THRESHOLD && ray_length > 0.0f) ? hit_point_coord : surface_point_coord;
     
     // Fetch current and previous pixels
+    float edge_stopping_weight = 0.0f;
     vec4 current = texelFetch(s_Color, current_coord, 0);
-    vec4 prev    = texelFetch(s_PrevColor, reprojected_coord, 0);
+    vec4 prev    = sample_history(current_coord, reprojected_coord, edge_stopping_weight);
 
     // Blend previous and current sample
-    vec4 blended_sample = mix(prev, current, u_PushConstants.alpha);
+    float feedback = (1.0f - u_PushConstants.alpha) * edge_stopping_weight;
+    vec4 blended_sample = mix(current, prev, feedback);
 
     // Store blended sample into the storage image
     imageStore(i_ReprojectedColor, current_coord, blended_sample);
