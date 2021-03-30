@@ -52,12 +52,61 @@ ubo;
 layout(push_constant) uniform PushConstants
 {
     uint  first_frame;
+    uint  neighborhood_clamping;
     float alpha;
 }
 u_PushConstants;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
+{
+    // Note: only clips towards aabb center
+    vec3 aabb_center = 0.5f * (aabb_max + aabb_min);
+    vec3 extent_clip = 0.5f * (aabb_max - aabb_min) + 0.001f;
+
+    // Find color vector
+    vec3 color_vector = history_sample - aabb_center;
+    // Transform into clip space
+    vec3 color_vector_clip = color_vector / extent_clip;
+    // Find max absolute component
+    color_vector_clip = abs(color_vector_clip);
+    float max_abs_unit = max(max(color_vector_clip.x, color_vector_clip.y), color_vector_clip.z);
+
+    if (max_abs_unit > 1.0)
+        return aabb_center + color_vector / max_abs_unit; // clip towards color vector
+    else 
+        return history_sample; // point is inside aabb
+}
+
+// ------------------------------------------------------------------
+
+vec3 neighborhood_standard_deviation(ivec2 coord)
+{
+    vec3 color_sum = vec3(0.0f);
+    vec3 color_sum_squared = vec3(0.0f);
+
+    int radius = 1;
+    float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
+
+    for (int dx = -radius; dx <= radius; dx++)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            ivec2 sample_coord = coord + ivec2(dx, dy);
+            vec3 sample_color = texelFetch(s_Color, sample_coord, 0).rgb;
+
+            color_sum += sample_color;
+            color_sum_squared += sample_color * sample_color;
+        }
+    }
+
+    vec3 color_std = (color_sum_squared - color_sum * color_sum / weight) / (weight - 1.0f);
+    return sqrt(max(color_std, 0.0f));
+}
+
 // ------------------------------------------------------------------
 
 ivec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
@@ -120,9 +169,12 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 // ------------------------------------------------------------------
 
-vec4 sample_history(ivec2 current_coord, ivec2 history_coord, out float weight)
+vec4 sample_history(ivec2 current_coord, ivec2 history_coord, vec3 aabb_min, vec3 aabb_max, out float weight)
 {
     vec4 history_color  = texelFetch(s_PrevColor, history_coord, 0);
+
+    if (u_PushConstants.neighborhood_clamping == 1)
+        history_color.xyz = clip_aabb(aabb_min, aabb_max, history_color.xyz).xyz;
     
     vec3  current_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
     vec3  history_normal = texelFetch(s_GBuffer2, history_coord, 0).rgb;
@@ -170,12 +222,24 @@ void main()
     ivec2 reprojected_coord = (roughness < GLOSSY_ROUGHNESS_THRESHOLD && ray_length > 0.0f) ? hit_point_coord : surface_point_coord;
     
     // Fetch current and previous pixels
-    float edge_stopping_weight = 0.0f;
     vec4 current = texelFetch(s_Color, current_coord, 0);
-    vec4 prev    = sample_history(current_coord, reprojected_coord, edge_stopping_weight);
+    vec4 prev    = vec4(0.0f);
 
+    float feedback_weight = 0.0f;
+
+    if (any(greaterThanEqual(current_coord, ivec2(0, 0))) && any(lessThan(current_coord, size)))
+    {
+        vec3 color_std = neighborhood_standard_deviation(current_coord);
+        color_std *= 2.2;
+
+        vec3 radiance_min = current.xyz - color_std;
+        vec3 radiance_max = current.xyz + color_std;
+
+        prev = sample_history(current_coord, reprojected_coord, radiance_min, radiance_max, feedback_weight);
+    }
+    
     // Blend previous and current sample
-    float feedback = (1.0f - u_PushConstants.alpha) * edge_stopping_weight;
+    float feedback = (1.0f - u_PushConstants.alpha) * feedback_weight;
     vec4 blended_sample = mix(current, prev, feedback);
 
     // Store blended sample into the storage image

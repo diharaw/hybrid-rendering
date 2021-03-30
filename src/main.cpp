@@ -110,6 +110,7 @@ struct ReflectionsSpatialResolvePushConstants
 struct ReflectionsTemporalPushConstants
 {
     uint32_t  first_frame;
+    uint32_t neighborhood_clamping;
     float     alpha;
 };
 
@@ -529,6 +530,7 @@ protected:
                     ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                     ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
                     ImGui::Checkbox("Spatial Resolve", &m_ray_traced_reflections_spatial_resolve);
+                    ImGui::Checkbox("Neighborhood Clamping", &m_rt_reflections_neighborhood_clamping);
                     ImGui::SliderFloat("Alpha", &m_ray_traced_reflections_alpha, 0.0f, 1.0f);
                     ImGui::PopID();
                 }
@@ -3265,6 +3267,7 @@ private:
         ReflectionsTemporalPushConstants push_constants;
 
         push_constants.first_frame = (uint32_t)m_first_frame;
+        push_constants.neighborhood_clamping = (uint32_t)m_rt_reflections_neighborhood_clamping;
         push_constants.alpha       = m_ray_traced_reflections_alpha;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->reflection_temporal_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -4349,6 +4352,7 @@ private:
     float m_ray_traced_reflections_bias            = 0.1f;
     bool  m_ray_traced_reflections_spatial_resolve = true;
     bool  m_rt_reflections_enabled                 = true;
+    bool  m_rt_reflections_neighborhood_clamping   = true;
     float m_ray_traced_reflections_alpha           = 0.05f;
 
     // Ambient Occlusion
