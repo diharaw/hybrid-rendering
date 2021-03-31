@@ -4,6 +4,7 @@
 #define VISUALIZATION_SHADOWS 1
 #define VISUALIZATION_AMBIENT_OCCLUSION 2
 #define VISUALIZATION_REFLECTIONS 3
+#define VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE 4
 
 // ------------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------------
@@ -84,6 +85,8 @@ void main()
         color = aces_film(color);
         color = pow(color, vec3(1.0 / 2.2));
     }
+    else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE)
+        color = texture(samplerReflections, inUV).aaa;
 
     FS_OUT_Color = vec4(color, 1.0);
 }

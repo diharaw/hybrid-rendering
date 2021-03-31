@@ -1,0 +1,149 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS 32
+#define EPSILON 0.0001f
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D i_BlurredColor;
+
+layout(set = 1, binding = 0) uniform sampler2D s_Color;
+
+layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+
+layout(set = 3, binding = 0) uniform PerFrameUBO
+{
+    mat4  view_inverse;
+    mat4  proj_inverse;
+    mat4  view_proj_inverse;
+    mat4  prev_view_proj;
+    mat4  view_proj;
+    vec4  cam_pos;
+    Light light;
+}
+ubo;
+
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    vec4 z_buffer_params;
+    float temporal_variance_threshold;
+    float roughness_sigma_min;
+    float roughness_sigma_max;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+float gaussian_weight(int x, int y) 
+{
+    uint weights[] = { 6, 4, 1 };
+    return float(weights[abs(x)] * weights[abs(y)]) / 256.0f;
+}
+
+// ------------------------------------------------------------------------
+
+float normal_edge_stopping_weight(vec3 a, vec3 b)
+{
+    return pow(max(dot(a, b), 0.0f), 32);
+}
+
+// ------------------------------------------------------------------------
+
+float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
+{
+    return clamp(1.0f - abs(center_lin_depth - sample_lin_depth), 0.0f, 1.0f);
+}
+
+// ------------------------------------------------------------------------
+
+float roughness_edge_stopping_weight(float center_roughness, float sample_roughness)
+{
+    return 1.0 - smoothstep(u_PushConstants.roughness_sigma_min, u_PushConstants.roughness_sigma_max, abs(center_roughness - sample_roughness));
+}
+
+// ------------------------------------------------------------------
+
+// Convert an exponential depth value from the current views' projection to linear 0..1 depth
+float linear_01_depth(float z)
+{
+    return 1.0 / (u_PushConstants.z_buffer_params.x * z + u_PushConstants.z_buffer_params.y);
+}
+
+// ------------------------------------------------------------------
+
+vec3 bilateral_blur(ivec2 current_coord, float center_roughness)
+{
+    const int radius = 2;
+
+    vec3 total_color = vec3(0.0f);
+    float total_weight = 0.0f;
+
+    for (int dx = -radius; dx <= radius; dx++)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            ivec2 sample_coord = coord + ivec2(dx, dy);
+            vec3  sample_color = texelFetch(s_Color, sample_coord, 0).rgb;
+            float sample_roughness = texelFetch(s_GBuffer1, sample_coord, 0).a;
+
+            float weight = gaussian_weight(dx, dy) * roughness_edge_stopping_weight(center_roughness, sample_roughness);
+
+            total_color += weight * sample_color;
+            total_weight += weight;
+        }
+    }
+
+    return total_color / max(total_weight, 0.0001f);
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    // Query the G-Buffer image size
+    ivec2 size = textureSize(s_GBuffer1, 0);
+
+    // Compute current pixel coord
+    ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // Sample the center color and variance
+    vec4 center_color = texelFetch(s_Color, current_coord, 0);
+
+    // Sample the center roughness
+    float center_roughness = texelFetch(s_GBuffer1, current_coord, 0).a;
+
+    vec3 color = center_color.xyz;
+
+    if (center_color.a > u_PushConstants.temporal_variance_threshold)
+        color = bilateral_blur(current_coord, center_roughness);
+    
+    // Store blended sample into the storage image
+    imageStore(i_BlurredColor, current_coord, vec4(color, center_color.a));
+}
+
+// ------------------------------------------------------------------
