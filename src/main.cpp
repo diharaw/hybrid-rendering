@@ -552,6 +552,7 @@ protected:
                     ImGui::Checkbox("Neighborhood Clamping", &m_rt_reflections_neighborhood_clamping);
                     ImGui::SliderFloat("Alpha", &m_ray_traced_reflections_alpha, 0.0f, 1.0f);
                     ImGui::SliderFloat("Standard Deviation Scale", &m_ray_traced_reflections_std_scale, 0.0f, 20.0f);
+                    ImGui::SliderFloat("Termporal Variance Threshold", &m_ray_traced_reflections_temporal_variance_threshold, 0.0f, 0.5f);
                     ImGui::PopID();
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
@@ -598,6 +599,7 @@ protected:
             ray_trace_reflection(cmd_buf);
             reflection_spatial_resolve(cmd_buf);
             reflection_temporal(cmd_buf);
+            reflection_blur(cmd_buf);
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
             temporal_aa(cmd_buf);
@@ -4501,7 +4503,7 @@ private:
     bool  m_ray_traced_reflections_spatial_resolve = true;
     bool  m_rt_reflections_enabled                 = true;
     bool  m_rt_reflections_neighborhood_clamping   = true;
-    float m_ray_traced_reflections_alpha           = 0.05f;
+    float m_ray_traced_reflections_alpha           = 0.01f;
     float m_ray_traced_reflections_std_scale       = 5.0f;
     float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;
     float m_ray_traced_reflections_sigma_min                   = 0.001f;

@@ -209,6 +209,15 @@ void main()
     // Compute current pixel coord
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
+    // Sample center depth and reject if sample belongs to the background
+    float center_depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
+
+    if (center_depth == 1.0f)
+    {
+        imageStore(i_ReprojectedColor, current_coord, vec4(0.0f));
+        return;
+    }
+
     // Compute the texture coord
     vec2 tex_coord = (vec2(current_coord) + vec2(0.5f)) / vec2(size);
 
