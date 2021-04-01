@@ -118,10 +118,10 @@ struct ReflectionsTemporalPushConstants
 
 struct ReflectionsBlurPushConstants
 {
-    glm::vec4  z_buffer_params;
-    float      temporal_variance_threshold;
-    float      roughness_sigma_min;
-    float      roughness_sigma_max;
+    glm::vec4 z_buffer_params;
+    float     temporal_variance_threshold;
+    float     roughness_sigma_min;
+    float     roughness_sigma_max;
 };
 
 struct AmbientOcclusionPushConstants
@@ -307,20 +307,20 @@ private:
         dw::vk::DescriptorSet::Ptr   reflection_resolve_read_ds;
 
         // Reflection blur pass
-        dw::vk::ComputePipeline::Ptr reflection_blur_pipeline;
-        dw::vk::PipelineLayout::Ptr  reflection_blur_pipeline_layout;
+        dw::vk::ComputePipeline::Ptr            reflection_blur_pipeline;
+        dw::vk::PipelineLayout::Ptr             reflection_blur_pipeline_layout;
         std::vector<dw::vk::DescriptorSet::Ptr> reflection_blur_write_ds;
         std::vector<dw::vk::DescriptorSet::Ptr> reflection_blur_read_ds;
         std::vector<dw::vk::Image::Ptr>         reflection_blur_image;
         std::vector<dw::vk::ImageView::Ptr>     reflection_blur_view;
 
         // Reflection temporal pass
-        dw::vk::ComputePipeline::Ptr            reflection_temporal_pipeline;
-        dw::vk::PipelineLayout::Ptr             reflection_temporal_pipeline_layout;
-        dw::vk::Image::Ptr                      reflection_temporal_image;
-        dw::vk::ImageView::Ptr                  reflection_temporal_view;
-        dw::vk::DescriptorSet::Ptr              reflection_temporal_write_ds;
-        dw::vk::DescriptorSet::Ptr              reflection_temporal_read_ds;
+        dw::vk::ComputePipeline::Ptr reflection_temporal_pipeline;
+        dw::vk::PipelineLayout::Ptr  reflection_temporal_pipeline_layout;
+        dw::vk::Image::Ptr           reflection_temporal_image;
+        dw::vk::ImageView::Ptr       reflection_temporal_view;
+        dw::vk::DescriptorSet::Ptr   reflection_temporal_write_ds;
+        dw::vk::DescriptorSet::Ptr   reflection_temporal_read_ds;
 
         // Deferred pass
         dw::vk::RenderPass::Ptr       deferred_rp;
@@ -816,7 +816,7 @@ private:
 
         m_gpu_resources->reflection_temporal_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_temporal_image->set_name("Reflection Temporal Image");
-                                    
+
         m_gpu_resources->reflection_temporal_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_temporal_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_temporal_view->set_name("Reflection Temporal Image View");
 
@@ -1255,8 +1255,8 @@ private:
         m_gpu_resources->reflection_rt_read_ds        = m_vk_backend->allocate_descriptor_set(m_gpu_resources->reflection_rt_read_ds_layout);
         m_gpu_resources->reflection_resolve_write_ds  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->reflection_resolve_read_ds   = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
-        m_gpu_resources->reflection_temporal_write_ds  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
-        m_gpu_resources->reflection_temporal_read_ds   = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
+        m_gpu_resources->reflection_temporal_write_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        m_gpu_resources->reflection_temporal_read_ds  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->svgf_output_read_ds          = m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_output_read_ds_layout);
         m_gpu_resources->deferred_read_ds             = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
 
@@ -3418,9 +3418,9 @@ private:
 
         float z_buffer_params_x = -1.0 + (m_near_plane / m_far_plane);
 
-        push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_near_plane, 1.0f / m_near_plane);
+        push_constants.z_buffer_params             = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_near_plane, 1.0f / m_near_plane);
         push_constants.temporal_variance_threshold = m_rt_reflections_blur ? m_ray_traced_reflections_temporal_variance_threshold : 1.0f;
-        push_constants.roughness_sigma_min = m_ray_traced_reflections_sigma_min;
+        push_constants.roughness_sigma_min         = m_ray_traced_reflections_sigma_min;
         push_constants.roughness_sigma_max         = m_ray_traced_reflections_sigma_max;
 
         vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->reflection_blur_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -4500,13 +4500,13 @@ private:
     int32_t m_visiblity_read_idx                   = 0;
 
     // Ray Traced Reflections
-    float m_ray_traced_reflections_bias            = 0.1f;
-    bool  m_ray_traced_reflections_spatial_resolve = true;
-    bool  m_rt_reflections_enabled                 = true;
-    bool  m_rt_reflections_neighborhood_clamping   = true;
-    bool  m_rt_reflections_blur               = true;
-    float m_ray_traced_reflections_alpha           = 0.01f;
-    float m_ray_traced_reflections_std_scale       = 5.0f;
+    float m_ray_traced_reflections_bias                        = 0.1f;
+    bool  m_ray_traced_reflections_spatial_resolve             = true;
+    bool  m_rt_reflections_enabled                             = true;
+    bool  m_rt_reflections_neighborhood_clamping               = true;
+    bool  m_rt_reflections_blur                                = true;
+    float m_ray_traced_reflections_alpha                       = 0.01f;
+    float m_ray_traced_reflections_std_scale                   = 5.0f;
     float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;
     float m_ray_traced_reflections_sigma_min                   = 0.001f;
     float m_ray_traced_reflections_sigma_max                   = 0.01f;

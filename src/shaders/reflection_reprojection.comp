@@ -194,7 +194,7 @@ vec3 sample_history(ivec2 current_coord, ivec2 history_coord, vec3 aabb_min, vec
 
 float compute_temporal_variance(float current_sample_luma, float history_sample_luma)
 {
-    return abs(current_sample_luma - history_sample_luma) / max(max(current_sample_luma, history_sample_luma), EPSILON); 
+    return abs(current_sample_luma - history_sample_luma) / max(max(current_sample_luma, history_sample_luma), EPSILON);
 }
 
 // ------------------------------------------------------------------
@@ -245,9 +245,9 @@ void main()
 
     // Fetch current and previous pixels
     vec3 current_sample = texelFetch(s_Color, current_coord, 0).rgb;
-    
+
     // Initialize outputs
-    vec3 blended_sample = current_sample;
+    vec3  blended_sample    = current_sample;
     float temporal_variance = 0.0f;
 
     if (any(greaterThanEqual(current_coord, ivec2(0, 0))) && any(lessThan(current_coord, size)))
@@ -259,10 +259,10 @@ void main()
         vec3 radiance_max = current_sample.xyz + color_std;
 
         vec3 history_sample = sample_history(current_coord, reprojected_coord, radiance_min, radiance_max);
-        temporal_variance = compute_temporal_variance(luminance(current_sample), luminance(history_sample));
+        temporal_variance   = compute_temporal_variance(luminance(current_sample), luminance(history_sample));
 
         // Blend previous and current sample
-        float feedback       = (1.0f - u_PushConstants.alpha);
+        float feedback = (1.0f - u_PushConstants.alpha);
         blended_sample = mix(current_sample, history_sample, feedback);
     }
 

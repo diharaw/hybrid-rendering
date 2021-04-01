@@ -48,7 +48,7 @@ ubo;
 
 layout(push_constant) uniform PushConstants
 {
-    vec4 z_buffer_params;
+    vec4  z_buffer_params;
     float temporal_variance_threshold;
     float roughness_sigma_min;
     float roughness_sigma_max;
@@ -59,7 +59,7 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-float gaussian_weight(int x, int y) 
+float gaussian_weight(int x, int y)
 {
     uint weights[] = { 6, 4, 1 };
     return float(weights[abs(x)] * weights[abs(y)]) / 256.0f;
@@ -100,16 +100,16 @@ vec3 bilateral_blur(ivec2 current_coord, vec3 center_normal, float center_roughn
 {
     const int radius = 2;
 
-    vec3 total_color = vec3(0.0f);
+    vec3  total_color  = vec3(0.0f);
     float total_weight = 0.0f;
 
     for (int dx = -radius; dx <= radius; dx++)
     {
         for (int dy = -radius; dy <= radius; dy++)
         {
-            ivec2 sample_coord = current_coord + ivec2(dx, dy);
-            vec3  sample_color = texelFetch(s_Color, sample_coord, 0).rgb;
-            vec3  sample_normal = texelFetch(s_GBuffer2, sample_coord, 0).rgb;
+            ivec2 sample_coord     = current_coord + ivec2(dx, dy);
+            vec3  sample_color     = texelFetch(s_Color, sample_coord, 0).rgb;
+            vec3  sample_normal    = texelFetch(s_GBuffer2, sample_coord, 0).rgb;
             float sample_roughness = texelFetch(s_GBuffer1, sample_coord, 0).a;
 
             float weight = gaussian_weight(dx, dy) * roughness_edge_stopping_weight(center_roughness, sample_roughness) * normal_edge_stopping_weight(center_normal, sample_normal);
@@ -156,7 +156,7 @@ void main()
 
     if (center_color.a > u_PushConstants.temporal_variance_threshold)
         color = bilateral_blur(current_coord, center_normal, center_roughness);
-    
+
     // Store blended sample into the storage image
     imageStore(i_BlurredColor, current_coord, vec4(color, center_color.a));
 }

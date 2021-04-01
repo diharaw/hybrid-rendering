@@ -107,12 +107,12 @@ void main()
 
     // Compute current pixel coord
     const ivec2 current_coord = ivec2(gl_LaunchIDEXT.xy);
-    const vec2 pixel_center = vec2(current_coord) + vec2(0.5);
-    const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeEXT.xy);
-    vec2       d            = tex_coord * 2.0 - 1.0;
-    
+    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(gl_LaunchSizeEXT.xy);
+    vec2        d             = tex_coord * 2.0 - 1.0;
+
     float depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
-    
+
     if (depth == 1.0f)
     {
         imageStore(i_AmbientOcclusion, current_coord, vec4(0.0f));

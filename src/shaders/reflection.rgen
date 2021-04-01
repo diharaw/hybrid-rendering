@@ -116,7 +116,7 @@ void main()
     const vec2  tex_coord               = pixel_center / vec2(full_res_size);
 
     float depth = texelFetch(s_GBufferDepth, full_res_pixel_coord, 0).r;
-    
+
     if (depth == 1.0f)
     {
         imageStore(i_Color, quarter_res_pixel_coord, vec4(0.0f));

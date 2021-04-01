@@ -154,7 +154,7 @@ void main()
     float center_roughness = texelFetch(s_GBuffer1, full_res_center_coord, 0).a;
     vec4  center_radiance  = texelFetch(s_Color, half_res_center_coord, 0);
     vec3  center_normal    = texelFetch(s_GBuffer2, full_res_center_coord, 0).rgb;
-    float center_depth = texelFetch(s_GBufferLinearDepth, full_res_center_coord, 0).x;
+    float center_depth     = texelFetch(s_GBufferLinearDepth, full_res_center_coord, 0).x;
     float center_lin_depth = linear_01_depth(center_depth);
 
     if (center_radiance.w == 0.0f || u_PushConstants.bypass == 1 || center_depth == 1.0f)
