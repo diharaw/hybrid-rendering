@@ -76,10 +76,20 @@ void main()
 {
     RNG rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
-    const vec2 pixel_center = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
+    // Compute current pixel coord
+    const ivec2 current_coord = ivec2(gl_LaunchIDEXT.xy);
+    const vec2 pixel_center = vec2(current_coord) + vec2(0.5);
     const vec2 tex_coord    = pixel_center / vec2(gl_LaunchSizeEXT.xy);
+    
+    float depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
+    
+    if (depth == 1.0f)
+    {
+        imageStore(i_Visibility, current_coord, vec4(0.0f));
+        return;
+    }
 
-    vec3 position      = world_position_from_depth(tex_coord, texture(s_GBufferDepth, tex_coord).r);
+    vec3 position      = world_position_from_depth(tex_coord, depth);
     vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
     vec2 motion_vector = texture(s_GBuffer3, tex_coord).rg;
 
@@ -109,7 +119,7 @@ void main()
     visibility_payload.visible = false;
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 
-    imageStore(i_Visibility, ivec2(gl_LaunchIDEXT.xy), vec4(visibility_payload.visible ? 1.0f : 0.0f));
+    imageStore(i_Visibility, current_coord, vec4(visibility_payload.visible ? 1.0f : 0.0f));
 }
 
 // ------------------------------------------------------------------------

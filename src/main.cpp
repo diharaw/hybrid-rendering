@@ -550,6 +550,7 @@ protected:
                     ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
                     ImGui::Checkbox("Spatial Resolve", &m_ray_traced_reflections_spatial_resolve);
                     ImGui::Checkbox("Neighborhood Clamping", &m_rt_reflections_neighborhood_clamping);
+                    ImGui::Checkbox("Bilateral Blur", &m_rt_reflections_blur);
                     ImGui::SliderFloat("Alpha", &m_ray_traced_reflections_alpha, 0.0f, 1.0f);
                     ImGui::SliderFloat("Standard Deviation Scale", &m_ray_traced_reflections_std_scale, 0.0f, 20.0f);
                     ImGui::SliderFloat("Termporal Variance Threshold", &m_ray_traced_reflections_temporal_variance_threshold, 0.0f, 0.5f);
@@ -3418,7 +3419,7 @@ private:
         float z_buffer_params_x = -1.0 + (m_near_plane / m_far_plane);
 
         push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_near_plane, 1.0f / m_near_plane);
-        push_constants.temporal_variance_threshold = m_ray_traced_reflections_temporal_variance_threshold;
+        push_constants.temporal_variance_threshold = m_rt_reflections_blur ? m_ray_traced_reflections_temporal_variance_threshold : 1.0f;
         push_constants.roughness_sigma_min = m_ray_traced_reflections_sigma_min;
         push_constants.roughness_sigma_max         = m_ray_traced_reflections_sigma_max;
 
@@ -4503,6 +4504,7 @@ private:
     bool  m_ray_traced_reflections_spatial_resolve = true;
     bool  m_rt_reflections_enabled                 = true;
     bool  m_rt_reflections_neighborhood_clamping   = true;
+    bool  m_rt_reflections_blur               = true;
     float m_ray_traced_reflections_alpha           = 0.01f;
     float m_ray_traced_reflections_std_scale       = 5.0f;
     float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;

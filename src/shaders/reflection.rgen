@@ -115,8 +115,17 @@ void main()
     const vec2  pixel_center            = vec2(full_res_pixel_coord) + vec2(0.5);
     const vec2  tex_coord               = pixel_center / vec2(full_res_size);
 
+    float depth = texelFetch(s_GBufferDepth, full_res_pixel_coord, 0).r;
+    
+    if (depth == 1.0f)
+    {
+        imageStore(i_Color, quarter_res_pixel_coord, vec4(0.0f));
+        imageStore(i_Hit, quarter_res_pixel_coord, vec4(0.0f));
+        return;
+    }
+
     float roughness = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).a;
-    vec3  P         = world_position_from_depth(tex_coord, texelFetch(s_GBufferDepth, full_res_pixel_coord, 0).r);
+    vec3  P         = world_position_from_depth(tex_coord, depth);
     vec3  N         = texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rgb;
     vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
 
