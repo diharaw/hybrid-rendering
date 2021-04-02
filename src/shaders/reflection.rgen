@@ -27,7 +27,7 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 2, binding = 1) uniform sampler2D s_BlueNoise;
+layout(set = 2, binding = 1) uniform sampler2D s_BlueNoise1;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
@@ -113,7 +113,7 @@ void main()
 
     const ivec2 quarter_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy);
     const ivec2 noise_coord             = ((quarter_res_pixel_coord / 2) * (int(u_PushConstants.num_frames) / 2) * ivec2(3, 7)) & 31;
-    const int   subpixel_idx            = int(texelFetch(s_BlueNoise, noise_coord, 0).r * 3.0f) + int(u_PushConstants.num_frames);
+    const int   subpixel_idx            = int(texelFetch(s_BlueNoise1, noise_coord, 0).r * 3.0f) + int(u_PushConstants.num_frames);
     const ivec2 full_res_pixel_coord    = quarter_res_pixel_coord * 2 + ivec2(subpixel_idx & 1, (subpixel_idx >> 1) & 1);
     const ivec2 full_res_size           = ivec2(gl_LaunchSizeEXT.xy) * 2;
     const vec2  pixel_center            = vec2(full_res_pixel_coord) + vec2(0.5);

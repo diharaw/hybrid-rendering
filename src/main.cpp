@@ -2271,12 +2271,16 @@ private:
         dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rgen.spv");
         dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rchit.spv");
         dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rmiss.spv");
+        dw::vk::ShaderModule::Ptr rchit_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
 
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
         sbt_desc.add_ray_gen_group(rgen, "main");
         sbt_desc.add_hit_group(rchit, "main");
+        sbt_desc.add_hit_group(rchit_visibility, "main");
         sbt_desc.add_miss_group(rmiss, "main");
+        sbt_desc.add_miss_group(rmiss_visibility, "main");
 
         m_gpu_resources->reflection_rt_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
 

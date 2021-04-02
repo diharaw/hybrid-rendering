@@ -23,6 +23,8 @@ const float CosineA2 = Pi * 0.25;
 
 layout(location = 0) rayPayloadInEXT ReflectionPayload ray_payload;
 
+layout(location = 2) rayPayloadEXT bool p_Visibility;
+
 // ------------------------------------------------------------------------
 // HIT ATTRIBUTE ----------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -174,17 +176,76 @@ vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 
 // ----------------------------------------------------------------------------
 
-//vec3 direct_lighting()
-//{
-//
-//}
+vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness, float metallic)
+{
+    Light light = ubo.light;
+
+    vec3 Li = light_color(light) * light_intensity(light);
+    vec3 Wi = light_direction(light);
+    vec3 Wh = normalize(Wo + Wi);
+
+    // Cook-Torrance BRDF
+    float NDF = distribution_ggx(N, Wh, roughness);
+    float G   = geometry_smith(N, Wo, Wi, roughness);
+    vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
+
+    vec3  nominator   = NDF * G * F;
+    float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
+    vec3  specular    = nominator / max(EPSILON, denominator);
+
+    // kS is equal to Fresnel
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    // scale light by NdotL
+    float NdotL = max(dot(N, Wi), 0.0);
+
+    uint  ray_flags  = gl_RayFlagsOpaqueEXT;
+    uint  cull_mask  = 0xff;
+    float tmin       = 0.001;
+    float tmax       = 10000.0;
+    vec3  ray_origin = P + N * 0.1f;
+
+    // fire shadow ray for visiblity
+    traceRayEXT(u_TopLevelAS, 
+                ray_flags, 
+                cull_mask, 
+                1, 
+                0, 
+                1, 
+                ray_origin, 
+                tmin, 
+                Wi, 
+                tmax, 
+                2);
+
+    // add to outgoing radiance Lo
+    return (kD * albedo / M_PI + specular) * Li * NdotL * float(p_Visibility);
+}
 
 // ----------------------------------------------------------------------------
 
-//vec3 indirect_lighting()
-//{
-//
-//}
+vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 R, vec3 F0, vec3 albedo, float roughness, float metallic)
+{
+    // Indirect lighting
+    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    vec3 irradiance = evaluate_sh9_irradiance(N);
+    vec3 diffuse    = irradiance * albedo;
+
+    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
+    const float MAX_REFLECTION_LOD = 4.0;
+    vec3        prefilteredColor   = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
+    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
+
+    return (kD * diffuse + specular);
+}
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -213,55 +274,8 @@ void main()
 
     vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
-    vec3 direct   = vec3(0.0f);
-    vec3 indirect = vec3(0.0f);
-
-    // Direct Lighting
-    {
-        Light light = ubo.light;
-
-        vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = light_direction(light);
-        vec3 Wh = normalize(Wo + Wi);
-
-        // Cook-Torrance BRDF
-        float NDF = distribution_ggx(N, Wh, roughness);
-        float G   = geometry_smith(N, Wo, Wi, roughness);
-        vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
-
-        vec3  nominator   = NDF * G * F;
-        float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
-        vec3  specular    = nominator / max(EPSILON, denominator);
-
-        // kS is equal to Fresnel
-        vec3 kS = F;
-        vec3 kD = vec3(1.0) - kS;
-        kD *= 1.0 - metallic;
-
-        // scale light by NdotL
-        float NdotL = max(dot(N, Wi), 0.0);
-
-        // add to outgoing radiance Lo
-        direct += (kD * albedo / M_PI + specular) * Li * NdotL;
-    }
-
-    // Indirect lighting
-    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
-
-    vec3 kS = F;
-    vec3 kD = 1.0 - kS;
-    kD *= 1.0 - metallic;
-
-    vec3 irradiance = evaluate_sh9_irradiance(N);
-    vec3 diffuse    = irradiance * albedo;
-
-    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
-    const float MAX_REFLECTION_LOD = 4.0;
-    vec3        prefilteredColor   = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
-    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
-
-    indirect = (kD * diffuse + specular);
+    vec3 direct   = direct_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness, metallic);
+    vec3 indirect = indirect_lighting(Wo, N, R, F0, albedo, roughness, metallic);
 
     vec3 Li = direct + indirect;
 
