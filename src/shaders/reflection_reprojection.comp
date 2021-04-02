@@ -182,7 +182,8 @@ vec3 sample_history(ivec2 current_coord, ivec2 history_coord, vec3 aabb_min, vec
     vec3 history_color = texelFetch(s_PrevColor, history_coord, 0).rgb;
 
     if (u_PushConstants.neighborhood_clamping == 1)
-        history_color = clip_aabb(aabb_min, aabb_max, history_color.xyz).xyz;
+        history_color = clamp(history_color.xyz, aabb_min, aabb_max);
+        //history_color = clip_aabb(aabb_min, aabb_max, history_color.xyz).xyz;
 
     vec3 current_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
     vec3 history_normal = texelFetch(s_GBuffer2, history_coord, 0).rgb;

@@ -268,6 +268,10 @@ private:
         dw::vk::DescriptorSetLayout::Ptr combined_sampler_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr storage_image_ds_layout;
         dw::vk::Buffer::Ptr              ubo;
+        dw::vk::Image::Ptr               blue_noise_image_1;
+        dw::vk::ImageView::Ptr           blue_noise_view_1;
+        dw::vk::Image::Ptr               blue_noise_image_2;
+        dw::vk::ImageView::Ptr           blue_noise_view_2;
 
         // Ray-Traced Shadows
         dw::vk::RayTracingPipeline::Ptr         shadow_mask_pipeline;
@@ -434,6 +438,10 @@ protected:
         m_gpu_resources->hosek_wilkie_sky_model = std::unique_ptr<dw::HosekWilkieSkyModel>(new dw::HosekWilkieSkyModel(m_vk_backend));
         m_gpu_resources->cubemap_sh_projection  = std::unique_ptr<dw::CubemapSHProjection>(new dw::CubemapSHProjection(m_vk_backend, m_gpu_resources->hosek_wilkie_sky_model->image()));
         m_gpu_resources->cubemap_prefilter      = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, m_gpu_resources->hosek_wilkie_sky_model->image()));
+        m_gpu_resources->blue_noise_image_1       = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
+        m_gpu_resources->blue_noise_view_1        = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_gpu_resources->blue_noise_image_2       = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
+        m_gpu_resources->blue_noise_view_2        = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
         create_output_images();
         create_render_passes();
@@ -1171,6 +1179,7 @@ private:
 
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_gpu_resources->per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
         }
@@ -1279,23 +1288,69 @@ private:
     {
         // Per-frame
         {
-            VkDescriptorBufferInfo buffer_info;
+            std::vector<VkWriteDescriptorSet> write_datas;
 
-            buffer_info.range  = VK_WHOLE_SIZE;
-            buffer_info.offset = 0;
-            buffer_info.buffer = m_gpu_resources->ubo->handle();
+            {
+                VkDescriptorBufferInfo buffer_info;
 
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
+                buffer_info.range  = VK_WHOLE_SIZE;
+                buffer_info.offset = 0;
+                buffer_info.buffer = m_gpu_resources->ubo->handle();
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-            write_data.pBufferInfo     = &buffer_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_gpu_resources->per_frame_ds->handle();
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                write_data.pBufferInfo     = &buffer_info;
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->per_frame_ds->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo image_info;
+
+                image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info.imageView   = m_gpu_resources->blue_noise_view_1->handle();
+                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_info;
+                write_data.dstBinding      = 1;
+                write_data.dstSet          = m_gpu_resources->per_frame_ds->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo image_info;
+
+                image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info.imageView   = m_gpu_resources->blue_noise_view_2->handle();
+                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_info;
+                write_data.dstBinding      = 2;
+                write_data.dstSet          = m_gpu_resources->per_frame_ds->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
         // G-Buffer

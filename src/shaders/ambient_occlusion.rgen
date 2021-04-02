@@ -32,7 +32,7 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadEXT VisibilityPayload visibility_payload;
+layout(location = 0) rayPayloadEXT bool visibility_payload;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -136,10 +136,10 @@ void main()
 
         vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 
-        visibility_payload.visible = false;
+        visibility_payload = false;
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, sample_direction, tmax, 0);
 
-        ao += visibility_payload.visible ? 1.0f : 0.0f;
+        ao += visibility_payload ? 1.0f : 0.0f;
     }
 
     ao = pow(ao / float(u_PushConstants.num_rays), u_PushConstants.power);

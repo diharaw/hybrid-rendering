@@ -8,7 +8,7 @@
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadInEXT VisibilityPayload visibility_payload;
+layout(location = 0) rayPayloadInEXT bool visibility_payload;
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -17,7 +17,7 @@ layout(location = 0) rayPayloadInEXT VisibilityPayload visibility_payload;
 void main()
 {
     // In shadow
-    visibility_payload.visible = false;
+    visibility_payload = false;
 }
 
 // ------------------------------------------------------------------------

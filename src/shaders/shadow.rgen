@@ -34,7 +34,7 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadEXT VisibilityPayload visibility_payload;
+layout(location = 0) rayPayloadEXT bool visibility_payload;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -116,10 +116,10 @@ void main()
     // Ray bias
     position += normal * u_PushConstants.bias;
 
-    visibility_payload.visible = false;
+    visibility_payload = false;
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, position, tmin, shadow_ray_dir, tmax, 0);
 
-    imageStore(i_Visibility, current_coord, vec4(visibility_payload.visible ? 1.0f : 0.0f));
+    imageStore(i_Visibility, current_coord, vec4(visibility_payload ? 1.0f : 0.0f));
 }
 
 // ------------------------------------------------------------------------

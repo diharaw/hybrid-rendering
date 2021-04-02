@@ -33,11 +33,6 @@ struct ReflectionPayload
     bool hit;
 };
 
-struct VisibilityPayload
-{
-    bool visible;
-};
-
 struct Light
 {
     vec4 data0;
