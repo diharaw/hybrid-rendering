@@ -33,6 +33,14 @@ struct ReflectionPayload
     bool hit;
 };
 
+struct IndirectDiffusePayload
+{
+    vec3 L;
+    vec3 T;
+    uint depth;
+    RNG rng;
+};
+
 struct Light
 {
     vec4 data0;
