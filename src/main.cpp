@@ -323,7 +323,6 @@ private:
         std::vector<dw::vk::DescriptorSet::Ptr> reflection_blur_read_ds;
         std::vector<dw::vk::Image::Ptr>         reflection_blur_image;
         std::vector<dw::vk::ImageView::Ptr>     reflection_blur_view;
-
         std::vector<dw::vk::DescriptorSet::Ptr> reflection_history_ds;
         std::vector<dw::vk::Image::Ptr>         reflection_history_image;
         std::vector<dw::vk::ImageView::Ptr>     reflection_history_view;
@@ -336,7 +335,7 @@ private:
         dw::vk::DescriptorSet::Ptr   reflection_temporal_write_ds;
         dw::vk::DescriptorSet::Ptr   reflection_temporal_read_ds;
 
-        // Global Illumination pass
+        // Global Illumination Ray Tracing pass
         dw::vk::DescriptorSet::Ptr      rtgi_write_ds;
         dw::vk::DescriptorSet::Ptr      rtgi_read_ds;
         dw::vk::RayTracingPipeline::Ptr rtgi_pipeline;
@@ -345,6 +344,17 @@ private:
         dw::vk::ImageView::Ptr          rtgi_view;
         dw::vk::ShaderBindingTable::Ptr rtgi_sbt;
 
+        // Global Illumination Temporal pass
+        dw::vk::ComputePipeline::Ptr    rtgi_temporal_pipeline;
+        dw::vk::PipelineLayout::Ptr     rtgi_temporal_pipeline_layout;
+        std::vector<dw::vk::DescriptorSet::Ptr>      rtgi_temporal_write_ds;
+        std::vector<dw::vk::DescriptorSet::Ptr>      rtgi_temporal_read_ds;
+        std::vector<dw::vk::DescriptorSet::Ptr>      rtgi_temporal_history_ds;
+        std::vector<dw::vk::Image::Ptr>              rtgi_temporal_image;
+        std::vector<dw::vk::ImageView::Ptr>          rtgi_temporal_view;
+        std::vector<dw::vk::Image::Ptr>              rtgi_temporal_history_image;
+        std::vector<dw::vk::ImageView::Ptr>          rtgi_temporal_history_view;
+ 
         // Deferred pass
         dw::vk::RenderPass::Ptr       deferred_rp;
         dw::vk::Framebuffer::Ptr      deferred_fbo;
@@ -474,6 +484,7 @@ protected:
         create_ambient_occlusion_ray_tracing_pipeline();
         create_reflection_ray_tracing_pipeline();
         create_gi_ray_tracing_pipeline();
+        create_gi_temporal_pipeline();
         //create_reflection_resolve_pipeline();
         //create_reflection_temporal_pipeline();
         create_reflection_blur_pipeline();
@@ -637,6 +648,7 @@ protected:
             svgf_denoise(cmd_buf);
             ray_trace_reflection(cmd_buf);
             ray_trace_gi(cmd_buf);
+            //gi_temporal(cmd_buf);
             //reflection_spatial_resolve(cmd_buf);
             //reflection_temporal(cmd_buf);
             reflection_blur(cmd_buf);
@@ -786,6 +798,9 @@ private:
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
+        uint32_t rtgi_image_width  = m_downscaled_rt ? m_width / 4 : m_width;
+        uint32_t rtgi_image_height = m_downscaled_rt ? m_height / 4 : m_height;
+
         for (int i = 0; i < 2; i++)
         {
             {
@@ -823,6 +838,30 @@ private:
 
                 m_gpu_resources->reflection_history_view.push_back(image_view);
             }
+
+            {
+                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rtgi_image_width, rtgi_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+                image->set_name("RTGI Temporal Image " + std::to_string(i));
+
+                m_gpu_resources->rtgi_temporal_image.push_back(image);
+
+                auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+                image_view->set_name("RTGI Temporal Image View " + std::to_string(i));
+
+                m_gpu_resources->rtgi_temporal_view.push_back(image_view);
+            }
+
+            {
+                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rtgi_image_width, rtgi_image_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+                image->set_name("RTGI History Image " + std::to_string(i));
+
+                m_gpu_resources->rtgi_temporal_history_image.push_back(image);
+
+                auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+                image_view->set_name("RTGI History Image View " + std::to_string(i));
+
+                m_gpu_resources->rtgi_temporal_history_view.push_back(image_view);
+            }
         }
 
         m_gpu_resources->deferred_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
@@ -853,7 +892,7 @@ private:
         m_gpu_resources->reflection_rt_color_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->reflection_rt_color_view->set_name("Reflection RT Color Image View");
 
-        m_gpu_resources->rtgi_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->rtgi_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rtgi_image_width, rtgi_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->rtgi_image->set_name("RTGI Image");
                          
         m_gpu_resources->rtgi_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->rtgi_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1331,6 +1370,9 @@ private:
             m_gpu_resources->reflection_blur_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
             m_gpu_resources->reflection_blur_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
             m_gpu_resources->reflection_history_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
+            m_gpu_resources->rtgi_temporal_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
+            m_gpu_resources->rtgi_temporal_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
+            m_gpu_resources->rtgi_temporal_history_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
         }
     }
 
@@ -2089,40 +2131,6 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
-        // Reflection Blur write
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(2);
-            write_datas.reserve(2);
-
-            for (int i = 0; i < 2; i++)
-            {
-                VkDescriptorImageInfo storage_image_info;
-
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_gpu_resources->reflection_blur_view[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                image_infos.push_back(storage_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_gpu_resources->reflection_blur_write_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
-
         // Reflection History write
         {
             std::vector<VkDescriptorImageInfo> image_infos;
@@ -2150,6 +2158,40 @@ private:
                 write_data.pImageInfo      = &image_infos.back();
                 write_data.dstBinding      = 0;
                 write_data.dstSet          = m_gpu_resources->reflection_history_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+        }
+
+        // Reflection Blur write
+        {
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
+
+            image_infos.reserve(2);
+            write_datas.reserve(2);
+
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_gpu_resources->reflection_blur_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->reflection_blur_write_ds[i]->handle();
 
                 write_datas.push_back(write_data);
             }
@@ -2190,6 +2232,109 @@ private:
 
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
+
+        // RTGI History write
+        {
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
+
+            image_infos.reserve(2);
+            write_datas.reserve(2);
+
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_gpu_resources->rtgi_temporal_history_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->rtgi_temporal_history_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+        }
+
+        // Reflection Blur write
+        {
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
+
+            image_infos.reserve(2);
+            write_datas.reserve(2);
+
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_gpu_resources->rtgi_temporal_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->rtgi_temporal_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+        }
+
+        // Reflection Blur read
+        {
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
+
+            image_infos.reserve(2);
+            write_datas.reserve(2);
+
+            for (int i = 0; i < 2; i++)
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_gpu_resources->rtgi_temporal_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_gpu_resources->rtgi_temporal_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+        }
+
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2566,6 +2711,33 @@ private:
         comp_desc.set_shader_stage(module, "main");
 
         m_gpu_resources->reflection_blur_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void create_gi_temporal_pipeline()
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflectionsBlurPushConstants));
+
+        m_gpu_resources->rtgi_temporal_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/gi_reprojection.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_gpu_resources->rtgi_temporal_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_gpu_resources->rtgi_temporal_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3553,7 +3725,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->rtgi_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_downscaled_rt ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() :  m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->pbr_ds->handle(),
             m_gpu_resources->skybox_ds->handle()
         };
@@ -3570,8 +3742,8 @@ private:
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->rtgi_sbt->hit_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
+        uint32_t rt_image_width  = m_downscaled_rt ? m_width / 4 : m_width;
+        uint32_t rt_image_height = m_downscaled_rt ? m_height / 4 : m_height;
 
         vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
 
@@ -3763,6 +3935,75 @@ private:
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
             m_gpu_resources->reflection_history_image[write_idx]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void gi_temporal(dw::vk::CommandBuffer::Ptr cmd_buf)
+    {
+        DW_SCOPED_SAMPLE("Global Illumination Temporal", cmd_buf);
+
+        const uint32_t NUM_THREADS = 32;
+        const uint32_t write_idx   = (uint32_t)m_ping_pong;
+        const uint32_t read_idx    = (uint32_t)!m_ping_pong;
+
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_gpu_resources->rtgi_temporal_image[write_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_gpu_resources->rtgi_temporal_history_image[write_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->rtgi_temporal_pipeline->handle());
+
+        ReflectionsBlurPushConstants push_constants;
+
+        push_constants.alpha = m_svgf_alpha;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->rtgi_temporal_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_gpu_resources->rtgi_temporal_write_ds[write_idx]->handle(),
+            m_gpu_resources->rtgi_temporal_history_ds[write_idx]->handle(),
+            m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->downsampled_g_buffer_ds[!m_ping_pong]->handle(),
+            m_gpu_resources->rtgi_read_ds->handle(),
+            m_gpu_resources->rtgi_temporal_read_ds[read_idx]->handle(),
+            m_gpu_resources->per_frame_ds->handle()
+        };
+
+        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->rtgi_temporal_pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
+
+        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
+
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+
+        // Prepare ray tracing output image as transfer source
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_gpu_resources->rtgi_temporal_image[write_idx]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_gpu_resources->rtgi_temporal_history_image[write_idx]->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
@@ -4612,7 +4853,7 @@ private:
             m_gpu_resources->taa_read_ds[m_ping_pong]->handle(),
             m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle(),
             m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
-            m_gpu_resources->rtgi_read_ds->handle()
+            m_gpu_resources->rtgi_read_ds->handle() //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
         };
 
         ToneMapPushConstants push_constants;
@@ -4765,6 +5006,13 @@ private:
 
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
+                m_gpu_resources->rtgi_temporal_history_image[!m_ping_pong]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
                 m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(),
                 VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_GENERAL,
@@ -4789,6 +5037,7 @@ private:
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->prev_visibility_image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->reflection_history_image[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+            vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->rtgi_temporal_history_image[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
 
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
@@ -4818,6 +5067,19 @@ private:
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
 
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_gpu_resources->rtgi_temporal_history_image[!m_ping_pong]->handle(),
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_gpu_resources->rtgi_temporal_image[!m_ping_pong]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
         }
     }
 
@@ -4879,6 +5141,7 @@ private:
 
     // General Ray Tracing Settings
     bool m_quarter_resolution = true;
+    bool m_downscaled_rt = true;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;

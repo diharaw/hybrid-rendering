@@ -176,7 +176,9 @@ void main()
 
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
 
-    imageStore(i_Color, quarter_res_pixel_coord, vec4(p_PathTracePayload.L, 0.0f));
+    vec3 clamped_color = min(p_PathTracePayload.L, vec3(0.7f));
+
+    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, 0.0f));
 }
 
 // ------------------------------------------------------------------------
