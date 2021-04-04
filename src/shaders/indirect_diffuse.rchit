@@ -188,7 +188,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
 {
     vec3 L = vec3(0.0f);
 
-    uint  ray_flags  = gl_RayFlagsOpaqueEXT;
+    uint  ray_flags  = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
     uint  cull_mask  = 0xff;
     float tmin       = 0.001;
     float tmax       = 10000.0;
@@ -196,10 +196,20 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
 
     // Directional Light
     {
-        Light light = ubo.light;
+        const Light light = ubo.light;
 
         vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = light_direction(light);
+        
+        vec3 light_tangent   = normalize(cross(light_direction(light), vec3(0.0f, 1.0f, 0.0f)));
+        vec3 light_bitangent = normalize(cross(light_tangent, light_direction(light)));
+
+        // calculate disk point
+        vec2 rnd_sample = next_vec2(p_PathTracePayload.rng);
+        float point_radius = light_radius(light) * sqrt(rnd_sample.x);
+        float point_angle  = rnd_sample.y * 2.0f * M_PI;
+        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+        vec3 Wi            = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+
         vec3 Wh = normalize(Wo + Wi);
   
         // fire shadow ray for visiblity

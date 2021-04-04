@@ -49,7 +49,7 @@ u_PushConstants;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadEXT ReflectionPayload ray_payload;
+layout(location = 0) rayPayloadEXT ReflectionPayload p_PathTracePayload;
 
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
@@ -109,7 +109,7 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 void main()
 {
-    RNG rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
+    p_PathTracePayload.rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
     const ivec2 quarter_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy);
     const ivec2 noise_coord             = ((quarter_res_pixel_coord / 2) * (int(u_PushConstants.num_frames) / 2) * ivec2(3, 7)) & 31;
@@ -141,7 +141,7 @@ void main()
 
     float pdf = 0.0f;
 
-    ray_payload.ray_length = 0.0f;
+    p_PathTracePayload.ray_length = 0.0f;
 
     if (roughness < 0.05f)
     {
@@ -150,16 +150,16 @@ void main()
     }
     else
     {
-        vec4 Wh_pdf = importance_sample_ggx(next_vec2(rng), N, roughness);
+        vec4 Wh_pdf = importance_sample_ggx(next_vec2(p_PathTracePayload.rng), N, roughness);
         pdf         = Wh_pdf.w;
         vec3 Wi     = reflect(-Wo, Wh_pdf.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
     }
 
-    vec3 clamped_color = min(ray_payload.color, vec3(0.7f));
+    vec3 clamped_color = min(p_PathTracePayload.color, vec3(0.7f));
 
-    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, float(ray_payload.hit)));
-    imageStore(i_Hit, quarter_res_pixel_coord, vec4(ray_payload.hit_position, ray_payload.ray_length));
+    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, float(p_PathTracePayload.hit)));
+    imageStore(i_Hit, quarter_res_pixel_coord, vec4(p_PathTracePayload.hit_position, p_PathTracePayload.ray_length));
 }
 
 // ------------------------------------------------------------------------

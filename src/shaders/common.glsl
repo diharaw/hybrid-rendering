@@ -31,6 +31,7 @@ struct ReflectionPayload
     vec3 hit_position;
     float ray_length;
     bool hit;
+    RNG rng;
 };
 
 struct IndirectDiffusePayload

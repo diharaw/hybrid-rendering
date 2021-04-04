@@ -16,12 +16,13 @@ const float Pi       = 3.141592654;
 const float CosineA0 = Pi;
 const float CosineA1 = (2.0 * Pi) / 3.0;
 const float CosineA2 = Pi * 0.25;
+const float IndirectIntensity = 0.01f;
 
 // ------------------------------------------------------------------------
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadInEXT ReflectionPayload ray_payload;
+layout(location = 0) rayPayloadInEXT ReflectionPayload p_PathTracePayload;
 
 layout(location = 2) rayPayloadEXT bool p_Visibility;
 
@@ -121,130 +122,214 @@ vec3 evaluate_sh9_irradiance(in vec3 direction)
 
 // ------------------------------------------------------------------
 
-float distribution_ggx(vec3 N, vec3 H, float roughness)
+mat3 make_rotation_matrix(vec3 z)
 {
-    float a      = roughness * roughness;
-    float a2     = a * a;
-    float NdotH  = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
+    const vec3 ref = abs(dot(z, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
 
-    float nom   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom       = M_PI * denom * denom;
+    const vec3 x = normalize(cross(ref, z));
+    const vec3 y = cross(z, x);
 
-    return nom / max(EPSILON, denom);
+    return mat3(x, y, z);
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-float geometry_schlick_ggx(float NdotV, float roughness)
+vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
 {
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
+    vec2 rand_sample = max(vec2(0.00001f), r);
 
-    float nom   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
+    const float phi = 2.0f * M_PI * rand_sample.y;
 
-    return nom / max(EPSILON, denom);
+    const float cos_theta = sqrt(rand_sample.x);
+    const float sin_theta = sqrt(1 - rand_sample.x);
+
+    vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+
+    return normalize(make_rotation_matrix(n) * t);
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-float geometry_smith(vec3 N, vec3 V, vec3 L, float roughness)
+float D_ggx(in float ndoth, in float alpha)
 {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2  = geometry_schlick_ggx(NdotV, roughness);
-    float ggx1  = geometry_schlick_ggx(NdotL, roughness);
+    float a2 = alpha * alpha;
+    float denom = (ndoth * ndoth) * (a2 - 1.0) + 1.0;
 
-    return ggx1 * ggx2;
+    return a2 / max(EPSILON, (M_PI * denom * denom));
 }
 
-// ----------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-vec3 fresnel_schlick(float cosTheta, vec3 F0)
+float G1_schlick_ggx(in float roughness, in float ndotv)
 {
-    return F0 + (1.0 - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
+    float k = ((roughness + 1) * (roughness + 1)) / 8.0;
+
+    return ndotv / max(EPSILON, (ndotv * (1 - k) + k));
 }
 
-// ----------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
+float G_schlick_ggx(in float ndotl, in float ndotv, in float roughness) 
 {
-    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
+    return G1_schlick_ggx(roughness, ndotl) * G1_schlick_ggx(roughness, ndotv);
 }
 
-// ----------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness, float metallic)
+vec3 F_schlick(in vec3 f0, in float vdoth)
 {
-    Light light = ubo.light;
+    return f0 + (vec3(1.0) - f0) * (pow(1.0 - vdoth, 5.0)); 
+}
 
-    vec3 Li = light_color(light) * light_intensity(light);
-    vec3 Wi = light_direction(light);
-    vec3 Wh = normalize(Wo + Wi);
+// ------------------------------------------------------------------------
 
-    // Cook-Torrance BRDF
-    float NDF = distribution_ggx(N, Wh, roughness);
-    float G   = geometry_smith(N, Wo, Wi, roughness);
-    vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
+vec3 evaluate_ggx(in float roughness, in vec3 F, in float ndoth, in float ndotl, in float ndotv)
+{
+    float alpha = roughness * roughness;
+    return (D_ggx(ndoth, alpha) * F * G_schlick_ggx(ndotl, ndotv, roughness)) / max(EPSILON, (4.0 * ndotl * ndotv)); 
+}
 
-    vec3  nominator   = NDF * G * F;
-    float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
-    vec3  specular    = nominator / max(EPSILON, denominator);
+// ------------------------------------------------------------------------
 
-    // kS is equal to Fresnel
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metallic;
+float pdf_D_ggx(in float alpha, in float ndoth, in float vdoth)
+{
+    return D_ggx(ndoth, alpha) * ndoth / max(EPSILON, (4.0 * vdoth));
+}
 
-    // scale light by NdotL
+// ------------------------------------------------------------------------
+
+float pdf_cosine_lobe(in float ndotl)
+{
+    return ndotl / M_PI;
+}
+
+// ------------------------------------------------------------------------
+
+vec3 evaluate_lambert(in vec3 albedo)
+{
+    return albedo / M_PI;
+}
+
+// ------------------------------------------------------------------------
+
+vec3 sample_lambert(in vec3 albedo, in vec3 N, in vec3 Wo, in RNG rng, out vec3 Wi, out float pdf, out float NdotL)
+{
+    vec3 Wh;
+
+    Wi = sample_cosine_lobe(N, next_vec2(rng));
+    Wh = normalize(Wo + Wi);
+
+    NdotL = max(dot(N, Wi), 0.0);
+    pdf = pdf_cosine_lobe(NdotL);
+
+    return evaluate_lambert(albedo);
+}
+
+// ------------------------------------------------------------------------
+
+vec3 evaluate_uber(in vec3 albedo, in float roughness, in vec3 N, in vec3 F0, in vec3 Wo, in vec3 Wh, in vec3 Wi)
+{
     float NdotL = max(dot(N, Wi), 0.0);
+    float NdotV = max(dot(N, Wo), 0.0);
+    float NdotH = max(dot(N, Wh), 0.0);
+    float VdotH = max(dot(Wi, Wh), 0.0);
 
-    uint  ray_flags  = gl_RayFlagsOpaqueEXT;
+    vec3 F = F_schlick(F0, VdotH);
+    vec3 specular = evaluate_ggx(roughness, F, NdotH, NdotL, NdotV);
+    vec3 diffuse = evaluate_lambert(albedo.xyz);
+
+    return (vec3(1.0) - F) * diffuse + specular;
+}
+
+// ------------------------------------------------------------------------
+
+vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness)
+{
+    vec3 L = vec3(0.0f);
+
+    uint  ray_flags  = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
     uint  cull_mask  = 0xff;
     float tmin       = 0.001;
     float tmax       = 10000.0;
     vec3  ray_origin = P + N * 0.1f;
 
-    // fire shadow ray for visiblity
-    traceRayEXT(u_TopLevelAS, 
-                ray_flags, 
-                cull_mask, 
-                1, 
-                0, 
-                1, 
-                ray_origin, 
-                tmin, 
-                Wi, 
-                tmax, 
-                2);
+    // Directional Light
+    {
+        const Light light = ubo.light;
 
-    // add to outgoing radiance Lo
-    return (kD * albedo / M_PI + specular) * Li * NdotL * float(p_Visibility);
+        vec3 Li = light_color(light) * light_intensity(light);
+
+        vec3 light_tangent   = normalize(cross(light_direction(light), vec3(0.0f, 1.0f, 0.0f)));
+        vec3 light_bitangent = normalize(cross(light_tangent, light_direction(light)));
+
+        // calculate disk point
+        vec2 rnd_sample = next_vec2(p_PathTracePayload.rng);
+        float point_radius = light_radius(light) * sqrt(rnd_sample.x);
+        float point_angle  = rnd_sample.y * 2.0f * M_PI;
+        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+        vec3 Wi            = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+
+        vec3 Wh = normalize(Wo + Wi);
+  
+        // fire shadow ray for visiblity
+        traceRayEXT(u_TopLevelAS, 
+                    ray_flags, 
+                    cull_mask, 
+                    1, 
+                    0, 
+                    1, 
+                    ray_origin, 
+                    tmin, 
+                    Wi, 
+                    tmax, 
+                    2);
+        
+        Li *=  float(p_Visibility);
+
+        vec3 brdf = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
+        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
+
+        L += brdf * cos_theta * Li;
+    }
+    
+    // Sky Light
+    {
+        vec2 rand_value = next_vec2(p_PathTracePayload.rng);
+        vec3 Wi = sample_cosine_lobe(N, rand_value);
+        vec3 Li = texture(s_Cubemap, Wi).rgb;
+        float pdf = pdf_cosine_lobe(dot(N, Wi)); 
+        vec3 Wh = normalize(Wo + Wi);
+
+        // fire shadow ray for visiblity
+        traceRayEXT(u_TopLevelAS, 
+                    ray_flags, 
+                    cull_mask, 
+                    1, 
+                    0, 
+                    1, 
+                    ray_origin, 
+                    tmin, 
+                    Wi, 
+                    tmax, 
+                    2);
+
+        Li *= float(p_Visibility);
+
+        vec3 brdf = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
+        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
+
+        L += (brdf * cos_theta * Li) / pdf;
+    }
+ 
+    return L;
 }
 
-// ----------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 R, vec3 F0, vec3 albedo, float roughness, float metallic)
+vec3 indirect_lighting(vec3 N, vec3 albedo)
 {
-    // Indirect lighting
-    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
-
-    vec3 kS = F;
-    vec3 kD = 1.0 - kS;
-    kD *= 1.0 - metallic;
-
     vec3 irradiance = evaluate_sh9_irradiance(N);
-    vec3 diffuse    = irradiance * albedo;
-
-    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
-    const float MAX_REFLECTION_LOD = 4.0;
-    vec3        prefilteredColor   = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
-    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y);
-
-    return (kD * diffuse + specular);
+    return irradiance * albedo;
 }
 
 // ------------------------------------------------------------------------
@@ -274,15 +359,14 @@ void main()
 
     vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
-    vec3 direct   = direct_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness, metallic);
-    vec3 indirect = indirect_lighting(Wo, N, R, F0, albedo, roughness, metallic);
+    vec3 Li = direct_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness);
 
-    vec3 Li = direct + indirect;
+    Li += indirect_lighting(N, albedo) * IndirectIntensity;
 
-    ray_payload.color        = Li;
-    ray_payload.hit_position = vertex.position.xyz;
-    ray_payload.ray_length   = gl_RayTminEXT + gl_HitTEXT;
-    ray_payload.hit          = true;
+    p_PathTracePayload.color        = Li;
+    p_PathTracePayload.hit_position = vertex.position.xyz;
+    p_PathTracePayload.ray_length   = gl_RayTminEXT + gl_HitTEXT;
+    p_PathTracePayload.hit          = true;
 }
 
 // ------------------------------------------------------------------------
