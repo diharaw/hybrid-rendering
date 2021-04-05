@@ -102,6 +102,7 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, o
     vec3 normal = octohedral_to_direction(floatBitsToUint(depth.w));
 
     prevColor = vec4(0, 0, 0, 0);
+    prevMoments = vec4(0, 0, 0, 0);
 
     bool       v[4];
     const vec2 posPrev   = floor(fragCoord.xy) + motion.xy * imageDim;
@@ -194,7 +195,7 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, o
         prevMoments   = vec4(0, 0, 0, 0);
         historyLength = 0;
     }
-
+    
     return valid;
 }
 
@@ -229,7 +230,7 @@ void main()
     moments.g    = moments.r * moments.r;
 
     // temporal integration of the moments
-    moments = mix(prev_moments, moments, u_PushConstants.moments_alpha);
+    moments = mix(prev_moments, moments, alphaMoments);
 
     imageStore(i_Moments, ivec2(gl_GlobalInvocationID.xy), moments);
     imageStore(i_HistoryLength, ivec2(gl_GlobalInvocationID.xy), vec4(history_length));
