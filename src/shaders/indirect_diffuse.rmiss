@@ -25,11 +25,11 @@ layout(location = 0) rayPayloadInEXT IndirectDiffusePayload ray_payload;
 // ------------------------------------------------------------------------
 
 void main()
-{	
-	if (ray_payload.depth == 0)
-		ray_payload.L = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb; 
-	else
-		ray_payload.L = vec3(0.0f);
+{
+    if (ray_payload.depth == 0)
+        ray_payload.L = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
+    else
+        ray_payload.L = vec3(0.0f);
 }
 
 // ------------------------------------------------------------------------

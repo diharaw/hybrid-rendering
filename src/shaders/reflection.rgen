@@ -13,7 +13,6 @@
 // ------------------------------------------------------------------------
 
 layout(set = 1, binding = 0, rgba16f) uniform image2D i_Color;
-layout(set = 1, binding = 1, rgba32f) uniform image2D i_Hit;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
@@ -124,7 +123,6 @@ void main()
     if (depth == 1.0f)
     {
         imageStore(i_Color, quarter_res_pixel_coord, vec4(0.0f));
-        imageStore(i_Hit, quarter_res_pixel_coord, vec4(0.0f));
         return;
     }
 
@@ -158,8 +156,7 @@ void main()
 
     vec3 clamped_color = min(p_PathTracePayload.color, vec3(0.7f));
 
-    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, float(p_PathTracePayload.hit)));
-    imageStore(i_Hit, quarter_res_pixel_coord, vec4(p_PathTracePayload.hit_position, p_PathTracePayload.ray_length));
+    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, p_PathTracePayload.ray_length));
 }
 
 // ------------------------------------------------------------------------

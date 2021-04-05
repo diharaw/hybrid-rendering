@@ -131,10 +131,10 @@ bool load_prev_data(ivec2 fragCoord, vec2 posPrev, vec4 motion, out vec4 prevCol
     vec3 normal = octohedral_to_direction(floatBitsToUint(depth.w));
 
     const ivec2 iposPrev = ivec2(vec2(posPrev) + vec2(0.5f));
-    prevColor = vec4(0, 0, 0, 0);
+    prevColor            = vec4(0, 0, 0, 0);
 
-    bool       v[4];
-    ivec2      offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
+    bool  v[4];
+    ivec2 offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
 
     // check for all 4 taps of the bilinear filter for validity
     bool valid = false;
@@ -161,7 +161,7 @@ bool load_prev_data(ivec2 fragCoord, vec2 posPrev, vec4 motion, out vec4 prevCol
                        (1 - x) * y,
                        x * y };
 
-        prevColor   = vec4(0, 0, 0, 0);
+        prevColor = vec4(0, 0, 0, 0);
 
         // perform the actual bilinear interpolation
         for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
@@ -176,8 +176,8 @@ bool load_prev_data(ivec2 fragCoord, vec2 posPrev, vec4 motion, out vec4 prevCol
         }
 
         // redistribute weights in case not all taps were used
-        valid       = (sumw >= 0.01);
-        prevColor   = valid ? prevColor / sumw : vec4(0, 0, 0, 0);
+        valid     = (sumw >= 0.01);
+        prevColor = valid ? prevColor / sumw : vec4(0, 0, 0, 0);
     }
     if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
     {
@@ -242,7 +242,7 @@ void main()
         imageStore(i_HistoryLength, current_coord, vec4(0.0f));
         return;
     }
-    
+
     // Compute the texture coord
     vec2 tex_coord = (vec2(current_coord) + vec2(0.5f)) / vec2(size);
 
@@ -250,8 +250,8 @@ void main()
     vec3 world_pos = world_position_from_depth(tex_coord, textureLod(s_Depth, tex_coord, 0.0f).r);
 
     // Sample the ray length for the current pixel
-    vec4 current = texelFetch(s_Color, current_coord, 0);
-    vec3 color = current.xyz;
+    vec4  current    = texelFetch(s_Color, current_coord, 0);
+    vec3  color      = current.xyz;
     float ray_length = current.w;
 
     // Sample the motion vector for the current pixel
@@ -259,7 +259,7 @@ void main()
 
     // Compute the reprojected surface point coord
     vec2 reprojected_coord = surface_point_reprojection(current_coord, motion.xy, size);
-    
+
     float history_length;
     vec4  prev_color;
     bool  success  = load_prev_data(current_coord, reprojected_coord, motion, prev_color, history_length);
@@ -271,7 +271,7 @@ void main()
     const float alpha = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
 
     vec4 out_color = mix(prev_color, vec4(color, 0.0f), alpha);
-    
+
     // temporal integration
     imageStore(i_Color, current_coord, out_color);
     imageStore(i_HistoryLength, current_coord, vec4(history_length));

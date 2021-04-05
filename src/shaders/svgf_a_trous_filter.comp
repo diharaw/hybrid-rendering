@@ -18,7 +18,7 @@ layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1)
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D i_Output;
 
-layout(set = 1, binding = 0, rgba16f) uniform readonly image2D i_Input;
+layout(set = 1, binding = 0) uniform sampler2D s_Input;
 
 // Current G-buffer DS
 layout(set = 2, binding = 1) uniform sampler2D s_Normals;
@@ -82,7 +82,7 @@ float compute_variance_center(ivec2 ipos)
 
             float k = kernel[abs(xx)][abs(yy)];
 
-            sum += imageLoad(i_Input, p).a * k;
+            sum += texelFetch(s_Input, p, 0).a * k;
         }
     }
 
@@ -126,7 +126,7 @@ void main()
 
     // constant samplers to prevent the compiler from generating code which
     // fetches the sampler descriptor from memory for each texture access
-    const vec4  colorCenter  = imageLoad(i_Input, ipos);
+    const vec4  colorCenter  = texelFetch(s_Input, ipos, 0);
     const float lColorCenter = luminance(colorCenter.rgb);
 
     // variance for direct and indirect, filtered using 3x3 gaussin blur
@@ -163,7 +163,7 @@ void main()
 
             if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
             {
-                const vec4 colorP = imageLoad(i_Input, p);
+                const vec4 colorP = texelFetch(s_Input, p, 0);
 
                 vec3 normalP = texelFetch(s_Normals, p, 0).rgb;
                 vec2 zP      = texelFetch(s_LinearZ, p, 0).rg;

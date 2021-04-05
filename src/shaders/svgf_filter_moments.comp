@@ -16,13 +16,14 @@ layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1)
 // DESCRIPTOR SETS --------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(set = 0, binding = 0, rgba16f) uniform image2D i_Color;
+layout(set = 0, binding = 0, rgba16f) uniform image2D i_Output;
 
-// Current G-buffer DS
+// Current G-buffer Read DS
 layout(set = 1, binding = 1) uniform sampler2D s_Normals;
 layout(set = 1, binding = 4) uniform sampler2D s_LinearZ;
 
-// Current SVGF Read DS
+// Current Reprojection Read DS
+layout(set = 2, binding = 0) uniform sampler2D s_Input;
 layout(set = 2, binding = 1) uniform sampler2D s_Moments;
 layout(set = 2, binding = 2) uniform sampler2D s_HistoryLength;
 
@@ -32,7 +33,7 @@ layout(set = 2, binding = 2) uniform sampler2D s_HistoryLength;
 
 layout(push_constant) uniform PushConstants
 {
-    float phi_color;
+    float phi_Output;
     float phi_normal;
 }
 u_PushConstants;
@@ -100,7 +101,7 @@ void main()
         vec3  sumColor   = vec3(0.0f);
         vec2  sumMoments = vec2(0.0f);
 
-        const vec4  colorCenter  = imageLoad(i_Color, ipos);
+        const vec4  colorCenter  = texelFetch(s_Input, ipos, 0);
         const float lColorCenter = luminance(colorCenter.rgb);
 
         vec3 normalCenter = texelFetch(s_Normals, ipos, 0).rgb;
@@ -112,7 +113,7 @@ void main()
             return;
         }
 
-        const float phiLColor = u_PushConstants.phi_color;
+        const float phiLColor = u_PushConstants.phi_Output;
         const float phiDepth  = max(zCenter.y, 1e-8) * 3.0;
 
         // compute first and second moment spatially. This code also applies cross-bilateral
@@ -130,7 +131,7 @@ void main()
 
                 if (inside)
                 {
-                    const vec3 colorP   = imageLoad(i_Color, p).rgb;
+                    const vec3 colorP   = texelFetch(s_Input, p, 0).rgb;
                     const vec2 momentsP = texelFetch(s_Moments, p, 0).rg;
 
                     const float lColorP = luminance(colorP.rgb);
@@ -164,8 +165,10 @@ void main()
         variance *= 4.0 / h;
 
         out_color = vec4(sumColor, variance);
-        imageStore(i_Color, ipos, out_color);
+        imageStore(i_Output, ipos, out_color);
     }
+    else
+        imageStore(i_Output, ipos, texelFetch(s_Input, ipos, 0));
 }
 
 // ------------------------------------------------------------------

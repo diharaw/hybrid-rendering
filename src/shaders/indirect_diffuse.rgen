@@ -106,7 +106,7 @@ vec3 sample_lambert(in vec3 albedo, in vec3 N, in vec3 Wo, in RNG rng, out vec3 
     Wh = normalize(Wo + Wi);
 
     NdotL = max(dot(N, Wi), 0.0);
-    pdf = pdf_cosine_lobe(NdotL);
+    pdf   = pdf_cosine_lobe(NdotL);
 
     return evaluate_lambert(albedo);
 }
@@ -152,10 +152,10 @@ void main()
         return;
     }
 
-    vec3  albedo = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).rgb;
-    vec3  P      = world_position_from_depth(tex_coord, depth);
-    vec3  N      = texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rgb;
-    vec3  Wo     = normalize(ubo.cam_pos.xyz - P.xyz);
+    vec3 albedo = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).rgb;
+    vec3 P      = world_position_from_depth(tex_coord, depth);
+    vec3 N      = texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rgb;
+    vec3 Wo     = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
     uint  cull_mask  = 0xff;
@@ -165,13 +165,13 @@ void main()
 
     p_PathTracePayload.rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
-    vec3 Wi;
+    vec3  Wi;
     float pdf;
     float NdotL;
-    vec3 brdf = sample_lambert(albedo, N, Wo, p_PathTracePayload.rng, Wi, pdf, NdotL);
-    
-    p_PathTracePayload.L = vec3(0.0f); 
-    p_PathTracePayload.T = vec3(1.0f);//(brdf * NdotL) / pdf;
+    vec3  brdf = sample_lambert(albedo, N, Wo, p_PathTracePayload.rng, Wi, pdf, NdotL);
+
+    p_PathTracePayload.L     = vec3(0.0f);
+    p_PathTracePayload.T     = vec3(1.0f); //(brdf * NdotL) / pdf;
     p_PathTracePayload.depth = 0;
 
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);

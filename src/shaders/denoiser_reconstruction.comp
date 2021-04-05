@@ -55,7 +55,6 @@ layout(set = 3, binding = 2) uniform sampler2D s_BlueNoise2;
 layout(push_constant) uniform PushConstants
 {
     vec4 z_buffer_params;
-    uint bypass;
     uint num_frames;
 }
 u_PushConstants;
@@ -118,14 +117,14 @@ void main()
     const ivec2 noise2_center_coord = ivec2(31 / 2);
 
     float center_roughness = texelFetch(s_GBuffer1, full_res_center_coord, 0).a;
-    vec4  center_radiance  = texelFetch(s_Input, half_res_center_coord, 0);
+    vec4  center_color  = texelFetch(s_Input, half_res_center_coord, 0);
     vec3  center_normal    = texelFetch(s_GBuffer2, full_res_center_coord, 0).rgb;
     float center_depth     = texelFetch(s_GBufferLinearDepth, full_res_center_coord, 0).x;
     float center_lin_depth = linear_01_depth(center_depth);
 
-    if (center_radiance.w == 0.0f || u_PushConstants.bypass == 1 || center_depth == 1.0f)
+    if (center_depth == 1.0f)
     {
-        imageStore(i_Output, full_res_center_coord, center_radiance);
+        imageStore(i_Output, full_res_center_coord, center_color);
         return;
     }
 
@@ -147,7 +146,7 @@ void main()
         ivec2(3, -1)
     };
 
-    vec3  sum_color  = center_radiance.xyz;
+    vec3  sum_color  = center_color.xyz;
     float sum_weight = 1.0f;
 
     const int sample_count = 15;
@@ -165,13 +164,13 @@ void main()
         if (any(lessThan(full_res_sample_coord, ivec2(1, 1))) || any(greaterThan(full_res_sample_coord, size - ivec2(1, 1))))
             continue;
 
-        vec3  sample_radiance  = texelFetch(s_Input, half_res_sample_coord, 0).rgb;
+        vec3  sample_color  = texelFetch(s_Input, half_res_sample_coord, 0).rgb;
         vec3  sample_normal    = texelFetch(s_GBuffer2, full_res_sample_coord, 0).xyz;
         float sample_lin_depth = linear_01_depth(texelFetch(s_GBufferLinearDepth, full_res_sample_coord, 0).x);
 
         float weight = normal_edge_stopping_weight(center_normal, sample_normal) * depth_edge_stopping_weight(center_lin_depth, sample_lin_depth);
 
-        sum_color += sample_radiance * weight;
+        sum_color += sample_color * weight;
         sum_weight += weight;
     }
 

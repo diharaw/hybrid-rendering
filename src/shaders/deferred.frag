@@ -39,7 +39,9 @@ layout(set = 1, binding = 0) uniform sampler2D s_Shadow;
 
 layout(set = 2, binding = 0) uniform sampler2D s_Reflections;
 
-layout(set = 3, binding = 0) uniform PerFrameUBO
+layout(set = 3, binding = 0) uniform sampler2D s_GI;
+
+layout(set = 4, binding = 0) uniform PerFrameUBO
 {
     mat4  view_inverse;
     mat4  proj_inverse;
@@ -51,9 +53,9 @@ layout(set = 3, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 4, binding = 0) uniform sampler2D s_IrradianceSH;
-layout(set = 4, binding = 1) uniform samplerCube s_Prefiltered;
-layout(set = 4, binding = 2) uniform sampler2D s_BRDF;
+layout(set = 5, binding = 0) uniform sampler2D s_IrradianceSH;
+layout(set = 5, binding = 1) uniform samplerCube s_Prefiltered;
+layout(set = 5, binding = 2) uniform sampler2D s_BRDF;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -269,7 +271,7 @@ void main()
     vec3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
 
-    vec3 irradiance = evaluate_sh9_irradiance(N);
+    vec3 irradiance = textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb; //evaluate_sh9_irradiance(N);
     vec3 diffuse    = irradiance * albedo;
 
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.

@@ -11,6 +11,7 @@
 #include <hosek_wilkie_sky_model.h>
 #include <cubemap_sh_projection.h>
 #include <cubemap_prefilter.h>
+#include <stdexcept>
 
 #define NUM_PILLARS 6
 #define HALTON_SAMPLES 16
@@ -256,8 +257,152 @@ float halton_sequence(int base, int index)
     return result;
 }
 
+class HybridRendering;
+
+class Denoiser
+{
+public:
+    struct ReconstructionPushConstants
+    {
+        glm::vec4 z_buffer_params;
+        uint32_t  num_frames;
+    };
+
+public:
+    Denoiser(HybridRendering* sample, std::string name, dw::vk::Image::Ptr& input_image, dw::vk::ImageView::Ptr& input_image_view);
+    virtual ~Denoiser();
+
+    virtual void denoise(dw::vk::CommandBuffer::Ptr cmd_buf) = 0;
+
+protected:
+    std::string                      m_name;
+    HybridRendering*                 m_sample;
+    dw::vk::Image*              m_input_image;
+    dw::vk::ImageView* m_input_image_view;
+    dw::vk::DescriptorSet::Ptr       m_input_read_ds;
+};
+
+class SVGFDenoiser : public Denoiser
+{
+public:
+    struct ReprojectionPushConstants
+    {
+        float alpha;
+        float moments_alpha;
+    };
+
+    struct FilterMomentsPushConstants
+    {
+        float phi_color;
+        float phi_normal;
+    };
+
+    struct ATrousFilterPushConstants
+    {
+        int   radius;
+        int   step_size;
+        float phi_color;
+        float phi_normal;
+    };
+
+public:
+    SVGFDenoiser(HybridRendering* sample, std::string name, dw::vk::Image::Ptr& input_image, dw::vk::ImageView::Ptr& input_image_view, uint32_t filter_iterations);
+    ~SVGFDenoiser();
+    void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf) override;
+    uint32_t                   filter_iterations();
+    void                       set_filter_iterations(uint32_t n);
+    dw::vk::DescriptorSet::Ptr denoised_image_ds();
+
+protected:
+    void create_reprojection_resources();
+    void create_filter_moments_resources();
+    void create_a_trous_filter_resources();
+    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
+
+private:
+    bool    m_use_spatial_for_feedback = false;
+    float   m_alpha                           = 0.01f;
+    float   m_moments_alpha                   = 0.2f;
+    float   m_phi_color                       = 10.0f;
+    float   m_phi_normal                      = 128.0f;
+    int32_t m_a_trous_radius                  = 1;
+    int32_t m_a_trous_filter_iterations       = 4;
+    int32_t m_a_trous_feedback_iteration      = 1;
+    int32_t m_read_idx                        = 0;
+
+    // Reprojection
+    dw::vk::ComputePipeline::Ptr     m_reprojection_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_reprojection_pipeline_layout;
+    dw::vk::DescriptorSetLayout::Ptr m_reprojection_read_ds_layout;
+    dw::vk::DescriptorSetLayout::Ptr m_reprojection_write_ds_layout;
+    dw::vk::Image::Ptr               m_reprojection_image[2];
+    dw::vk::ImageView::Ptr           m_reprojection_view[2];
+    dw::vk::Image::Ptr               m_moments_image[2];
+    dw::vk::ImageView::Ptr           m_moments_view[2];
+    dw::vk::Image::Ptr               m_history_length_image[2];
+    dw::vk::ImageView::Ptr           m_history_length_view[2];
+    dw::vk::DescriptorSet::Ptr       m_reprojection_write_ds[2];
+    dw::vk::DescriptorSet::Ptr       m_reprojection_read_ds[2];
+    dw::vk::Image::Ptr         m_prev_reprojection_image;
+    dw::vk::ImageView::Ptr     m_prev_reprojection_view;
+    dw::vk::DescriptorSet::Ptr m_prev_reprojection_read_ds;
+
+    // Filter Moments
+    dw::vk::ComputePipeline::Ptr m_filter_moments_pipeline;
+    dw::vk::PipelineLayout::Ptr  m_filter_moments_pipeline_layout;
+    dw::vk::Image::Ptr           m_filter_moments_image;
+    dw::vk::ImageView::Ptr       m_filter_moments_view;
+    dw::vk::DescriptorSet::Ptr   m_filter_moments_write_ds;
+    dw::vk::DescriptorSet::Ptr   m_filter_moments_read_ds;
+
+    // A-Trous Filter
+    dw::vk::ComputePipeline::Ptr m_a_trous_filter_pipeline;
+    dw::vk::PipelineLayout::Ptr  m_a_trous_filter_pipeline_layout;
+    dw::vk::Image::Ptr           m_a_trous_image[2];
+    dw::vk::ImageView::Ptr       m_a_trous_view[2];
+    dw::vk::DescriptorSet::Ptr   m_a_trous_read_ds[2];
+    dw::vk::DescriptorSet::Ptr   m_a_trous_write_ds[2];
+};
+
+class BilateralDenoiser : public Denoiser
+{
+public:
+    BilateralDenoiser(HybridRendering* sample, std::string name, dw::vk::Image::Ptr& input_image, dw::vk::ImageView::Ptr& input_image_view, bool reconstruction, uint32_t blur_radius);
+    ~BilateralDenoiser();
+    void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf) override;
+    uint32_t                   blur_radius();
+    void                       set_blur_radius(uint32_t n);
+    dw::vk::DescriptorSet::Ptr denoised_image_ds();
+
+protected:
+    void reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf);
+
+private:
+    uint32_t m_blur_radius;
+
+    dw::vk::DescriptorSet::Ptr m_blur_read_ds;
+    dw::vk::DescriptorSet::Ptr m_blur_write_ds;
+
+    // Reconstruction
+    bool                         m_reconstruction;
+    dw::vk::PipelineLayout::Ptr  m_reconstruction_layout;
+    dw::vk::ComputePipeline::Ptr m_reconstruction_pipeline;
+    dw::vk::Image::Ptr           m_reconstruction_image;
+    dw::vk::ImageView::Ptr       m_reconstruction_image_view;
+    dw::vk::DescriptorSet::Ptr   m_reconstruction_read_ds;
+    dw::vk::DescriptorSet::Ptr   m_reconstruction_write_ds;
+};
+
 class HybridRendering : public dw::Application
 {
+public:
+    friend class Denoiser;
+    friend class SVGFDenoiser;
+    friend class BilateralDenoiser;
+
 private:
     struct GPUResources
     {
@@ -279,16 +424,16 @@ private:
         dw::vk::Image::Ptr               blue_noise_image_2;
         dw::vk::ImageView::Ptr           blue_noise_view_2;
 
+        // Denoisers
+        std::unique_ptr<SVGFDenoiser> svgf_shadow_denoiser;
+
         // Ray-Traced Shadows
         dw::vk::RayTracingPipeline::Ptr         shadow_mask_pipeline;
         dw::vk::PipelineLayout::Ptr             shadow_mask_pipeline_layout;
         dw::vk::ShaderBindingTable::Ptr         shadow_mask_sbt;
-        std::vector<dw::vk::Image::Ptr>         visibility_image;
-        std::vector<dw::vk::ImageView::Ptr>     visibility_view;
-        dw::vk::Image::Ptr                      prev_visibility_image;
-        dw::vk::ImageView::Ptr                  prev_visibility_view;
-        std::vector<dw::vk::DescriptorSet::Ptr> visibility_write_ds;
-        std::vector<dw::vk::DescriptorSet::Ptr> visibility_read_ds;
+        dw::vk::Image::Ptr         visibility_image;
+        dw::vk::ImageView::Ptr     visibility_view;
+        dw::vk::DescriptorSet::Ptr visibility_write_ds;
 
         // RTAO
         dw::vk::RayTracingPipeline::Ptr rtao_pipeline;
@@ -296,17 +441,13 @@ private:
         dw::vk::ShaderBindingTable::Ptr rtao_sbt;
 
         // Reflection RT pass
-        dw::vk::DescriptorSetLayout::Ptr reflection_rt_write_ds_layout;
-        dw::vk::DescriptorSetLayout::Ptr reflection_rt_read_ds_layout;
-        dw::vk::DescriptorSet::Ptr       reflection_rt_write_ds;
-        dw::vk::DescriptorSet::Ptr       reflection_rt_read_ds;
-        dw::vk::RayTracingPipeline::Ptr  reflection_rt_pipeline;
-        dw::vk::PipelineLayout::Ptr      reflection_rt_pipeline_layout;
-        dw::vk::Image::Ptr               reflection_rt_color_image;
-        dw::vk::ImageView::Ptr           reflection_rt_color_view;
-        dw::vk::Image::Ptr               reflection_rt_hit_image;
-        dw::vk::ImageView::Ptr           reflection_rt_hit_view;
-        dw::vk::ShaderBindingTable::Ptr  reflection_rt_sbt;
+        dw::vk::DescriptorSet::Ptr      reflection_rt_write_ds;
+        dw::vk::DescriptorSet::Ptr      reflection_rt_read_ds;
+        dw::vk::RayTracingPipeline::Ptr reflection_rt_pipeline;
+        dw::vk::PipelineLayout::Ptr     reflection_rt_pipeline_layout;
+        dw::vk::Image::Ptr              reflection_rt_color_image;
+        dw::vk::ImageView::Ptr          reflection_rt_color_view;
+        dw::vk::ShaderBindingTable::Ptr reflection_rt_sbt;
 
         // Reflection spatial pass
         dw::vk::ComputePipeline::Ptr reflection_resolve_pipeline;
@@ -345,16 +486,16 @@ private:
         dw::vk::ShaderBindingTable::Ptr rtgi_sbt;
 
         // Global Illumination Temporal pass
-        dw::vk::ComputePipeline::Ptr    rtgi_temporal_pipeline;
-        dw::vk::PipelineLayout::Ptr     rtgi_temporal_pipeline_layout;
-        std::vector<dw::vk::DescriptorSet::Ptr>      rtgi_temporal_write_ds;
-        std::vector<dw::vk::DescriptorSet::Ptr>      rtgi_temporal_read_ds;
-        std::vector<dw::vk::DescriptorSet::Ptr>      rtgi_temporal_history_ds;
-        std::vector<dw::vk::Image::Ptr>              rtgi_temporal_image;
-        std::vector<dw::vk::ImageView::Ptr>          rtgi_temporal_view;
-        std::vector<dw::vk::Image::Ptr>              rtgi_temporal_history_image;
-        std::vector<dw::vk::ImageView::Ptr>          rtgi_temporal_history_view;
- 
+        dw::vk::ComputePipeline::Ptr            rtgi_temporal_pipeline;
+        dw::vk::PipelineLayout::Ptr             rtgi_temporal_pipeline_layout;
+        std::vector<dw::vk::DescriptorSet::Ptr> rtgi_temporal_write_ds;
+        std::vector<dw::vk::DescriptorSet::Ptr> rtgi_temporal_read_ds;
+        std::vector<dw::vk::DescriptorSet::Ptr> rtgi_temporal_history_ds;
+        std::vector<dw::vk::Image::Ptr>         rtgi_temporal_image;
+        std::vector<dw::vk::ImageView::Ptr>     rtgi_temporal_view;
+        std::vector<dw::vk::Image::Ptr>         rtgi_temporal_history_image;
+        std::vector<dw::vk::ImageView::Ptr>     rtgi_temporal_history_view;
+
         // Deferred pass
         dw::vk::RenderPass::Ptr       deferred_rp;
         dw::vk::Framebuffer::Ptr      deferred_fbo;
@@ -419,14 +560,6 @@ private:
         dw::vk::DescriptorSet::Ptr   svgf_moments_write_ds;
         dw::vk::DescriptorSet::Ptr   svgf_history_length_write_ds;
 
-        // Skybox
-        dw::vk::Buffer::Ptr           cube_vbo;
-        dw::vk::GraphicsPipeline::Ptr skybox_pipeline;
-        dw::vk::PipelineLayout::Ptr   skybox_pipeline_layout;
-        dw::vk::DescriptorSet::Ptr    skybox_ds;
-        dw::vk::RenderPass::Ptr       skybox_rp;
-        dw::vk::Framebuffer::Ptr      skybox_fbo;
-
         // SVGF Filter Moments
         dw::vk::ComputePipeline::Ptr svgf_filter_moments_pipeline;
         dw::vk::PipelineLayout::Ptr  svgf_filter_moments_pipeline_layout;
@@ -434,6 +567,14 @@ private:
         // SVGF A-Trous Filter
         dw::vk::ComputePipeline::Ptr svgf_a_trous_filter_pipeline;
         dw::vk::PipelineLayout::Ptr  svgf_a_trous_filter_pipeline_layout;
+
+        // Skybox
+        dw::vk::Buffer::Ptr           cube_vbo;
+        dw::vk::GraphicsPipeline::Ptr skybox_pipeline;
+        dw::vk::PipelineLayout::Ptr   skybox_pipeline_layout;
+        dw::vk::DescriptorSet::Ptr    skybox_ds;
+        dw::vk::RenderPass::Ptr       skybox_rp;
+        dw::vk::Framebuffer::Ptr      skybox_fbo;
 
         // PBR resources
         dw::vk::DescriptorSetLayout::Ptr pbr_ds_layout;
@@ -467,10 +608,10 @@ protected:
         m_gpu_resources->hosek_wilkie_sky_model = std::unique_ptr<dw::HosekWilkieSkyModel>(new dw::HosekWilkieSkyModel(m_vk_backend));
         m_gpu_resources->cubemap_sh_projection  = std::unique_ptr<dw::CubemapSHProjection>(new dw::CubemapSHProjection(m_vk_backend, m_gpu_resources->hosek_wilkie_sky_model->image()));
         m_gpu_resources->cubemap_prefilter      = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, m_gpu_resources->hosek_wilkie_sky_model->image()));
-        m_gpu_resources->blue_noise_image_1       = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
-        m_gpu_resources->blue_noise_view_1        = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_gpu_resources->blue_noise_image_2       = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
-        m_gpu_resources->blue_noise_view_2        = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_gpu_resources->blue_noise_image_1     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
+        m_gpu_resources->blue_noise_view_1      = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_gpu_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
+        m_gpu_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
         create_output_images();
         create_render_passes();
@@ -488,13 +629,15 @@ protected:
         //create_reflection_resolve_pipeline();
         //create_reflection_temporal_pipeline();
         create_reflection_blur_pipeline();
-        create_svgf_reprojection_pipeline();
-        create_svgf_filter_moments_pipeline();
-        create_svgf_a_trous_filter_pipeline();
+        //create_svgf_reprojection_pipeline();
+        //create_svgf_filter_moments_pipeline();
+        //create_svgf_a_trous_filter_pipeline();
         create_skybox_pipeline();
         create_tone_map_pipeline();
         create_taa_pipeline();
         create_cube();
+
+        m_gpu_resources->svgf_shadow_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(this, "SVGF Shadow Denoiser", m_gpu_resources->visibility_image, m_gpu_resources->visibility_view, 4));
 
         // Create camera.
         create_camera();
@@ -639,16 +782,19 @@ protected:
 
             update_ibl(cmd_buf);
 
+            DW_LOG_INFO("Width = " + std::to_string(m_gpu_resources->visibility_image->width()));
+
             // Render.
             clear_images(cmd_buf);
             render_gbuffer(cmd_buf);
             downsample_gbuffer(cmd_buf);
             ray_trace_shadows(cmd_buf);
             ray_trace_ambient_occlusion(cmd_buf);
-            svgf_denoise(cmd_buf);
+            m_gpu_resources->svgf_shadow_denoiser->denoise(cmd_buf);
+            //svgf_denoise(cmd_buf);
             ray_trace_reflection(cmd_buf);
             ray_trace_gi(cmd_buf);
-            //gi_temporal(cmd_buf);
+            gi_temporal(cmd_buf);
             //reflection_spatial_resolve(cmd_buf);
             //reflection_temporal(cmd_buf);
             reflection_blur(cmd_buf);
@@ -776,14 +922,14 @@ private:
         m_gpu_resources->g_buffer_3_view.reset();
         m_gpu_resources->g_buffer_linear_z_view.clear();
         m_gpu_resources->g_buffer_depth_view.reset();
-        m_gpu_resources->visibility_view.clear();
+        m_gpu_resources->visibility_view.reset();
         m_gpu_resources->taa_view.clear();
         m_gpu_resources->g_buffer_1.reset();
         m_gpu_resources->g_buffer_2.reset();
         m_gpu_resources->g_buffer_3.reset();
         m_gpu_resources->g_buffer_linear_z.clear();
         m_gpu_resources->g_buffer_depth.reset();
-        m_gpu_resources->visibility_image.clear();
+        m_gpu_resources->visibility_image.reset();
 
         m_gpu_resources->downsampled_g_buffer_1_view.reset();
         m_gpu_resources->downsampled_g_buffer_2_view.reset();
@@ -798,23 +944,11 @@ private:
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
-        uint32_t rtgi_image_width  = m_downscaled_rt ? m_width / 4 : m_width;
-        uint32_t rtgi_image_height = m_downscaled_rt ? m_height / 4 : m_height;
+        uint32_t rtgi_image_width  = m_downscaled_rt ? m_width / 2 : m_width;
+        uint32_t rtgi_image_height = m_downscaled_rt ? m_height / 2 : m_height;
 
         for (int i = 0; i < 2; i++)
         {
-            {
-                auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
-                image->set_name("Visibility Image " + std::to_string(i));
-
-                m_gpu_resources->visibility_image.push_back(image);
-
-                auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-                image_view->set_name("Visibility Image View " + std::to_string(i));
-
-                m_gpu_resources->visibility_view.push_back(image_view);
-            }
-
             {
                 auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
                 image->set_name("Reflection Blur Image " + std::to_string(i));
@@ -864,17 +998,17 @@ private:
             }
         }
 
+        m_gpu_resources->visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_gpu_resources->visibility_image->set_name("Visibility Image");
+
+        m_gpu_resources->visibility_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_gpu_resources->visibility_view->set_name("Visibility Image View");
+
         m_gpu_resources->deferred_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->deferred_image->set_name("Deferred Image");
 
         m_gpu_resources->deferred_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->deferred_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->deferred_view->set_name("Deferred Image View");
-
-        m_gpu_resources->prev_visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_gpu_resources->prev_visibility_image->set_name("Prev Visibility Image");
-
-        m_gpu_resources->prev_visibility_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->prev_visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_gpu_resources->prev_visibility_view->set_name("Prev Visibility Image View");
 
         m_gpu_resources->svgf_history_length_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->svgf_history_length_image->set_name("SVGF History Length Image");
@@ -894,15 +1028,9 @@ private:
 
         m_gpu_resources->rtgi_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rtgi_image_width, rtgi_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->rtgi_image->set_name("RTGI Image");
-                         
+
         m_gpu_resources->rtgi_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->rtgi_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_gpu_resources->rtgi_view->set_name("RTGI Image View");
-
-        m_gpu_resources->reflection_rt_hit_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_gpu_resources->reflection_rt_hit_image->set_name("Reflection RT Hit Image");
-
-        m_gpu_resources->reflection_rt_hit_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->reflection_rt_hit_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_gpu_resources->reflection_rt_hit_view->set_name("Reflection RT Hit Image View");
 
         m_gpu_resources->reflection_resolve_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_gpu_resources->reflection_resolve_image->set_name("Reflection Resolve Image");
@@ -1285,24 +1413,6 @@ private:
         {
             dw::vk::DescriptorSetLayout::Desc desc;
 
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
-
-            m_gpu_resources->reflection_rt_write_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
-        }
-
-        {
-            dw::vk::DescriptorSetLayout::Desc desc;
-
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
-            m_gpu_resources->reflection_rt_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
-        }
-
-        {
-            dw::vk::DescriptorSetLayout::Desc desc;
-
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1348,25 +1458,24 @@ private:
         m_gpu_resources->svgf_history_length_write_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->skybox_ds                    = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->pbr_ds                       = m_vk_backend->allocate_descriptor_set(m_gpu_resources->pbr_ds_layout);
-        m_gpu_resources->reflection_rt_write_ds       = m_vk_backend->allocate_descriptor_set(m_gpu_resources->reflection_rt_write_ds_layout);
-        m_gpu_resources->reflection_rt_read_ds        = m_vk_backend->allocate_descriptor_set(m_gpu_resources->reflection_rt_read_ds_layout);
+        m_gpu_resources->reflection_rt_write_ds       = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        m_gpu_resources->reflection_rt_read_ds        = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->reflection_resolve_write_ds  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->reflection_resolve_read_ds   = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->reflection_temporal_write_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->reflection_temporal_read_ds  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
-        m_gpu_resources->rtgi_write_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
-        m_gpu_resources->rtgi_read_ds  = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
+        m_gpu_resources->rtgi_write_ds                = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        m_gpu_resources->rtgi_read_ds                 = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->svgf_output_read_ds          = m_vk_backend->allocate_descriptor_set(m_gpu_resources->svgf_output_read_ds_layout);
         m_gpu_resources->deferred_read_ds             = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
-
+        m_gpu_resources->visibility_write_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        
         for (int i = 0; i < 2; i++)
         {
             m_gpu_resources->taa_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
             m_gpu_resources->taa_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
             m_gpu_resources->g_buffer_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout));
             m_gpu_resources->downsampled_g_buffer_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout));
-            m_gpu_resources->visibility_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
-            m_gpu_resources->visibility_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
             m_gpu_resources->reflection_blur_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
             m_gpu_resources->reflection_blur_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
             m_gpu_resources->reflection_history_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
@@ -1637,81 +1746,81 @@ private:
         }
 
         // SVGF Output Read
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
+        //{
+        //    std::vector<VkDescriptorImageInfo> image_infos;
+        //    std::vector<VkWriteDescriptorSet>  write_datas;
+        //    VkWriteDescriptorSet               write_data;
 
-            image_infos.reserve(3);
-            write_datas.reserve(3);
+        //    image_infos.reserve(3);
+        //    write_datas.reserve(3);
 
-            // ------------------------------------------------------------------------------
+        //    // ------------------------------------------------------------------------------
 
-            VkDescriptorImageInfo prev_visibility_image_info;
+        //    VkDescriptorImageInfo prev_visibility_image_info;
 
-            prev_visibility_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-            prev_visibility_image_info.imageView   = m_gpu_resources->prev_visibility_view->handle();
-            prev_visibility_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        //    prev_visibility_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+        //    prev_visibility_image_info.imageView   = m_gpu_resources->prev_visibility_view->handle();
+        //    prev_visibility_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_infos.push_back(prev_visibility_image_info);
+        //    image_infos.push_back(prev_visibility_image_info);
 
-            DW_ZERO_MEMORY(write_data);
+        //    DW_ZERO_MEMORY(write_data);
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &image_infos.back();
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
+        //    write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        //    write_data.descriptorCount = 1;
+        //    write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        //    write_data.pImageInfo      = &image_infos.back();
+        //    write_data.dstBinding      = 0;
+        //    write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
-            write_datas.push_back(write_data);
+        //    write_datas.push_back(write_data);
 
-            // ------------------------------------------------------------------------------
+        //    // ------------------------------------------------------------------------------
 
-            VkDescriptorImageInfo moments_image_info;
+        //    VkDescriptorImageInfo moments_image_info;
 
-            moments_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-            moments_image_info.imageView   = m_gpu_resources->svgf_moments_view->handle();
-            moments_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        //    moments_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+        //    moments_image_info.imageView   = m_gpu_resources->svgf_moments_view->handle();
+        //    moments_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_infos.push_back(moments_image_info);
+        //    image_infos.push_back(moments_image_info);
 
-            DW_ZERO_MEMORY(write_data);
+        //    DW_ZERO_MEMORY(write_data);
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &image_infos.back();
-            write_data.dstBinding      = 1;
-            write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
+        //    write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        //    write_data.descriptorCount = 1;
+        //    write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        //    write_data.pImageInfo      = &image_infos.back();
+        //    write_data.dstBinding      = 1;
+        //    write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
-            write_datas.push_back(write_data);
+        //    write_datas.push_back(write_data);
 
-            // ------------------------------------------------------------------------------
+        //    // ------------------------------------------------------------------------------
 
-            VkDescriptorImageInfo history_length_image_info;
+        //    VkDescriptorImageInfo history_length_image_info;
 
-            history_length_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-            history_length_image_info.imageView   = m_gpu_resources->svgf_history_length_view->handle();
-            history_length_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        //    history_length_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
+        //    history_length_image_info.imageView   = m_gpu_resources->svgf_history_length_view->handle();
+        //    history_length_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_infos.push_back(history_length_image_info);
+        //    image_infos.push_back(history_length_image_info);
 
-            DW_ZERO_MEMORY(write_data);
+        //    DW_ZERO_MEMORY(write_data);
 
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &image_infos.back();
-            write_data.dstBinding      = 2;
-            write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
+        //    write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        //    write_data.descriptorCount = 1;
+        //    write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        //    write_data.pImageInfo      = &image_infos.back();
+        //    write_data.dstBinding      = 2;
+        //    write_data.dstSet          = m_gpu_resources->svgf_output_read_ds->handle();
 
-            write_datas.push_back(write_data);
+        //    write_datas.push_back(write_data);
 
-            // ------------------------------------------------------------------------------
+        //    // ------------------------------------------------------------------------------
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
+        //    vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+        //}
 
         // Visibility write
         {
@@ -1719,36 +1828,33 @@ private:
             std::vector<VkWriteDescriptorSet>  write_datas;
             VkWriteDescriptorSet               write_data;
 
-            image_infos.reserve(2);
-            write_datas.reserve(2);
+            image_infos.reserve(1);
+            write_datas.reserve(1);
 
-            for (int i = 0; i < 2; i++)
-            {
-                VkDescriptorImageInfo storage_image_info;
+            VkDescriptorImageInfo storage_image_info;
 
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_gpu_resources->visibility_view[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_gpu_resources->visibility_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                image_infos.push_back(storage_image_info);
+            image_infos.push_back(storage_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_gpu_resources->visibility_write_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_gpu_resources->visibility_write_ds->handle();
 
-                write_datas.push_back(write_data);
-            }
+            write_datas.push_back(write_data);
 
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
         // Visibility read
-        {
+       /* {
             std::vector<VkDescriptorImageInfo> image_infos;
             std::vector<VkWriteDescriptorSet>  write_datas;
             VkWriteDescriptorSet               write_data;
@@ -1779,7 +1885,7 @@ private:
             }
 
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
+        }*/
 
         // SVGF moments write
         {
@@ -1935,72 +2041,46 @@ private:
 
         // Reflection RT write
         {
-            VkDescriptorImageInfo storage_image_info[2];
+            VkDescriptorImageInfo storage_image_info;
 
-            storage_image_info[0].sampler     = VK_NULL_HANDLE;
-            storage_image_info[0].imageView   = m_gpu_resources->reflection_rt_color_view->handle();
-            storage_image_info[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_gpu_resources->reflection_rt_color_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            storage_image_info[1].sampler     = VK_NULL_HANDLE;
-            storage_image_info[1].imageView   = m_gpu_resources->reflection_rt_hit_view->handle();
-            storage_image_info[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            VkWriteDescriptorSet write_data;
 
-            VkWriteDescriptorSet write_data[2];
+            DW_ZERO_MEMORY(write_data);
 
-            DW_ZERO_MEMORY(write_data[0]);
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &storage_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_gpu_resources->reflection_rt_write_ds->handle();
 
-            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[0].descriptorCount = 1;
-            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write_data[0].pImageInfo      = &storage_image_info[0];
-            write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_gpu_resources->reflection_rt_write_ds->handle();
-
-            DW_ZERO_MEMORY(write_data[1]);
-
-            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[1].descriptorCount = 1;
-            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write_data[1].pImageInfo      = &storage_image_info[1];
-            write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_gpu_resources->reflection_rt_write_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
         // Reflection RT read
         {
-            VkDescriptorImageInfo sampler_image_info[2];
+            VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info[0].sampler     = m_vk_backend->bilinear_sampler()->handle();
-            sampler_image_info[0].imageView   = m_gpu_resources->reflection_rt_color_view->handle();
-            sampler_image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
+            sampler_image_info.imageView   = m_gpu_resources->reflection_rt_color_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            sampler_image_info[1].sampler     = m_vk_backend->bilinear_sampler()->handle();
-            sampler_image_info[1].imageView   = m_gpu_resources->reflection_rt_hit_view->handle();
-            sampler_image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkWriteDescriptorSet write_data;
 
-            VkWriteDescriptorSet write_data[2];
+            DW_ZERO_MEMORY(write_data);
 
-            DW_ZERO_MEMORY(write_data[0]);
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &sampler_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_gpu_resources->reflection_rt_read_ds->handle();
 
-            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[0].descriptorCount = 1;
-            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[0].pImageInfo      = &sampler_image_info[0];
-            write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_gpu_resources->reflection_rt_read_ds->handle();
-
-            DW_ZERO_MEMORY(write_data[1]);
-
-            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[1].descriptorCount = 1;
-            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[1].pImageInfo      = &sampler_image_info[1];
-            write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_gpu_resources->reflection_rt_read_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
+            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
         // RTGI write
@@ -2334,7 +2414,6 @@ private:
 
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
-
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2344,6 +2423,7 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
@@ -2544,9 +2624,9 @@ private:
         // Create shader modules
         // ---------------------------------------------------------------------------
 
-        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rmiss.spv");
+        dw::vk::ShaderModule::Ptr rgen             = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rgen.spv");
+        dw::vk::ShaderModule::Ptr rchit            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rmiss.spv");
         dw::vk::ShaderModule::Ptr rchit_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
         dw::vk::ShaderModule::Ptr rmiss_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
 
@@ -2572,7 +2652,7 @@ private:
         dw::vk::PipelineLayout::Desc pl_desc;
 
         pl_desc.add_descriptor_set_layout(m_gpu_resources->pillars_scene->descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_gpu_resources->reflection_rt_write_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         pl_desc.add_descriptor_set_layout(m_gpu_resources->pbr_ds_layout);
@@ -2643,7 +2723,7 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->reflection_rt_read_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflectionsSpatialResolvePushConstants));
@@ -2669,7 +2749,6 @@ private:
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->reflection_rt_read_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflectionsTemporalPushConstants));
@@ -2696,7 +2775,7 @@ private:
         desc.add_descriptor_set_layout(m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->g_buffer_ds_layout);
-        desc.add_descriptor_set_layout(m_gpu_resources->reflection_rt_read_ds_layout);
+        desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_gpu_resources->per_frame_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflectionsBlurPushConstants));
@@ -3522,7 +3601,7 @@ private:
 
         {
             std::vector<VkImageMemoryBarrier> image_barriers = {
-                image_memory_barrier(m_gpu_resources->visibility_image[0], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+                image_memory_barrier(m_gpu_resources->visibility_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
             };
 
             pipeline_barrier(cmd_buf, {}, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -3541,7 +3620,7 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->current_scene->descriptor_set()->handle(),
-            m_gpu_resources->visibility_write_ds[0]->handle(),
+            m_gpu_resources->visibility_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
@@ -3594,7 +3673,7 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->current_scene->descriptor_set()->handle(),
-            m_gpu_resources->visibility_write_ds[0]->handle(),
+            m_gpu_resources->visibility_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
         };
@@ -3615,6 +3694,13 @@ private:
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
         vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
+    
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_gpu_resources->visibility_image->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3629,13 +3715,6 @@ private:
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
             m_gpu_resources->reflection_rt_color_image->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->reflection_rt_hit_image->handle(),
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
@@ -3683,13 +3762,6 @@ private:
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->reflection_rt_hit_image->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3712,8 +3784,8 @@ private:
 
         GIPushConstants push_constants;
 
-        push_constants.bias       = m_ray_traced_reflections_bias;
-        push_constants.num_frames = m_num_frames;
+        push_constants.bias          = m_ray_traced_reflections_bias;
+        push_constants.num_frames    = m_num_frames;
         push_constants.max_ray_depth = m_ray_traced_gi_max_ray_bounces - 1;
         push_constants.sample_sky    = static_cast<uint32_t>(m_ray_traced_gi_sample_sky);
 
@@ -3725,7 +3797,7 @@ private:
             m_gpu_resources->current_scene->descriptor_set()->handle(),
             m_gpu_resources->rtgi_write_ds->handle(),
             m_gpu_resources->per_frame_ds->handle(),
-            m_downscaled_rt ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() :  m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+            m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->pbr_ds->handle(),
             m_gpu_resources->skybox_ds->handle()
         };
@@ -3742,8 +3814,8 @@ private:
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_gpu_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_gpu_resources->rtgi_sbt->hit_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
-        uint32_t rt_image_width  = m_downscaled_rt ? m_width / 4 : m_width;
-        uint32_t rt_image_height = m_downscaled_rt ? m_height / 4 : m_height;
+        uint32_t rt_image_width  = m_downscaled_rt ? m_width / 2 : m_width;
+        uint32_t rt_image_height = m_downscaled_rt ? m_height / 2 : m_height;
 
         vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
 
@@ -3853,12 +3925,11 @@ private:
             m_gpu_resources->reflection_temporal_write_ds->handle(),
             m_gpu_resources->reflection_resolve_read_ds->handle(),
             m_gpu_resources->reflection_blur_read_ds[read_idx]->handle(),
-            m_gpu_resources->reflection_rt_read_ds->handle(),
             m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_temporal_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->reflection_temporal_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
         vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
 
@@ -4013,116 +4084,114 @@ private:
 
     void svgf_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        //VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-        DW_SCOPED_SAMPLE("Temporal Reprojection", cmd_buf);
+        //DW_SCOPED_SAMPLE("Temporal Reprojection", cmd_buf);
 
-        if (m_first_frame)
-        {
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->downsampled_g_buffer_linear_z[!m_ping_pong]->handle(),
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                subresource_range);
-        }
+        //if (m_first_frame)
+        //{
+        //    dw::vk::utilities::set_image_layout(
+        //        cmd_buf->handle(),
+        //        m_gpu_resources->downsampled_g_buffer_linear_z[!m_ping_pong]->handle(),
+        //        VK_IMAGE_LAYOUT_UNDEFINED,
+        //        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        //        subresource_range);
+        //}
 
-        const uint32_t NUM_THREADS = 32;
+        //const uint32_t NUM_THREADS = 32;
 
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline->handle());
+        //vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline->handle());
 
-        SVGFReprojectionPushConstants push_constants;
+        //SVGFReprojectionPushConstants push_constants;
 
-        push_constants.alpha         = m_svgf_alpha;
-        push_constants.moments_alpha = m_svgf_moments_alpha;
+        //push_constants.alpha         = m_svgf_alpha;
+        //push_constants.moments_alpha = m_svgf_moments_alpha;
 
-        vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+        //vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
-        VkDescriptorSet descriptor_sets[] = {
-            m_gpu_resources->visibility_write_ds[0]->handle(),
-            m_gpu_resources->svgf_moments_write_ds->handle(),
-            m_gpu_resources->svgf_history_length_write_ds->handle(),
-            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
-            m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[!m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[!m_ping_pong]->handle(),
-            m_gpu_resources->svgf_output_read_ds->handle()
-        };
+        //VkDescriptorSet descriptor_sets[] = {
+        //    m_gpu_resources->visibility_write_ds[0]->handle(),
+        //    m_gpu_resources->svgf_moments_write_ds->handle(),
+        //    m_gpu_resources->svgf_history_length_write_ds->handle(),
+        //    m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
+        //    m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[!m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[!m_ping_pong]->handle(),
+        //    m_gpu_resources->svgf_output_read_ds->handle()
+        //};
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
+        //vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_reprojection_pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
 
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
+        //uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
+        //uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+        //vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
 
-        if (!m_svgf_shadow_use_spatial_for_feedback)
-        {
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->visibility_image[0]->handle(),
-                VK_IMAGE_LAYOUT_GENERAL,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                subresource_range);
+        //if (!m_svgf_shadow_use_spatial_for_feedback)
+        //{
+        //    dw::vk::utilities::set_image_layout(
+        //        cmd_buf->handle(),
+        //        m_gpu_resources->visibility_image[0]->handle(),
+        //        VK_IMAGE_LAYOUT_GENERAL,
+        //        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        //        subresource_range);
 
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->prev_visibility_image->handle(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                subresource_range);
+        //    dw::vk::utilities::set_image_layout(
+        //        cmd_buf->handle(),
+        //        m_gpu_resources->prev_visibility_image->handle(),
+        //        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        //        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        //        subresource_range);
 
-            VkImageCopy image_copy_region {};
-            image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            image_copy_region.srcSubresource.layerCount = 1;
-            image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            image_copy_region.dstSubresource.layerCount = 1;
-            image_copy_region.extent.width              = rt_image_width;
-            image_copy_region.extent.height             = rt_image_height;
-            image_copy_region.extent.depth              = 1;
+        //    VkImageCopy image_copy_region {};
+        //    image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        //    image_copy_region.srcSubresource.layerCount = 1;
+        //    image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        //    image_copy_region.dstSubresource.layerCount = 1;
+        //    image_copy_region.extent.width              = rt_image_width;
+        //    image_copy_region.extent.height             = rt_image_height;
+        //    image_copy_region.extent.depth              = 1;
 
-            // Issue the copy command
-            vkCmdCopyImage(
-                cmd_buf->handle(),
-                m_gpu_resources->visibility_image[0]->handle(),
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                m_gpu_resources->prev_visibility_image->handle(),
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                1,
-                &image_copy_region);
+        //    // Issue the copy command
+        //    vkCmdCopyImage(
+        //        cmd_buf->handle(),
+        //        m_gpu_resources->visibility_image[0]->handle(),
+        //        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        //        m_gpu_resources->prev_visibility_image->handle(),
+        //        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        //        1,
+        //        &image_copy_region);
 
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->visibility_image[0]->handle(),
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_GENERAL,
-                subresource_range);
+        //    dw::vk::utilities::set_image_layout(
+        //        cmd_buf->handle(),
+        //        m_gpu_resources->visibility_image[0]->handle(),
+        //        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        //        VK_IMAGE_LAYOUT_GENERAL,
+        //        subresource_range);
 
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->prev_visibility_image->handle(),
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                subresource_range);
-        }
+        //    dw::vk::utilities::set_image_layout(
+        //        cmd_buf->handle(),
+        //        m_gpu_resources->prev_visibility_image->handle(),
+        //        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        //        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        //        subresource_range);
+        //}
+
+        //std::vector<VkMemoryBarrier> memory_barriers = {
+        //    memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        //};
+
+        //std::vector<VkImageMemoryBarrier> image_barriers = {
+        //    image_memory_barrier(m_gpu_resources->svgf_history_length_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+        //    image_memory_barrier(m_gpu_resources->svgf_moments_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        //};
+
+        //pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     void svgf_filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("Filter Moments", cmd_buf);
-
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        std::vector<VkMemoryBarrier> memory_barriers = {
-            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-
-        std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_gpu_resources->svgf_history_length_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
-            image_memory_barrier(m_gpu_resources->svgf_moments_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-
-        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        /*DW_SCOPED_SAMPLE("Filter Moments", cmd_buf);
 
         const uint32_t NUM_THREADS = 32;
 
@@ -4146,89 +4215,36 @@ private:
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);*/
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     void svgf_a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("A-Trous Filter", cmd_buf);
+        //DW_SCOPED_SAMPLE("A-Trous Filter", cmd_buf);
 
-        const uint32_t NUM_THREADS = 32;
+        //const uint32_t NUM_THREADS = 32;
 
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        //VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline->handle());
+        //vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gpu_resources->svgf_a_trous_filter_pipeline->handle());
 
-        bool    ping_pong = false;
-        int32_t read_idx  = 0;
-        int32_t write_idx = 1;
+        //bool    ping_pong = false;
+        //int32_t read_idx  = 0;
+        //int32_t write_idx = 1;
 
-        std::vector<VkMemoryBarrier> memory_barriers = {
-            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
+        //std::vector<VkMemoryBarrier> memory_barriers = {
+        //    memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        //};
 
-        {
-            std::vector<VkImageMemoryBarrier> image_barriers = {
-                image_memory_barrier(m_gpu_resources->visibility_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-            };
+        //{
+        //    std::vector<VkImageMemoryBarrier> image_barriers = {
+        //        image_memory_barrier(m_gpu_resources->visibility_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        //    };
 
-            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-        }
-
-        read_idx  = (int32_t)!ping_pong;
-        write_idx = (int32_t)ping_pong;
-
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->visibility_image[write_idx]->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->prev_visibility_image->handle(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            subresource_range);
-
-        VkImageCopy image_copy_region {};
-        image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        image_copy_region.srcSubresource.layerCount = 1;
-        image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        image_copy_region.dstSubresource.layerCount = 1;
-        image_copy_region.extent.width              = rt_image_width;
-        image_copy_region.extent.height             = rt_image_height;
-        image_copy_region.extent.depth              = 1;
-
-        // Issue the copy command
-        vkCmdCopyImage(
-            cmd_buf->handle(),
-            m_gpu_resources->visibility_image[write_idx]->handle(),
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            m_gpu_resources->prev_visibility_image->handle(),
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1,
-            &image_copy_region);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->visibility_image[write_idx]->handle(),
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->prev_visibility_image->handle(),
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
+        //    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        //}
 
         //for (int i = 0; i < m_a_trous_filter_iterations; i++)
         //{
@@ -4314,24 +4330,24 @@ private:
         //        pipeline_barrier(cmd_buf, memory_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         //}
 
-        m_visiblity_read_idx = write_idx;
+        //m_visiblity_read_idx = write_idx;
 
-        {
-            std::vector<VkImageMemoryBarrier> image_barriers = {
-                image_memory_barrier(m_gpu_resources->visibility_image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
-                image_memory_barrier(m_gpu_resources->svgf_history_length_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
-                image_memory_barrier(m_gpu_resources->svgf_moments_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-            };
+        //{
+        //    std::vector<VkImageMemoryBarrier> image_barriers = {
+        //        image_memory_barrier(m_gpu_resources->visibility_image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+        //        image_memory_barrier(m_gpu_resources->svgf_history_length_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+        //        image_memory_barrier(m_gpu_resources->svgf_moments_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        //    };
 
-            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-        }
+        //    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        //}
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     void svgf_denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        if (m_svgf_shadow_denoise)
+        /*if (m_svgf_shadow_denoise)
         {
             DW_SCOPED_SAMPLE("SVGF Denoise", cmd_buf);
 
@@ -4351,7 +4367,7 @@ private:
                 subresource_range);
 
             m_visiblity_read_idx = 0;
-        }
+        }*/
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -4705,13 +4721,15 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
-            m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle(),
+            //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_gpu_resources->svgf_shadow_denoiser->denoised_image_ds()->handle(),
             m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->pbr_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->deferred_pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_gpu_resources->deferred_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
@@ -4851,9 +4869,10 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->taa_read_ds[m_ping_pong]->handle(),
-            m_gpu_resources->visibility_read_ds[m_visiblity_read_idx]->handle(),
+            //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_gpu_resources->svgf_shadow_denoiser->denoised_image_ds()->handle(),
             m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
-            m_gpu_resources->rtgi_read_ds->handle() //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
+            m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
         };
 
         ToneMapPushConstants push_constants;
@@ -5018,13 +5037,6 @@ private:
                 VK_IMAGE_LAYOUT_GENERAL,
                 subresource_range);
 
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->prev_visibility_image->handle(),
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_GENERAL,
-                subresource_range);
-
             VkClearColorValue color;
 
             color.float32[0] = 0.0f;
@@ -5035,20 +5047,13 @@ private:
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->svgf_moments_image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->svgf_history_length_image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
-            vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->prev_visibility_image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+            
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->reflection_history_image[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->rtgi_temporal_history_image[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
 
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
                 m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(),
-                VK_IMAGE_LAYOUT_GENERAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                subresource_range);
-
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_gpu_resources->prev_visibility_image->handle(),
                 VK_IMAGE_LAYOUT_GENERAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
@@ -5077,6 +5082,13 @@ private:
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
                 m_gpu_resources->rtgi_temporal_image[!m_ping_pong]->handle(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_gpu_resources->downsampled_g_buffer_linear_z[!m_ping_pong]->handle(),
                 VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
@@ -5141,7 +5153,7 @@ private:
 
     // General Ray Tracing Settings
     bool m_quarter_resolution = true;
-    bool m_downscaled_rt = true;
+    bool m_downscaled_rt      = true;
 
     // Ray Traced Shadows
     bool    m_ping_pong                            = false;
@@ -5172,10 +5184,10 @@ private:
     float m_ray_traced_reflections_sigma_min                   = 0.001f;
     float m_ray_traced_reflections_sigma_max                   = 0.01f;
 
-    // Ray Traced Global Illumination 
-    float m_ray_traced_gi_bias = 0.1f;
+    // Ray Traced Global Illumination
+    float   m_ray_traced_gi_bias            = 0.1f;
     int32_t m_ray_traced_gi_max_ray_bounces = 1;
-    bool     m_ray_traced_gi_sample_sky      = false;
+    bool    m_ray_traced_gi_sample_sky      = false;
 
     // Ambient Occlusion
     int32_t m_rtao_num_rays   = 2;
@@ -5190,5 +5202,1077 @@ private:
     SceneType         m_current_scene         = SCENE_PILLARS;
     VisualizationType m_current_visualization = VISUALIZATION_FINAL;
 };
+
+Denoiser::Denoiser(HybridRendering* sample, std::string name, dw::vk::Image::Ptr& input_image, dw::vk::ImageView::Ptr& input_image_view) :
+    m_name(name), m_sample(sample), m_input_image(input_image.get()), m_input_image_view(input_image_view.get())
+{
+    // Descriptor Set
+    m_input_read_ds = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->combined_sampler_ds_layout);
+    
+    // Input read
+    {
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = sample->m_vk_backend->bilinear_sampler()->handle();
+        sampler_image_info.imageView   = m_input_image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &sampler_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_input_read_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+}
+
+Denoiser::~Denoiser()
+{
+}
+
+SVGFDenoiser::SVGFDenoiser(HybridRendering* sample, std::string name, dw::vk::Image::Ptr& input_image, dw::vk::ImageView::Ptr& input_image_view, uint32_t filter_iterations) :
+    Denoiser(sample, name, input_image, input_image_view), m_a_trous_filter_iterations(filter_iterations)
+{
+    create_reprojection_resources();
+    create_filter_moments_resources();
+    create_a_trous_filter_resources();
+}
+
+SVGFDenoiser::~SVGFDenoiser()
+{
+}
+
+uint32_t SVGFDenoiser::filter_iterations() { return m_a_trous_filter_iterations; }
+
+void SVGFDenoiser::set_filter_iterations(uint32_t n) { m_a_trous_filter_iterations = glm::clamp(n, 1u, 5u); }
+
+dw::vk::DescriptorSet::Ptr SVGFDenoiser::denoised_image_ds()
+{
+    return m_a_trous_read_ds[m_read_idx];
+}
+
+void SVGFDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    clear_images(cmd_buf);
+    reprojection(cmd_buf);
+    filter_moments(cmd_buf);
+    a_trous_filter(cmd_buf);
+}
+
+void SVGFDenoiser::create_reprojection_resources()
+{
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_reprojection_write_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
+    }
+
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_reprojection_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
+    }
+
+    for (int i = 0; i < 2; i++)
+    {
+        m_reprojection_write_ds[i] = m_sample->m_vk_backend->allocate_descriptor_set(m_reprojection_write_ds_layout);
+        m_reprojection_read_ds[i]  = m_sample->m_vk_backend->allocate_descriptor_set(m_reprojection_read_ds_layout);
+    }
+
+    m_prev_reprojection_read_ds = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_reprojection_write_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_reprojection_read_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReprojectionPushConstants));
+
+        m_reprojection_pipeline_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/svgf_reprojection.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_reprojection_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_reprojection_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+    }
+
+    uint32_t image_w = m_input_image->width();
+    uint32_t image_h = m_input_image->height();
+
+    for (int i = 0; i < 2; i++)
+    {
+        m_reprojection_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, image_w, image_h, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_reprojection_image[i]->set_name(m_name + " Reprojection Color");
+
+        m_reprojection_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_reprojection_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_reprojection_view[i]->set_name(m_name + " Reprojection Color");
+
+        m_moments_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, image_w, image_h, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_moments_image[i]->set_name(m_name + " Reprojection Moments");
+
+        m_moments_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_moments_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_moments_view[i]->set_name(m_name + " Reprojection Moments");
+
+        m_history_length_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, image_w, image_h, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_history_length_image[i]->set_name(m_name + " Reprojection History");
+
+        m_history_length_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_history_length_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_history_length_view[i]->set_name(m_name + " Reprojection History");
+    }
+
+    m_prev_reprojection_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, image_w, image_h, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT| VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_prev_reprojection_image->set_name(m_name + " Previous Reprojection");
+           
+    m_prev_reprojection_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_prev_reprojection_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_prev_reprojection_view->set_name(m_name + " Previous Reprojection");
+
+    // Reprojection write
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(6);
+        write_datas.reserve(6);
+
+        for (int i = 0; i < 2; i++)
+        {
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_reprojection_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_reprojection_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_moments_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 1;
+                write_data.dstSet          = m_reprojection_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_history_length_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 2;
+                write_data.dstSet          = m_reprojection_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+        }
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Reprojection read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(6);
+        write_datas.reserve(6);
+
+        for (int i = 0; i < 2; i++)
+        {
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_reprojection_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_reprojection_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_moments_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 1;
+                write_data.dstSet          = m_reprojection_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_history_length_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 2;
+                write_data.dstSet          = m_reprojection_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+        }
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Previous Reprojection read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+        sampler_image_info.imageView   = m_prev_reprojection_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        image_infos.push_back(sampler_image_info);
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &image_infos.back();
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_prev_reprojection_read_ds->handle();
+
+        write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+}
+
+void SVGFDenoiser::create_filter_moments_resources()
+{
+    m_filter_moments_write_ds = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->storage_image_ds_layout);
+    m_filter_moments_read_ds  = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+
+    dw::vk::PipelineLayout::Desc desc;
+
+    desc.add_descriptor_set_layout(m_sample->m_gpu_resources->storage_image_ds_layout);
+    desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+    desc.add_descriptor_set_layout(m_reprojection_read_ds_layout);
+
+    desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FilterMomentsPushConstants));
+
+    m_filter_moments_pipeline_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+    dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/svgf_filter_moments.comp.spv");
+
+    dw::vk::ComputePipeline::Desc comp_desc;
+
+    comp_desc.set_pipeline_layout(m_filter_moments_pipeline_layout);
+    comp_desc.set_shader_stage(module, "main");
+
+    m_filter_moments_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+
+    uint32_t image_w = m_input_image->width();
+    uint32_t image_h = m_input_image->height();
+
+    m_filter_moments_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, image_w, image_h, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_filter_moments_image->set_name(m_name + " Filter Moments");
+
+    m_filter_moments_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_filter_moments_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_filter_moments_view->set_name(m_name + " Filter Moments");
+
+    // Filter Moments write
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_filter_moments_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        image_infos.push_back(storage_image_info);
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &image_infos.back();
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_filter_moments_write_ds->handle();
+
+        write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Filter Moments read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+        sampler_image_info.imageView   = m_filter_moments_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        image_infos.push_back(sampler_image_info);
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &image_infos.back();
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_filter_moments_read_ds->handle();
+
+        write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+}
+
+void SVGFDenoiser::create_a_trous_filter_resources()
+{
+    for (int i = 0; i < 2; i++)
+    {
+        m_a_trous_read_ds[i]  = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+        m_a_trous_write_ds[i] = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->storage_image_ds_layout);
+    }
+
+    dw::vk::PipelineLayout::Desc desc;
+
+    desc.add_descriptor_set_layout(m_sample->m_gpu_resources->storage_image_ds_layout);
+    desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+    desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+    desc.add_descriptor_set_layout(m_reprojection_read_ds_layout);
+
+    desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ATrousFilterPushConstants));
+
+    m_a_trous_filter_pipeline_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+    dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/svgf_a_trous_filter.comp.spv");
+
+    dw::vk::ComputePipeline::Desc comp_desc;
+
+    comp_desc.set_pipeline_layout(m_a_trous_filter_pipeline_layout);
+    comp_desc.set_shader_stage(module, "main");
+
+    m_a_trous_filter_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+
+    uint32_t image_w = m_input_image->width();
+    uint32_t image_h = m_input_image->height();
+
+    for (int i = 0; i < 2; i++)
+    {
+        m_a_trous_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, image_w, image_h, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_a_trous_image[i]->set_name(m_name + " A-Trous Filter");
+
+        m_a_trous_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_a_trous_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_a_trous_view[i]->set_name(m_name + " A-Trous Filter");
+    }
+
+    // A-Trous write
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
+        for (int i = 0; i < 2; i++)
+        {
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_a_trous_view[i]->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            image_infos.push_back(storage_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_a_trous_write_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // A-Trous read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
+        for (int i = 0; i < 2; i++)
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_a_trous_view[i]->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_a_trous_read_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+}
+
+void SVGFDenoiser::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    if (m_sample->m_first_frame)
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        VkClearColorValue color;
+
+        color.float32[0] = 0.0f;
+        color.float32[1] = 0.0f;
+        color.float32[2] = 0.0f;
+        color.float32[3] = 0.0f;
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_prev_reprojection_image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_moments_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_history_length_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        vkCmdClearColorImage(cmd_buf->handle(), m_moments_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        vkCmdClearColorImage(cmd_buf->handle(), m_history_length_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        vkCmdClearColorImage(cmd_buf->handle(), m_reprojection_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        vkCmdClearColorImage(cmd_buf->handle(), m_prev_reprojection_image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_prev_reprojection_image->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_moments_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_history_length_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+}
+
+void SVGFDenoiser::reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE(m_name + " SVGF Temporal Reprojection", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_reprojection_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_moments_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_history_length_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection_pipeline->handle());
+
+    ReprojectionPushConstants push_constants;
+
+    push_constants.alpha         = m_alpha;
+    push_constants.moments_alpha = m_moments_alpha;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_reprojection_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_reprojection_write_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->downsampled_g_buffer_ds[!m_sample->m_ping_pong]->handle(),
+        m_input_read_ds->handle(),
+        m_prev_reprojection_read_ds->handle(),
+        m_reprojection_read_ds[!m_sample->m_ping_pong]->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection_pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
+
+    uint32_t rt_image_width = m_input_image->width();
+    uint32_t rt_image_height = m_input_image->height();
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+
+    if (!m_use_spatial_for_feedback)
+    {
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection_image[m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_prev_reprojection_image->handle(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            subresource_range);
+
+        VkImageCopy image_copy_region {};
+        image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_copy_region.srcSubresource.layerCount = 1;
+        image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_copy_region.dstSubresource.layerCount = 1;
+        image_copy_region.extent.width              = rt_image_width;
+        image_copy_region.extent.height             = rt_image_height;
+        image_copy_region.extent.depth              = 1;
+
+        // Issue the copy command
+        vkCmdCopyImage(
+            cmd_buf->handle(),
+            m_reprojection_image[m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            m_prev_reprojection_image->handle(),
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1,
+            &image_copy_region);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection_image[m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_prev_reprojection_image->handle(),
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_reprojection_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_moments_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_history_length_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+}
+
+void SVGFDenoiser::filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE(m_name + " SVGF Filter Moments", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_filter_moments_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_filter_moments_pipeline->handle());
+
+    FilterMomentsPushConstants push_constants;
+
+    push_constants.phi_color  = m_phi_color;
+    push_constants.phi_normal = m_phi_normal;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_filter_moments_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_filter_moments_write_ds->handle(),
+        m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_reprojection_read_ds[m_sample->m_ping_pong]->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_filter_moments_pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+    uint32_t rt_image_width  = m_input_image->width();
+    uint32_t rt_image_height = m_input_image->height();
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+    
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_filter_moments_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+}
+
+void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE(m_name + " SVGF A-Trous Filter", cmd_buf);
+
+    const uint32_t NUM_THREADS = 32;
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous_filter_pipeline->handle());
+
+    bool    ping_pong = false;
+    int32_t read_idx  = 0;
+    int32_t write_idx = 1;
+
+    for (int i = 0; i < m_a_trous_filter_iterations; i++)
+    {
+        read_idx  = (int32_t)ping_pong;
+        write_idx = (int32_t)!ping_pong;
+
+        if (i == 0)
+        {
+            std::vector<VkMemoryBarrier> memory_barriers = {
+                memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_a_trous_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
+        else
+        {
+            std::vector<VkMemoryBarrier> memory_barriers = {
+                memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_a_trous_image[read_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+                image_memory_barrier(m_a_trous_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
+        
+        ATrousFilterPushConstants push_constants;
+
+        push_constants.radius     = m_a_trous_radius;
+        push_constants.step_size  = 1 << i;
+        push_constants.phi_color  = m_phi_color;
+        push_constants.phi_normal = m_phi_normal;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_a_trous_filter_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_a_trous_write_ds[write_idx]->handle(),
+            i == 0 ? m_filter_moments_read_ds->handle() : m_a_trous_read_ds[read_idx]->handle(),
+            m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+            m_reprojection_read_ds[!m_sample->m_ping_pong]->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous_filter_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+        uint32_t rt_image_width  = m_input_image->width();
+        uint32_t rt_image_height = m_input_image->height();
+
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(rt_image_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(rt_image_height) / float(NUM_THREADS))), 1);
+
+        ping_pong = !ping_pong;
+
+        if (m_use_spatial_for_feedback && m_a_trous_feedback_iteration == i)
+        {
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_a_trous_image[write_idx]->handle(),
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_prev_reprojection_image->handle(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                subresource_range);
+
+            VkImageCopy image_copy_region {};
+            image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            image_copy_region.srcSubresource.layerCount = 1;
+            image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            image_copy_region.dstSubresource.layerCount = 1;
+            image_copy_region.extent.width              = rt_image_width;
+            image_copy_region.extent.height             = rt_image_height;
+            image_copy_region.extent.depth              = 1;
+
+            // Issue the copy command
+            vkCmdCopyImage(
+                cmd_buf->handle(),
+                m_a_trous_image[write_idx]->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                m_prev_reprojection_image->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &image_copy_region);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_a_trous_image[write_idx]->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_GENERAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_prev_reprojection_image->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
+        }
+    }
+
+    m_read_idx = write_idx;
+
+    std::vector<VkMemoryBarrier> memory_barriers = {
+        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+
+    std::vector<VkImageMemoryBarrier> image_barriers = {
+        image_memory_barrier(m_a_trous_image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+
+    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
+BilateralDenoiser::BilateralDenoiser(HybridRendering* sample, std::string name, dw::vk::Image::Ptr& input_image, dw::vk::ImageView::Ptr& input_image_view, bool reconstruction, uint32_t blur_radius) :
+    Denoiser(sample, name, input_image, input_image_view),
+    m_blur_radius(blur_radius)
+{
+    uint32_t upscaled_image_w = input_image->width() * 2;
+    uint32_t upscaled_image_h = input_image->height() * 2;
+
+    m_reconstruction_image = dw::vk::Image::create(sample->m_vk_backend, VK_IMAGE_TYPE_2D, upscaled_image_w, upscaled_image_h, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_reconstruction_image->set_name(name + " Reconstructed");
+
+    m_reconstruction_image_view = dw::vk::ImageView::create(sample->m_vk_backend, m_reconstruction_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_reconstruction_image_view->set_name(name + " Reconstructed");
+
+    m_reconstruction_write_ds = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->storage_image_ds_layout);
+    m_reconstruction_read_ds  = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->combined_sampler_ds_layout);
+
+    // Reconstructed write
+    {
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_reconstruction_image_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &storage_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_reconstruction_write_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    // Reconstructed read
+    {
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = sample->m_vk_backend->bilinear_sampler()->handle();
+        sampler_image_info.imageView   = m_reconstruction_image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &sampler_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_reconstruction_read_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(sample->m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->per_frame_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReconstructionPushConstants));
+
+        m_reconstruction_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/denoiser_reconstruction.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_reconstruction_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_reconstruction_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+    }
+}
+
+BilateralDenoiser::~BilateralDenoiser()
+{
+}
+
+void BilateralDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+
+}
+
+void BilateralDenoiser::reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_input_image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_reconstruction_image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reconstruction_pipeline->handle());
+
+    ReconstructionPushConstants push_constants;
+
+    float z_buffer_params_x = -1.0 + (m_sample->m_near_plane / m_sample->m_far_plane);
+
+    push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_sample->m_near_plane, 1.0f / m_sample->m_near_plane);
+    push_constants.num_frames      = m_sample->m_num_frames;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_reconstruction_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offset = m_sample->m_ubo_size * m_sample->m_vk_backend->current_frame_idx();
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_reconstruction_write_ds->handle(),
+        m_input_read_ds->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->per_frame_ds->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reconstruction_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_reconstruction_image->width()) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_reconstruction_image->height()) / float(NUM_THREADS))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_reconstruction_image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+uint32_t BilateralDenoiser::blur_radius() { return m_blur_radius; }
+
+void BilateralDenoiser::set_blur_radius(uint32_t n) { m_blur_radius = glm::clamp(n, 1u, 7u); }
+
+dw::vk::DescriptorSet::Ptr BilateralDenoiser::denoised_image_ds()
+{
+    if (m_reconstruction)
+        return m_blur_read_ds;
+    else
+        return m_blur_read_ds;
+}
 
 DW_DECLARE_MAIN(HybridRendering)
