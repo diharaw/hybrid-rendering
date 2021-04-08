@@ -60,7 +60,28 @@ layout(push_constant) uniform PushConstants
 u_PushConstants;
 
 // ------------------------------------------------------------------
+// CONSTANTS  -------------------------------------------------------
+// ------------------------------------------------------------------
+
+const float FLT_EPS = 0.00000001;
+
+// ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+float max_3(float x, float y, float z) { return max(x, max(y, z)); }
+
+// ------------------------------------------------------------------
+
+// Apply this to tonemap linear HDR color "c" after a sample is fetched in the resolve.
+// Note "c" 1.0 maps to the expected limit of low-dynamic-range monitor output.
+vec3 tonemap(vec3 c) { return c / (max_3(c.r, c.g, c.b) + 1.0f); }
+
+// ------------------------------------------------------------------
+
+// Apply this to restore the linear HDR color before writing out the result of the resolve.
+vec3 tonemap_invert(vec3 c) { return c / (1.0f - max_3(c.r, c.g, c.b)); }
+
 // ------------------------------------------------------------------
 
 bool is_reprojection_valid(ivec2 coord, float Z, float Zprev, float fwidthZ, vec3 normal, vec3 normalPrev, float fwidthNormal)
@@ -113,7 +134,7 @@ vec3 neighborhood_standard_deviation(ivec2 coord)
         for (int dy = -radius; dy <= radius; dy++)
         {
             ivec2 sample_coord = coord + ivec2(dx, dy);
-            vec3  sample_color = texelFetch(s_Color, sample_coord, 0).rgb;
+            vec3  sample_color = tonemap(texelFetch(s_Color, sample_coord, 0).rgb);
 
             m1 += sample_color;
             m2 += sample_color * sample_color;
@@ -341,7 +362,7 @@ void main()
 
     // Sample the ray length for the current pixel
     vec4  current    = texelFetch(s_Color, current_coord, 0);
-    vec3  color      = current.xyz;
+    vec3  color      = tonemap(current.xyz);
     float ray_length = current.w;
 
     float roughness = texelFetch(s_Roughness, current_coord, 0).a;
@@ -364,10 +385,12 @@ void main()
     bool  success  = load_prev_data(current_coord, surface_point_coord, motion, prev_color, history_length);
     history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
 
+    prev_color.xyz = tonemap(prev_color.xyz);
+
     // Clamp
     if (success)
     {
-        float std_dev_scale = roughness < GLOSSY_ROUGHNESS_THRESHOLD ? 1.0f : 15.0f;
+        float std_dev_scale = roughness < GLOSSY_ROUGHNESS_THRESHOLD ? 1.0f : 10.0f;
         vec3  color_std_dev = neighborhood_standard_deviation(current_coord) * std_dev_scale;
 
         vec3 radiance_min = color - color_std_dev;
@@ -382,6 +405,8 @@ void main()
     const float alpha = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
 
     vec4 out_color = mix(prev_color, vec4(color, 0.0f), alpha);
+
+    out_color.xyz = tonemap_invert(out_color.xyz);
 
     // temporal integration
     imageStore(i_Color, current_coord, out_color);
