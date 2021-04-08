@@ -259,56 +259,6 @@ float halton_sequence(int base, int index)
 
 class HybridRendering;
 
-class TemporalReprojection
-{
-private:
-    struct ReprojectionPushConstants
-    {
-        float    alpha;
-        float    neighborhood_scale;
-        uint32_t use_variance_clipping;
-    };
-
-public:
-    TemporalReprojection(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
-    ~TemporalReprojection();
-
-    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
-    dw::vk::DescriptorSet::Ptr output_image_ds();
-
-    inline bool                             variance_clipping() { return m_use_variance_clipping; }
-    inline float                            alpha() { return m_alpha; }
-    inline float                            neighborhood_scale() { return m_neighborhood_scale; }
-    inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_read_ds_layout; }
-    inline void                             set_variance_clipping(bool value) { m_use_variance_clipping = value; }
-    inline void                             set_alpha(float value) { m_alpha = value; }
-    inline void                             set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
-
-private:
-    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
-
-private:
-    std::string      m_name;
-    HybridRendering* m_sample;
-    uint32_t         m_input_width;
-    uint32_t         m_input_height;
-    bool             m_use_variance_clipping = true;
-    float            m_neighborhood_scale    = 1.0f;
-    float            m_alpha                 = 0.01f;
-    int32_t          m_read_idx              = 0;
-    // Reprojection
-    dw::vk::ComputePipeline::Ptr     m_pipeline;
-    dw::vk::PipelineLayout::Ptr      m_pipeline_layout;
-    dw::vk::DescriptorSetLayout::Ptr m_read_ds_layout;
-    dw::vk::DescriptorSetLayout::Ptr m_write_ds_layout;
-    dw::vk::Image::Ptr               m_color_image[2];
-    dw::vk::ImageView::Ptr           m_color_view[2];
-    dw::vk::Image::Ptr               m_history_length_image[2];
-    dw::vk::ImageView::Ptr           m_history_length_view[2];
-    dw::vk::DescriptorSet::Ptr       m_write_ds[2];
-    dw::vk::DescriptorSet::Ptr       m_read_ds[2];
-};
-
 class SVGFDenoiser
 {
 public:
@@ -339,6 +289,9 @@ public:
     uint32_t                   filter_iterations();
     void                       set_filter_iterations(uint32_t n);
     dw::vk::DescriptorSet::Ptr denoised_image_ds();
+
+    inline uint32_t filter_iterations() { return m_a_trous_filter_iterations; }
+    inline void     set_filter_iterations(uint32_t n) { m_a_trous_filter_iterations = glm::clamp(n, 1u, 5u); }
 
 protected:
     void create_reprojection_resources();
@@ -398,6 +351,56 @@ private:
     dw::vk::DescriptorSet::Ptr   m_a_trous_write_ds[2];
 };
 
+class TemporalDenoiser
+{
+private:
+    struct ReprojectionPushConstants
+    {
+        float    alpha;
+        float    neighborhood_scale;
+        uint32_t use_variance_clipping;
+    };
+
+public:
+    TemporalDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
+    ~TemporalDenoiser();
+
+    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    dw::vk::DescriptorSet::Ptr output_image_ds();
+
+    inline bool                             variance_clipping() { return m_use_variance_clipping; }
+    inline float                            alpha() { return m_alpha; }
+    inline float                            neighborhood_scale() { return m_neighborhood_scale; }
+    inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_read_ds_layout; }
+    inline void                             set_variance_clipping(bool value) { m_use_variance_clipping = value; }
+    inline void                             set_alpha(float value) { m_alpha = value; }
+    inline void                             set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
+
+private:
+    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
+
+private:
+    std::string      m_name;
+    HybridRendering* m_sample;
+    uint32_t         m_input_width;
+    uint32_t         m_input_height;
+    bool             m_use_variance_clipping = true;
+    float            m_neighborhood_scale    = 1.0f;
+    float            m_alpha                 = 0.01f;
+    int32_t          m_read_idx              = 0;
+    // Reprojection
+    dw::vk::ComputePipeline::Ptr     m_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_pipeline_layout;
+    dw::vk::DescriptorSetLayout::Ptr m_read_ds_layout;
+    dw::vk::DescriptorSetLayout::Ptr m_write_ds_layout;
+    dw::vk::Image::Ptr               m_color_image[2];
+    dw::vk::ImageView::Ptr           m_color_view[2];
+    dw::vk::Image::Ptr               m_history_length_image[2];
+    dw::vk::ImageView::Ptr           m_history_length_view[2];
+    dw::vk::DescriptorSet::Ptr       m_write_ds[2];
+    dw::vk::DescriptorSet::Ptr       m_read_ds[2];
+};
+
 class ReflectionDenoiser
 {
 private:
@@ -447,14 +450,14 @@ private:
     dw::vk::DescriptorSet::Ptr   m_reconstruction_write_ds;
 
     // Temporal
-    std::unique_ptr<TemporalReprojection> m_temporal_pre_pass;
-    std::unique_ptr<TemporalReprojection> m_temporal_main_pass;
+    std::unique_ptr<TemporalDenoiser> m_temporal_pre_pass;
+    std::unique_ptr<TemporalDenoiser> m_temporal_main_pass;
 };
 
 class HybridRendering : public dw::Application
 {
 public:
-    friend class TemporalReprojection;
+    friend class TemporalDenoiser;
     friend class SVGFDenoiser;
     friend class ReflectionDenoiser;
 
@@ -4461,10 +4464,6 @@ SVGFDenoiser::~SVGFDenoiser()
 {
 }
 
-uint32_t SVGFDenoiser::filter_iterations() { return m_a_trous_filter_iterations; }
-
-void SVGFDenoiser::set_filter_iterations(uint32_t n) { m_a_trous_filter_iterations = glm::clamp(n, 1u, 5u); }
-
 dw::vk::DescriptorSet::Ptr SVGFDenoiser::denoised_image_ds()
 {
     return m_a_trous_read_ds[m_read_idx];
@@ -5314,7 +5313,7 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
     pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
 
-TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
+TemporalDenoiser::TemporalDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
     m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height)
 {
     {
@@ -5494,11 +5493,11 @@ TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string 
     }
 }
 
-TemporalReprojection::~TemporalReprojection()
+TemporalDenoiser::~TemporalDenoiser()
 {
 }
 
-void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
+void TemporalDenoiser::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
 {
     clear_images(cmd_buf);
 
@@ -5557,7 +5556,7 @@ void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk:
     }
 }
 
-void TemporalReprojection::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
+void TemporalDenoiser::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     if (m_sample->m_first_frame)
     {
@@ -5603,7 +5602,7 @@ void TemporalReprojection::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
     }
 }
 
-dw::vk::DescriptorSet::Ptr TemporalReprojection::output_image_ds()
+dw::vk::DescriptorSet::Ptr TemporalDenoiser::output_image_ds()
 {
     return m_read_ds[m_sample->m_ping_pong];
 }
