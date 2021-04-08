@@ -264,7 +264,7 @@ class TemporalReprojection
 private:
     struct ReprojectionPushConstants
     {
-        float alpha;
+        float    alpha;
         float    neighborhood_scale;
         uint32_t use_variance_clipping;
     };
@@ -272,17 +272,17 @@ private:
 public:
     TemporalReprojection(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
     ~TemporalReprojection();
-    
-    void reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+
+    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
     dw::vk::DescriptorSet::Ptr output_image_ds();
 
-    inline bool variance_clipping() { return m_use_variance_clipping; }
-    inline float alpha() { return m_alpha; }
-    inline float neighborhood_scale() { return m_neighborhood_scale; }  
+    inline bool                             variance_clipping() { return m_use_variance_clipping; }
+    inline float                            alpha() { return m_alpha; }
+    inline float                            neighborhood_scale() { return m_neighborhood_scale; }
     inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_read_ds_layout; }
-    inline void set_variance_clipping(bool value) { m_use_variance_clipping = value; }
-    inline void set_alpha(float value) { m_alpha = value; }
-    inline void set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
+    inline void                             set_variance_clipping(bool value) { m_use_variance_clipping = value; }
+    inline void                             set_alpha(float value) { m_alpha = value; }
+    inline void                             set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
 
 private:
     void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -291,11 +291,11 @@ private:
     std::string      m_name;
     HybridRendering* m_sample;
     uint32_t         m_input_width;
-    uint32_t         m_input_height; 
+    uint32_t         m_input_height;
     bool             m_use_variance_clipping = true;
     float            m_neighborhood_scale    = 1.0f;
-    float m_alpha = 0.01f;
-    int32_t          m_read_idx = 0;
+    float            m_alpha                 = 0.01f;
+    int32_t          m_read_idx              = 0;
     // Reprojection
     dw::vk::ComputePipeline::Ptr     m_pipeline;
     dw::vk::PipelineLayout::Ptr      m_pipeline_layout;
@@ -352,17 +352,17 @@ protected:
 private:
     std::string      m_name;
     HybridRendering* m_sample;
-    bool    m_use_spatial_for_feedback = false;
-    uint32_t m_input_width;
-    uint32_t m_input_height; 
-    float   m_alpha                           = 0.01f;
-    float   m_moments_alpha                   = 0.2f;
-    float   m_phi_color                       = 10.0f;
-    float   m_phi_normal                      = 128.0f;
-    int32_t m_a_trous_radius                  = 1;
-    int32_t m_a_trous_filter_iterations       = 4;
-    int32_t m_a_trous_feedback_iteration      = 1;
-    int32_t m_read_idx                        = 0;
+    bool             m_use_spatial_for_feedback = false;
+    uint32_t         m_input_width;
+    uint32_t         m_input_height;
+    float            m_alpha                      = 0.01f;
+    float            m_moments_alpha              = 0.2f;
+    float            m_phi_color                  = 10.0f;
+    float            m_phi_normal                 = 128.0f;
+    int32_t          m_a_trous_radius             = 1;
+    int32_t          m_a_trous_filter_iterations  = 4;
+    int32_t          m_a_trous_feedback_iteration = 1;
+    int32_t          m_read_idx                   = 0;
 
     // Reprojection
     dw::vk::ComputePipeline::Ptr     m_reprojection_pipeline;
@@ -377,9 +377,9 @@ private:
     dw::vk::ImageView::Ptr           m_history_length_view[2];
     dw::vk::DescriptorSet::Ptr       m_reprojection_write_ds[2];
     dw::vk::DescriptorSet::Ptr       m_reprojection_read_ds[2];
-    dw::vk::Image::Ptr         m_prev_reprojection_image;
-    dw::vk::ImageView::Ptr     m_prev_reprojection_view;
-    dw::vk::DescriptorSet::Ptr m_prev_reprojection_read_ds;
+    dw::vk::Image::Ptr               m_prev_reprojection_image;
+    dw::vk::ImageView::Ptr           m_prev_reprojection_view;
+    dw::vk::DescriptorSet::Ptr       m_prev_reprojection_read_ds;
 
     // Filter Moments
     dw::vk::ComputePipeline::Ptr m_filter_moments_pipeline;
@@ -414,10 +414,10 @@ public:
     void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
     dw::vk::DescriptorSet::Ptr denoised_image_ds();
 
-    inline uint32_t                   blur_radius() { return m_blur_radius; }
-    inline bool                temporal_pre_pass() { return m_use_temporal_pre_pass; }
-    inline void                set_temporal_pre_pass(bool value) { m_use_temporal_pre_pass = value; }
-    inline void                       set_blur_radius(uint32_t n) { m_blur_radius = glm::clamp(n, 1u, 7u); }
+    inline uint32_t blur_radius() { return m_blur_radius; }
+    inline bool     temporal_pre_pass() { return m_use_temporal_pre_pass; }
+    inline void     set_temporal_pre_pass(bool value) { m_use_temporal_pre_pass = value; }
+    inline void     set_blur_radius(uint32_t n) { m_blur_radius = glm::clamp(n, 1u, 7u); }
 
 protected:
     void reconstruct_pass(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
@@ -430,7 +430,7 @@ private:
     HybridRendering* m_sample;
 
     uint32_t m_input_width;
-    uint32_t m_input_height; 
+    uint32_t m_input_height;
     uint32_t m_blur_radius;
     bool     m_use_temporal_pre_pass = true;
 
@@ -480,17 +480,17 @@ private:
         dw::vk::ImageView::Ptr           blue_noise_view_2;
 
         // Denoisers
-        std::unique_ptr < SVGFDenoiser> svgf_shadow_denoiser;
+        std::unique_ptr<SVGFDenoiser> svgf_shadow_denoiser;
         std::unique_ptr<SVGFDenoiser> svgf_gi_denoiser;
 
         // Ray-Traced Shadows
-        dw::vk::RayTracingPipeline::Ptr         shadow_mask_pipeline;
-        dw::vk::PipelineLayout::Ptr             shadow_mask_pipeline_layout;
-        dw::vk::ShaderBindingTable::Ptr         shadow_mask_sbt;
-        dw::vk::Image::Ptr         visibility_image;
-        dw::vk::ImageView::Ptr     visibility_view;
-        dw::vk::DescriptorSet::Ptr visibility_write_ds;
-        dw::vk::DescriptorSet::Ptr              visibility_read_ds;
+        dw::vk::RayTracingPipeline::Ptr shadow_mask_pipeline;
+        dw::vk::PipelineLayout::Ptr     shadow_mask_pipeline_layout;
+        dw::vk::ShaderBindingTable::Ptr shadow_mask_sbt;
+        dw::vk::Image::Ptr              visibility_image;
+        dw::vk::ImageView::Ptr          visibility_view;
+        dw::vk::DescriptorSet::Ptr      visibility_write_ds;
+        dw::vk::DescriptorSet::Ptr      visibility_read_ds;
 
         // RTAO
         dw::vk::RayTracingPipeline::Ptr rtao_pipeline;
@@ -1439,9 +1439,9 @@ private:
         m_gpu_resources->rtgi_write_ds                = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->rtgi_read_ds                 = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
         m_gpu_resources->deferred_read_ds             = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
-        m_gpu_resources->visibility_write_ds = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
+        m_gpu_resources->visibility_write_ds          = m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout);
         m_gpu_resources->visibility_read_ds           = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
-        
+
         for (int i = 0; i < 2; i++)
         {
             m_gpu_resources->taa_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
@@ -3336,7 +3336,7 @@ private:
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
 
         vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
-    
+
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
             m_gpu_resources->visibility_image->handle(),
@@ -4310,7 +4310,7 @@ private:
 
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
             vkCmdClearColorImage(cmd_buf->handle(), m_gpu_resources->reflection_history_image[!m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
-           
+
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
                 m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(),
@@ -4555,7 +4555,7 @@ void SVGFDenoiser::create_reprojection_resources()
 
     m_prev_reprojection_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_prev_reprojection_image->set_name(m_name + " Previous Reprojection");
-           
+
     m_prev_reprojection_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_prev_reprojection_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_prev_reprojection_view->set_name(m_name + " Previous Reprojection");
 
@@ -5227,7 +5227,7 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
             pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         }
-        
+
         ATrousFilterPushConstants push_constants;
 
         push_constants.radius     = m_a_trous_radius;
@@ -5322,7 +5322,7 @@ TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string 
 
         desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
- 
+
         m_write_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
     }
 
@@ -5368,7 +5368,7 @@ TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string 
     {
         m_color_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_color_image[i]->set_name(m_name + " Reprojection Color");
-          
+
         m_color_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_color_view[i]->set_name(m_name + " Reprojection Color");
 
@@ -5496,7 +5496,6 @@ TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string 
 
 TemporalReprojection::~TemporalReprojection()
 {
-
 }
 
 void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
@@ -5526,8 +5525,8 @@ void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk:
 
     ReprojectionPushConstants push_constants;
 
-    push_constants.alpha         = m_alpha;
-    push_constants.neighborhood_scale = m_neighborhood_scale;
+    push_constants.alpha                 = m_alpha;
+    push_constants.neighborhood_scale    = m_neighborhood_scale;
     push_constants.use_variance_clipping = (uint32_t)m_use_variance_clipping;
 
     vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -5587,7 +5586,7 @@ void TemporalReprojection::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         vkCmdClearColorImage(cmd_buf->handle(), m_history_length_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
         vkCmdClearColorImage(cmd_buf->handle(), m_color_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
-  
+
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
             m_history_length_image[!m_sample->m_ping_pong]->handle(),
@@ -5609,7 +5608,8 @@ dw::vk::DescriptorSet::Ptr TemporalReprojection::output_image_ds()
     return m_read_ds[m_sample->m_ping_pong];
 }
 
-ReflectionDenoiser::ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius) : m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height), m_blur_radius(blur_radius)
+ReflectionDenoiser::ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius) :
+    m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height), m_blur_radius(blur_radius)
 {
     m_reconstruction_image = dw::vk::Image::create(sample->m_vk_backend, VK_IMAGE_TYPE_2D, input_width, input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_reconstruction_image->set_name(name + " Reconstructed");
@@ -5693,7 +5693,6 @@ ReflectionDenoiser::~ReflectionDenoiser()
 
 void ReflectionDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
 {
-
 }
 
 void ReflectionDenoiser::reconstruct_pass(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
@@ -5743,17 +5742,14 @@ void ReflectionDenoiser::reconstruct_pass(dw::vk::CommandBuffer::Ptr cmd_buf, dw
 
 void ReflectionDenoiser::temporal_pre_pass(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-
 }
 
 void ReflectionDenoiser::temporal_main_pass(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-
 }
 
 void ReflectionDenoiser::bilateral_blur()
 {
-
 }
 
 dw::vk::DescriptorSet::Ptr ReflectionDenoiser::denoised_image_ds()
