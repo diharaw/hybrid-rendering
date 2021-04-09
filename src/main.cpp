@@ -259,6 +259,122 @@ float halton_sequence(int base, int index)
 
 class HybridRendering;
 
+class TemporalReprojection
+{
+private:
+    struct PushConstants
+    {
+        float    alpha;
+        float    neighborhood_scale;
+        uint32_t use_variance_clipping;
+    };
+
+public:
+    TemporalReprojection(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
+    ~TemporalReprojection();
+
+    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    dw::vk::DescriptorSet::Ptr output_ds();
+
+    inline bool                             variance_clipping() { return m_use_variance_clipping; }
+    inline float                            alpha() { return m_alpha; }
+    inline float                            neighborhood_scale() { return m_neighborhood_scale; }
+    inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_read_ds_layout; }
+    inline void                             set_variance_clipping(bool value) { m_use_variance_clipping = value; }
+    inline void                             set_alpha(float value) { m_alpha = value; }
+    inline void                             set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
+
+private:
+    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
+
+private:
+    std::string      m_name;
+    HybridRendering* m_sample;
+    uint32_t         m_input_width;
+    uint32_t         m_input_height;
+    bool             m_use_variance_clipping = true;
+    float            m_neighborhood_scale    = 1.0f;
+    float            m_alpha                 = 0.01f;
+    int32_t          m_read_idx              = 0;
+    // Reprojection
+    dw::vk::ComputePipeline::Ptr     m_pipeline;
+    dw::vk::PipelineLayout::Ptr      m_pipeline_layout;
+    dw::vk::DescriptorSetLayout::Ptr m_read_ds_layout;
+    dw::vk::DescriptorSetLayout::Ptr m_write_ds_layout;
+    dw::vk::Image::Ptr               m_color_image[2];
+    dw::vk::ImageView::Ptr           m_color_view[2];
+    dw::vk::Image::Ptr               m_history_length_image[2];
+    dw::vk::ImageView::Ptr           m_history_length_view[2];
+    dw::vk::DescriptorSet::Ptr       m_write_ds[2];
+    dw::vk::DescriptorSet::Ptr       m_read_ds[2];
+};
+
+class SpatialReconstruction
+{
+private:
+    struct PushConstants
+    {
+        glm::vec4 z_buffer_params;
+    };
+
+public:
+    SpatialReconstruction(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
+    ~SpatialReconstruction();
+
+    void                       reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    dw::vk::DescriptorSet::Ptr output_ds();
+
+private:
+    std::string      m_name;
+    HybridRendering* m_sample;
+
+    uint32_t m_input_width;
+    uint32_t m_input_height;
+
+    // Reconstruction
+    dw::vk::PipelineLayout::Ptr  m_layout;
+    dw::vk::ComputePipeline::Ptr m_pipeline;
+    dw::vk::Image::Ptr           m_image;
+    dw::vk::ImageView::Ptr       m_image_view;
+    dw::vk::DescriptorSet::Ptr   m_read_ds;
+    dw::vk::DescriptorSet::Ptr   m_write_ds;
+};
+
+class BilateralBlur
+{
+private:
+    struct PushConstants
+    {
+        uint32_t radius;
+    };
+
+public:
+    BilateralBlur(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
+    ~BilateralBlur();
+
+    void                       blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    dw::vk::DescriptorSet::Ptr output_ds();
+
+    inline uint32_t blur_radius() { return m_blur_radius; }
+    inline void     set_blur_radius(uint32_t n) { m_blur_radius = glm::clamp(n, 1u, 7u); }
+
+private:
+    std::string      m_name;
+    HybridRendering* m_sample;
+
+    uint32_t m_input_width;
+    uint32_t m_input_height;
+    uint32_t m_blur_radius;
+
+    // Reconstruction
+    dw::vk::PipelineLayout::Ptr  m_layout;
+    dw::vk::ComputePipeline::Ptr m_pipeline;
+    dw::vk::Image::Ptr           m_image;
+    dw::vk::ImageView::Ptr       m_image_view;
+    dw::vk::DescriptorSet::Ptr   m_read_ds;
+    dw::vk::DescriptorSet::Ptr   m_write_ds;
+};
+
 class SVGFDenoiser
 {
 public:
@@ -288,7 +404,7 @@ public:
     void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
     uint32_t                   filter_iterations();
     void                       set_filter_iterations(uint32_t n);
-    dw::vk::DescriptorSet::Ptr denoised_image_ds();
+    dw::vk::DescriptorSet::Ptr output_ds();
 
     inline uint32_t filter_iterations() { return m_a_trous_filter_iterations; }
     inline void     set_filter_iterations(uint32_t n) { m_a_trous_filter_iterations = glm::clamp(n, 1u, 5u); }
@@ -351,79 +467,21 @@ private:
     dw::vk::DescriptorSet::Ptr   m_a_trous_write_ds[2];
 };
 
-class TemporalDenoiser
-{
-private:
-    struct ReprojectionPushConstants
-    {
-        float    alpha;
-        float    neighborhood_scale;
-        uint32_t use_variance_clipping;
-    };
-
-public:
-    TemporalDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
-    ~TemporalDenoiser();
-
-    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
-    dw::vk::DescriptorSet::Ptr output_image_ds();
-
-    inline bool                             variance_clipping() { return m_use_variance_clipping; }
-    inline float                            alpha() { return m_alpha; }
-    inline float                            neighborhood_scale() { return m_neighborhood_scale; }
-    inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_read_ds_layout; }
-    inline void                             set_variance_clipping(bool value) { m_use_variance_clipping = value; }
-    inline void                             set_alpha(float value) { m_alpha = value; }
-    inline void                             set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
-
-private:
-    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
-
-private:
-    std::string      m_name;
-    HybridRendering* m_sample;
-    uint32_t         m_input_width;
-    uint32_t         m_input_height;
-    bool             m_use_variance_clipping = true;
-    float            m_neighborhood_scale    = 1.0f;
-    float            m_alpha                 = 0.01f;
-    int32_t          m_read_idx              = 0;
-    // Reprojection
-    dw::vk::ComputePipeline::Ptr     m_pipeline;
-    dw::vk::PipelineLayout::Ptr      m_pipeline_layout;
-    dw::vk::DescriptorSetLayout::Ptr m_read_ds_layout;
-    dw::vk::DescriptorSetLayout::Ptr m_write_ds_layout;
-    dw::vk::Image::Ptr               m_color_image[2];
-    dw::vk::ImageView::Ptr           m_color_view[2];
-    dw::vk::Image::Ptr               m_history_length_image[2];
-    dw::vk::ImageView::Ptr           m_history_length_view[2];
-    dw::vk::DescriptorSet::Ptr       m_write_ds[2];
-    dw::vk::DescriptorSet::Ptr       m_read_ds[2];
-};
-
 class ReflectionDenoiser
 {
 private:
-    struct ReconstructionPushConstants
-    {
-        glm::vec4 z_buffer_params;
-        uint32_t  num_frames;
-    };
 
 public:
     ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius);
     ~ReflectionDenoiser();
 
     void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
-    dw::vk::DescriptorSet::Ptr denoised_image_ds();
+    dw::vk::DescriptorSet::Ptr output_ds();
 
-    inline uint32_t blur_radius() { return m_blur_radius; }
     inline bool     temporal_pre_pass() { return m_use_temporal_pre_pass; }
     inline void     set_temporal_pre_pass(bool value) { m_use_temporal_pre_pass = value; }
-    inline void     set_blur_radius(uint32_t n) { m_blur_radius = glm::clamp(n, 1u, 7u); }
-
+    
 protected:
-    void reconstruct_pass(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
     void temporal_pre_pass(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_main_pass(dw::vk::CommandBuffer::Ptr cmd_buf);
     void bilateral_blur();
@@ -434,30 +492,26 @@ private:
 
     uint32_t m_input_width;
     uint32_t m_input_height;
-    uint32_t m_blur_radius;
     bool     m_use_temporal_pre_pass = true;
+    bool     m_reconstruction;
 
     dw::vk::DescriptorSet::Ptr m_blur_read_ds;
     dw::vk::DescriptorSet::Ptr m_blur_write_ds;
 
     // Reconstruction
-    bool                         m_reconstruction;
-    dw::vk::PipelineLayout::Ptr  m_reconstruction_layout;
-    dw::vk::ComputePipeline::Ptr m_reconstruction_pipeline;
-    dw::vk::Image::Ptr           m_reconstruction_image;
-    dw::vk::ImageView::Ptr       m_reconstruction_image_view;
-    dw::vk::DescriptorSet::Ptr   m_reconstruction_read_ds;
-    dw::vk::DescriptorSet::Ptr   m_reconstruction_write_ds;
+    std::unique_ptr<SpatialReconstruction> m_spatial_reconstruction;
 
     // Temporal
-    std::unique_ptr<TemporalDenoiser> m_temporal_pre_pass;
-    std::unique_ptr<TemporalDenoiser> m_temporal_main_pass;
+    std::unique_ptr<TemporalReprojection> m_temporal_pre_pass;
+    std::unique_ptr<TemporalReprojection> m_temporal_main_pass;
 };
 
 class HybridRendering : public dw::Application
 {
 public:
-    friend class TemporalDenoiser;
+    friend class TemporalReprojection;
+    friend class SpatialReconstruction;
+    friend class BilateralBlur;
     friend class SVGFDenoiser;
     friend class ReflectionDenoiser;
 
@@ -4008,9 +4062,9 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
-            m_gpu_resources->svgf_shadow_denoiser->denoised_image_ds()->handle(),
+            m_gpu_resources->svgf_shadow_denoiser->output_ds()->handle(),
             m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
-            m_gpu_resources->svgf_gi_denoiser->denoised_image_ds()->handle(),
+            m_gpu_resources->svgf_gi_denoiser->output_ds()->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
             m_gpu_resources->pbr_ds->handle()
@@ -4157,9 +4211,9 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_gpu_resources->taa_read_ds[m_ping_pong]->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
-            m_gpu_resources->svgf_shadow_denoiser->denoised_image_ds()->handle(),
+            m_gpu_resources->svgf_shadow_denoiser->output_ds()->handle(),
             m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
-            m_gpu_resources->svgf_gi_denoiser->denoised_image_ds()->handle()
+            m_gpu_resources->svgf_gi_denoiser->output_ds()->handle()
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
         };
 
@@ -4452,6 +4506,567 @@ private:
     VisualizationType m_current_visualization = VISUALIZATION_FINAL;
 };
 
+TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
+    m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height)
+{
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_write_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
+    }
+
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
+    }
+
+    for (int i = 0; i < 2; i++)
+    {
+        m_write_ds[i] = m_sample->m_vk_backend->allocate_descriptor_set(m_write_ds_layout);
+        m_read_ds[i]  = m_sample->m_vk_backend->allocate_descriptor_set(m_read_ds_layout);
+    }
+
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_write_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_read_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants));
+
+        m_pipeline_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/temporal_reprojection.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+    }
+
+    for (int i = 0; i < 2; i++)
+    {
+        m_color_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_color_image[i]->set_name(m_name + " Reprojection Color");
+
+        m_color_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_color_view[i]->set_name(m_name + " Reprojection Color");
+
+        m_history_length_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_history_length_image[i]->set_name(m_name + " Reprojection History");
+
+        m_history_length_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_history_length_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_history_length_view[i]->set_name(m_name + " Reprojection History");
+    }
+
+    // Reprojection write
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(4);
+        write_datas.reserve(4);
+
+        for (int i = 0; i < 2; i++)
+        {
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_color_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_history_length_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_infos.push_back(storage_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 1;
+                write_data.dstSet          = m_write_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+        }
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Reprojection read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(4);
+        write_datas.reserve(4);
+
+        for (int i = 0; i < 2; i++)
+        {
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_color_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_history_length_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_infos.push_back(sampler_image_info);
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &image_infos.back();
+                write_data.dstBinding      = 1;
+                write_data.dstSet          = m_read_ds[i]->handle();
+
+                write_datas.push_back(write_data);
+            }
+        }
+
+        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+}
+
+TemporalReprojection::~TemporalReprojection()
+{
+}
+
+void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
+{
+    clear_images(cmd_buf);
+
+    DW_SCOPED_SAMPLE(m_name + " Temporal Reprojection", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_color_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_history_length_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline->handle());
+
+    PushConstants push_constants;
+
+    push_constants.alpha                 = m_alpha;
+    push_constants.neighborhood_scale    = m_neighborhood_scale;
+    push_constants.use_variance_clipping = (uint32_t)m_use_variance_clipping;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_write_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->downsampled_g_buffer_ds[!m_sample->m_ping_pong]->handle(),
+        input->handle(),
+        m_read_ds[!m_sample->m_ping_pong]->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_input_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_input_height) / float(NUM_THREADS))), 1);
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_color_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_history_length_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+}
+
+void TemporalReprojection::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    if (m_sample->m_first_frame)
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        VkClearColorValue color;
+
+        color.float32[0] = 0.0f;
+        color.float32[1] = 0.0f;
+        color.float32[2] = 0.0f;
+        color.float32[3] = 0.0f;
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_history_length_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_color_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        vkCmdClearColorImage(cmd_buf->handle(), m_history_length_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        vkCmdClearColorImage(cmd_buf->handle(), m_color_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_history_length_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_color_image[!m_sample->m_ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+}
+
+dw::vk::DescriptorSet::Ptr TemporalReprojection::output_ds()
+{
+    return m_read_ds[m_sample->m_ping_pong];
+}
+
+SpatialReconstruction::SpatialReconstruction(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
+    m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height)
+{
+    m_image = dw::vk::Image::create(sample->m_vk_backend, VK_IMAGE_TYPE_2D, input_width * 2, input_height * 2, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_image->set_name(name + " Reconstructed");
+
+    m_image_view = dw::vk::ImageView::create(sample->m_vk_backend, m_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_image_view->set_name(name + " Reconstructed");
+
+    m_write_ds = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->storage_image_ds_layout);
+    m_read_ds  = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->combined_sampler_ds_layout);
+
+    // Reconstructed write
+    {
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_image_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &storage_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_write_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    // Reconstructed read
+    {
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = sample->m_vk_backend->bilinear_sampler()->handle();
+        sampler_image_info.imageView   = m_image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &sampler_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_read_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(sample->m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->per_frame_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants));
+
+        m_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/spatial_reconstruction.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+    }
+}
+
+SpatialReconstruction::~SpatialReconstruction()
+{
+
+}
+
+void SpatialReconstruction::reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
+{
+    DW_SCOPED_SAMPLE(m_name + " Reconstruction", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline->handle());
+
+    PushConstants push_constants;
+
+    float z_buffer_params_x = -1.0 + (m_sample->m_near_plane / m_sample->m_far_plane);
+
+    push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_sample->m_near_plane, 1.0f / m_sample->m_near_plane);
+
+    vkCmdPushConstants(cmd_buf->handle(), m_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offset = m_sample->m_ubo_size * m_sample->m_vk_backend->current_frame_idx();
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_write_ds->handle(),
+        input->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->per_frame_ds->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_image->width()) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_image->height()) / float(NUM_THREADS))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+dw::vk::DescriptorSet::Ptr SpatialReconstruction::output_ds()
+{
+    return m_read_ds;
+}
+
+BilateralBlur::BilateralBlur(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
+    m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height)
+{
+    m_image = dw::vk::Image::create(sample->m_vk_backend, VK_IMAGE_TYPE_2D, input_width, input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_image->set_name(name + " Bilateral");
+
+    m_image_view = dw::vk::ImageView::create(sample->m_vk_backend, m_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_image_view->set_name(name + " Bilateral");
+
+    m_write_ds = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->storage_image_ds_layout);
+    m_read_ds  = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->combined_sampler_ds_layout);
+
+    // write
+    {
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_image_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &storage_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_write_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    // read
+    {
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = sample->m_vk_backend->bilinear_sampler()->handle();
+        sampler_image_info.imageView   = m_image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &sampler_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_read_ds->handle();
+
+        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(sample->m_gpu_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->per_frame_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants));
+
+        m_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/spatial_reconstruction.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
+    }
+}
+
+BilateralBlur::~BilateralBlur()
+{
+
+}
+
+void BilateralBlur::blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
+{
+    DW_SCOPED_SAMPLE(m_name + " Bilateral Blur", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline->handle());
+
+    PushConstants push_constants;
+    push_constants.radius = m_blur_radius;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offset = m_sample->m_ubo_size * m_sample->m_vk_backend->current_frame_idx();
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_write_ds->handle(),
+        input->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->per_frame_ds->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_image->width()) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_image->height()) / float(NUM_THREADS))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+dw::vk::DescriptorSet::Ptr BilateralBlur::output_ds()
+{
+
+}
+
 SVGFDenoiser::SVGFDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t filter_iterations) :
     m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height), m_a_trous_filter_iterations(filter_iterations)
 {
@@ -4464,7 +5079,7 @@ SVGFDenoiser::~SVGFDenoiser()
 {
 }
 
-dw::vk::DescriptorSet::Ptr SVGFDenoiser::denoised_image_ds()
+dw::vk::DescriptorSet::Ptr SVGFDenoiser::output_ds()
 {
     return m_a_trous_read_ds[m_read_idx];
 }
@@ -5313,377 +5928,12 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
     pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
 
-TemporalDenoiser::TemporalDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
+ReflectionDenoiser::ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius) :
     m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height)
 {
-    {
-        dw::vk::DescriptorSetLayout::Desc desc;
-
-        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
-        m_write_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
-    }
-
-    {
-        dw::vk::DescriptorSetLayout::Desc desc;
-
-        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
-        m_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_sample->m_vk_backend, desc);
-    }
-
-    for (int i = 0; i < 2; i++)
-    {
-        m_write_ds[i] = m_sample->m_vk_backend->allocate_descriptor_set(m_write_ds_layout);
-        m_read_ds[i]  = m_sample->m_vk_backend->allocate_descriptor_set(m_read_ds_layout);
-    }
-
-    {
-        dw::vk::PipelineLayout::Desc desc;
-
-        desc.add_descriptor_set_layout(m_write_ds_layout);
-        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
-        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
-        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_read_ds_layout);
-
-        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReprojectionPushConstants));
-
-        m_pipeline_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
-
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/temporal_reprojection.comp.spv");
-
-        dw::vk::ComputePipeline::Desc comp_desc;
-
-        comp_desc.set_pipeline_layout(m_pipeline_layout);
-        comp_desc.set_shader_stage(module, "main");
-
-        m_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
-    }
-
-    for (int i = 0; i < 2; i++)
-    {
-        m_color_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_color_image[i]->set_name(m_name + " Reprojection Color");
-
-        m_color_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_color_view[i]->set_name(m_name + " Reprojection Color");
-
-        m_history_length_image[i] = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_history_length_image[i]->set_name(m_name + " Reprojection History");
-
-        m_history_length_view[i] = dw::vk::ImageView::create(m_sample->m_vk_backend, m_history_length_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_history_length_view[i]->set_name(m_name + " Reprojection History");
-    }
-
-    // Reprojection write
-    {
-        std::vector<VkDescriptorImageInfo> image_infos;
-        std::vector<VkWriteDescriptorSet>  write_datas;
-        VkWriteDescriptorSet               write_data;
-
-        image_infos.reserve(4);
-        write_datas.reserve(4);
-
-        for (int i = 0; i < 2; i++)
-        {
-            {
-                VkDescriptorImageInfo storage_image_info;
-
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_color_view[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                image_infos.push_back(storage_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_write_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            {
-                VkDescriptorImageInfo storage_image_info;
-
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_history_length_view[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                image_infos.push_back(storage_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 1;
-                write_data.dstSet          = m_write_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-        }
-
-        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-    }
-
-    // Reprojection read
-    {
-        std::vector<VkDescriptorImageInfo> image_infos;
-        std::vector<VkWriteDescriptorSet>  write_datas;
-        VkWriteDescriptorSet               write_data;
-
-        image_infos.reserve(4);
-        write_datas.reserve(4);
-
-        for (int i = 0; i < 2; i++)
-        {
-            {
-                VkDescriptorImageInfo sampler_image_info;
-
-                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
-                sampler_image_info.imageView   = m_color_view[i]->handle();
-                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(sampler_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_read_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            {
-                VkDescriptorImageInfo sampler_image_info;
-
-                sampler_image_info.sampler     = m_sample->m_vk_backend->nearest_sampler()->handle();
-                sampler_image_info.imageView   = m_history_length_view[i]->handle();
-                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(sampler_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 1;
-                write_data.dstSet          = m_read_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-        }
-
-        vkUpdateDescriptorSets(m_sample->m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-    }
-}
-
-TemporalDenoiser::~TemporalDenoiser()
-{
-}
-
-void TemporalDenoiser::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
-{
-    clear_images(cmd_buf);
-
-    DW_SCOPED_SAMPLE(m_name + " Temporal Reprojection", cmd_buf);
-
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    {
-        std::vector<VkMemoryBarrier> memory_barriers = {
-            memory_barrier(VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-        };
-
-        std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_color_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
-            image_memory_barrier(m_history_length_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-        };
-
-        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    }
-
-    const uint32_t NUM_THREADS = 32;
-
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline->handle());
-
-    ReprojectionPushConstants push_constants;
-
-    push_constants.alpha                 = m_alpha;
-    push_constants.neighborhood_scale    = m_neighborhood_scale;
-    push_constants.use_variance_clipping = (uint32_t)m_use_variance_clipping;
-
-    vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-    VkDescriptorSet descriptor_sets[] = {
-        m_write_ds[m_sample->m_ping_pong]->handle(),
-        m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
-        m_sample->m_gpu_resources->downsampled_g_buffer_ds[!m_sample->m_ping_pong]->handle(),
-        input->handle(),
-        m_read_ds[!m_sample->m_ping_pong]->handle()
-    };
-
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_input_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_input_height) / float(NUM_THREADS))), 1);
-
-    {
-        std::vector<VkMemoryBarrier> memory_barriers = {
-            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-
-        std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_color_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
-            image_memory_barrier(m_history_length_image[m_sample->m_ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-
-        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    }
-}
-
-void TemporalDenoiser::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
-{
-    if (m_sample->m_first_frame)
-    {
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        VkClearColorValue color;
-
-        color.float32[0] = 0.0f;
-        color.float32[1] = 0.0f;
-        color.float32[2] = 0.0f;
-        color.float32[3] = 0.0f;
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_history_length_image[!m_sample->m_ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_color_image[!m_sample->m_ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        vkCmdClearColorImage(cmd_buf->handle(), m_history_length_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
-        vkCmdClearColorImage(cmd_buf->handle(), m_color_image[!m_sample->m_ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_history_length_image[!m_sample->m_ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_color_image[!m_sample->m_ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-    }
-}
-
-dw::vk::DescriptorSet::Ptr TemporalDenoiser::output_image_ds()
-{
-    return m_read_ds[m_sample->m_ping_pong];
-}
-
-ReflectionDenoiser::ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius) :
-    m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height), m_blur_radius(blur_radius)
-{
-    m_reconstruction_image = dw::vk::Image::create(sample->m_vk_backend, VK_IMAGE_TYPE_2D, input_width, input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_reconstruction_image->set_name(name + " Reconstructed");
-
-    m_reconstruction_image_view = dw::vk::ImageView::create(sample->m_vk_backend, m_reconstruction_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-    m_reconstruction_image_view->set_name(name + " Reconstructed");
-
-    m_reconstruction_write_ds = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->storage_image_ds_layout);
-    m_reconstruction_read_ds  = sample->m_vk_backend->allocate_descriptor_set(sample->m_gpu_resources->combined_sampler_ds_layout);
-
-    // Reconstructed write
-    {
-        VkDescriptorImageInfo storage_image_info;
-
-        storage_image_info.sampler     = VK_NULL_HANDLE;
-        storage_image_info.imageView   = m_reconstruction_image_view->handle();
-        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write_data;
-
-        DW_ZERO_MEMORY(write_data);
-
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write_data.pImageInfo      = &storage_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_reconstruction_write_ds->handle();
-
-        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
-    }
-
-    // Reconstructed read
-    {
-        VkDescriptorImageInfo sampler_image_info;
-
-        sampler_image_info.sampler     = sample->m_vk_backend->bilinear_sampler()->handle();
-        sampler_image_info.imageView   = m_reconstruction_image_view->handle();
-        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write_data;
-
-        DW_ZERO_MEMORY(write_data);
-
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_data.pImageInfo      = &sampler_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_reconstruction_read_ds->handle();
-
-        vkUpdateDescriptorSets(sample->m_vk_backend->device(), 1, &write_data, 0, nullptr);
-    }
-
-    {
-        dw::vk::PipelineLayout::Desc desc;
-
-        desc.add_descriptor_set_layout(sample->m_gpu_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(sample->m_gpu_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
-        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->per_frame_ds_layout);
-
-        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReconstructionPushConstants));
-
-        m_reconstruction_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
-
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/denoiser_reconstruction.comp.spv");
-
-        dw::vk::ComputePipeline::Desc comp_desc;
-
-        comp_desc.set_pipeline_layout(m_reconstruction_layout);
-        comp_desc.set_shader_stage(module, "main");
-
-        m_reconstruction_pipeline = dw::vk::ComputePipeline::create(m_sample->m_vk_backend, comp_desc);
-    }
+    m_spatial_reconstruction = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(sample, name, input_width, input_height));
+    m_temporal_pre_pass      = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(sample, name, input_width, input_height));
+    m_temporal_main_pass     = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(sample, name, input_width, input_height));
 }
 
 ReflectionDenoiser::~ReflectionDenoiser()
@@ -5694,50 +5944,6 @@ void ReflectionDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Des
 {
 }
 
-void ReflectionDenoiser::reconstruct_pass(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
-{
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_reconstruction_image->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
-
-    const uint32_t NUM_THREADS = 32;
-
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reconstruction_pipeline->handle());
-
-    ReconstructionPushConstants push_constants;
-
-    float z_buffer_params_x = -1.0 + (m_sample->m_near_plane / m_sample->m_far_plane);
-
-    push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_sample->m_near_plane, 1.0f / m_sample->m_near_plane);
-    push_constants.num_frames      = m_sample->m_num_frames;
-
-    vkCmdPushConstants(cmd_buf->handle(), m_reconstruction_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-    const uint32_t dynamic_offset = m_sample->m_ubo_size * m_sample->m_vk_backend->current_frame_idx();
-
-    VkDescriptorSet descriptor_sets[] = {
-        m_reconstruction_write_ds->handle(),
-        input->handle(),
-        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
-        m_sample->m_gpu_resources->per_frame_ds->handle()
-    };
-
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reconstruction_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_reconstruction_image->width()) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_reconstruction_image->height()) / float(NUM_THREADS))), 1);
-
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_reconstruction_image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
-}
 
 void ReflectionDenoiser::temporal_pre_pass(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -5751,7 +5957,7 @@ void ReflectionDenoiser::bilateral_blur()
 {
 }
 
-dw::vk::DescriptorSet::Ptr ReflectionDenoiser::denoised_image_ds()
+dw::vk::DescriptorSet::Ptr ReflectionDenoiser::output_ds()
 {
     return m_blur_read_ds;
 }

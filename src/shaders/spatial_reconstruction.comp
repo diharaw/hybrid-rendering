@@ -55,7 +55,6 @@ layout(set = 3, binding = 2) uniform sampler2D s_BlueNoise2;
 layout(push_constant) uniform PushConstants
 {
     vec4 z_buffer_params;
-    uint num_frames;
 }
 u_PushConstants;
 
