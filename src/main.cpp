@@ -315,6 +315,7 @@ private:
     struct PushConstants
     {
         glm::vec4 z_buffer_params;
+        uint32_t  num_frames;
     };
 
 public:
@@ -345,7 +346,14 @@ class BilateralBlur
 private:
     struct PushConstants
     {
-        uint32_t radius;
+        glm::vec4  z_buffer_params;
+        float variance_threshold;
+        float roughness_sigma_min;
+        float roughness_sigma_max;
+        int32_t  radius;
+        uint32_t  roughness_weight;
+        uint32_t  depth_weight;
+        uint32_t  normal_weight;
     };
 
 public:
@@ -355,8 +363,20 @@ public:
     void                       blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
     dw::vk::DescriptorSet::Ptr output_ds();
 
-    inline uint32_t blur_radius() { return m_blur_radius; }
-    inline void     set_blur_radius(uint32_t n) { m_blur_radius = glm::clamp(n, 1u, 7u); }
+    inline int32_t blur_radius() { return m_blur_radius; }
+    inline float    variance_threshold() { return m_variance_threshold; }
+    inline bool     depth_weight() { return m_use_depth_weight; }
+    inline bool     normal_weight() { return m_use_normal_weight; }
+    inline bool     roughness_weight() { return m_use_roughness_weight; }
+    inline bool     reflections_sigma_min() { return m_roughness_sigma_min; }
+    inline bool     reflections_sigma_max() { return m_roughness_sigma_max; }
+    inline void     set_blur_radius(int32_t n) { m_blur_radius = glm::clamp(n, 1, 7); }
+    inline void  set_variance_threshold(float v) { m_variance_threshold = glm::clamp(v, 0.0f, 1.0f); }
+    inline void set_depth_weight(bool v) { m_use_depth_weight = v; }
+    inline void set_normal_weight(bool v) { m_use_normal_weight = v; }
+    inline void set_roughness_weight(bool v) { m_use_roughness_weight = v; }
+    inline void     set_reflections_sigma_min(bool v) { m_roughness_sigma_min = v; }
+    inline void     set_reflections_sigma_max(bool v) { m_roughness_sigma_max = v; }
 
 private:
     std::string      m_name;
@@ -364,7 +384,13 @@ private:
 
     uint32_t m_input_width;
     uint32_t m_input_height;
-    uint32_t m_blur_radius;
+    int32_t m_blur_radius = 5;
+    float    m_variance_threshold = 0.1f;
+    float    m_roughness_sigma_min = 0.001f;
+    float    m_roughness_sigma_max = 0.01f;
+    bool     m_use_depth_weight = true;
+    bool     m_use_normal_weight = true;
+    bool     m_use_roughness_weight = true;
 
     // Reconstruction
     dw::vk::PipelineLayout::Ptr  m_layout;
@@ -402,8 +428,6 @@ public:
     SVGFDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t filter_iterations);
     ~SVGFDenoiser();
     void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
-    uint32_t                   filter_iterations();
-    void                       set_filter_iterations(uint32_t n);
     dw::vk::DescriptorSet::Ptr output_ds();
 
     inline uint32_t filter_iterations() { return m_a_trous_filter_iterations; }
@@ -539,6 +563,7 @@ private:
         // Denoisers
         std::unique_ptr<SVGFDenoiser> svgf_shadow_denoiser;
         std::unique_ptr<SVGFDenoiser> svgf_gi_denoiser;
+        std::unique_ptr<SpatialReconstruction> spatial_reconstruction;
 
         // Ray-Traced Shadows
         dw::vk::RayTracingPipeline::Ptr shadow_mask_pipeline;
@@ -716,6 +741,7 @@ protected:
 
         m_gpu_resources->svgf_shadow_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(this, "SVGF Shadow Denoiser", m_gpu_resources->visibility_image->width(), m_gpu_resources->visibility_image->height(), 4));
         m_gpu_resources->svgf_gi_denoiser     = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(this, "SVGF Shadow Denoiser", m_gpu_resources->rtgi_image->width(), m_gpu_resources->rtgi_image->height(), 4));
+        m_gpu_resources->spatial_reconstruction = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(this, "Spatial Reconstruction", m_gpu_resources->reflection_rt_color_image->width(), m_gpu_resources->reflection_rt_color_image->height()));
 
         // Create camera.
         create_camera();
@@ -872,7 +898,8 @@ protected:
             m_gpu_resources->svgf_gi_denoiser->denoise(cmd_buf, m_gpu_resources->rtgi_read_ds);
             //reflection_spatial_resolve(cmd_buf);
             //reflection_temporal(cmd_buf);
-            reflection_blur(cmd_buf);
+            //reflection_blur(cmd_buf);
+            m_gpu_resources->spatial_reconstruction->reconstruct(cmd_buf, m_gpu_resources->reflection_rt_read_ds);
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
             temporal_aa(cmd_buf);
@@ -4063,7 +4090,8 @@ private:
             m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_shadow_denoiser->output_ds()->handle(),
-            m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_gpu_resources->spatial_reconstruction->output_ds()->handle(),
+            //m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_gi_denoiser->output_ds()->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->per_frame_ds->handle(),
@@ -4212,7 +4240,8 @@ private:
             m_gpu_resources->taa_read_ds[m_ping_pong]->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_shadow_denoiser->output_ds()->handle(),
-            m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_gpu_resources->spatial_reconstruction->output_ds()->handle(),
+            //m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_gi_denoiser->output_ds()->handle()
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
         };
@@ -4906,6 +4935,7 @@ void SpatialReconstruction::reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf, dw::
     float z_buffer_params_x = -1.0 + (m_sample->m_near_plane / m_sample->m_far_plane);
 
     push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_sample->m_near_plane, 1.0f / m_sample->m_near_plane);
+    push_constants.num_frames      = m_sample->m_num_frames;
 
     vkCmdPushConstants(cmd_buf->handle(), m_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -4997,13 +5027,12 @@ BilateralBlur::BilateralBlur(HybridRendering* sample, std::string name, uint32_t
         desc.add_descriptor_set_layout(sample->m_gpu_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(sample->m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
-        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->per_frame_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants));
 
         m_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, desc);
 
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/spatial_reconstruction.comp.spv");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_sample->m_vk_backend, "shaders/bilateral_blur.comp.spv");
 
         dw::vk::ComputePipeline::Desc comp_desc;
 
@@ -5037,20 +5066,27 @@ void BilateralBlur::blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorS
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline->handle());
 
     PushConstants push_constants;
+
+    float z_buffer_params_x = -1.0 + (m_sample->m_near_plane / m_sample->m_far_plane);
+
+    push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_sample->m_near_plane, 1.0f / m_sample->m_near_plane);
+    push_constants.variance_threshold = m_variance_threshold;
+    push_constants.roughness_sigma_min = m_roughness_sigma_min;
+    push_constants.roughness_sigma_max = m_roughness_sigma_max;
     push_constants.radius = m_blur_radius;
+    push_constants.roughness_weight = (uint32_t)m_use_roughness_weight;
+    push_constants.depth_weight        = (uint32_t)m_use_depth_weight;
+    push_constants.normal_weight       = (uint32_t)m_use_normal_weight;
 
     vkCmdPushConstants(cmd_buf->handle(), m_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-    const uint32_t dynamic_offset = m_sample->m_ubo_size * m_sample->m_vk_backend->current_frame_idx();
 
     VkDescriptorSet descriptor_sets[] = {
         m_write_ds->handle(),
         input->handle(),
-        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
-        m_sample->m_gpu_resources->per_frame_ds->handle()
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_image->width()) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_image->height()) / float(NUM_THREADS))), 1);
 
@@ -5064,7 +5100,7 @@ void BilateralBlur::blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorS
 
 dw::vk::DescriptorSet::Ptr BilateralBlur::output_ds()
 {
-
+    return m_read_ds;
 }
 
 SVGFDenoiser::SVGFDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t filter_iterations) :

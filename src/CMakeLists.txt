@@ -47,7 +47,10 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection_blur.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/taa.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/gi_reprojection.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/gi_reprojection.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/bilateral_blur.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/temporal_reprojection.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/spatial_reconstruction.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})
