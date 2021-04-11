@@ -32,7 +32,8 @@ layout(set = 3, binding = 0) uniform sampler2D s_Input;
 
 // Previous Reprojection Read DS
 layout(set = 4, binding = 0) uniform sampler2D s_PrevColor;
-layout(set = 4, binding = 1) uniform sampler2D s_PrevHistoryLength;
+
+layout(set = 5, binding = 1) uniform sampler2D s_PrevHistoryLength;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -43,11 +44,27 @@ layout(push_constant) uniform PushConstants
     float alpha;
     float neighborhood_scale;
     uint  use_variance_clipping;
+    uint use_tonemap;
 }
 u_PushConstants;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+float max_3(float x, float y, float z) { return max(x, max(y, z)); }
+
+// ------------------------------------------------------------------
+
+// Apply this to tonemap linear HDR color "c" after a sample is fetched in the resolve.
+// Note "c" 1.0 maps to the expected limit of low-dynamic-range monitor output.
+vec3 tonemap(vec3 c) { return c / (max_3(c.r, c.g, c.b) + 1.0f); }
+
+// ------------------------------------------------------------------
+
+// Apply this to restore the linear HDR color before writing out the result of the resolve.
+vec3 tonemap_invert(vec3 c) { return c / (1.0f - max_3(c.r, c.g, c.b)); }
+
 // ------------------------------------------------------------------
 
 bool is_reprojection_valid(ivec2 coord, float Z, float Zprev, float fwidthZ, vec3 normal, vec3 normalPrev, float fwidthNormal)
@@ -79,6 +96,59 @@ vec3 octohedral_to_direction(uint octo)
 float luminance(vec3 rgb)
 {
     return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+// ------------------------------------------------------------------
+
+vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
+{
+    // Note: only clips towards aabb center
+    vec3 aabb_center = 0.5f * (aabb_max + aabb_min);
+    vec3 extent_clip = 0.5f * (aabb_max - aabb_min) + 0.001f;
+
+    // Find color vector
+    vec3 color_vector = history_sample - aabb_center;
+    // Transform into clip space
+    vec3 color_vector_clip = color_vector / extent_clip;
+    // Find max absolute component
+    color_vector_clip  = abs(color_vector_clip);
+    float max_abs_unit = max(max(color_vector_clip.x, color_vector_clip.y), color_vector_clip.z);
+
+    if (max_abs_unit > 1.0)
+        return aabb_center + color_vector / max_abs_unit; // clip towards color vector
+    else
+        return history_sample; // point is inside aabb
+}
+
+// ------------------------------------------------------------------
+
+vec3 neighborhood_standard_deviation(ivec2 coord)
+{
+    vec3 m1 = vec3(0.0f);
+    vec3 m2 = vec3(0.0f);
+
+    int   radius = 1;
+    float N      = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
+
+    for (int dx = -radius; dx <= radius; dx++)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            ivec2 sample_coord = coord + ivec2(dx, dy);
+            vec3  sample_color = texelFetch(s_Input, sample_coord, 0).rgb;
+
+            if (u_PushConstants.use_tonemap == 1)
+                sample_color = tonemap(sample_color);
+
+            m1 += sample_color;
+            m2 += sample_color * sample_color;
+        }
+    }
+
+    vec3 mu    = m1 / N;
+    vec3 sigma = sqrt(m2 / N - mu * mu);
+
+    return sigma;
 }
 
 // ------------------------------------------------------------------
@@ -204,22 +274,40 @@ void main()
 {
     ivec2 size      = textureSize(s_PrevColor, 0);
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
-    vec4 color = texelFetch(s_Input, ivec2(gl_GlobalInvocationID.xy), 0);
+    vec4 color = texelFetch(s_Input, current_coord, 0);
 
     if (color.a == -1.0f)
     {
-        imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), vec4(0.0f));
-        imageStore(i_HistoryLength, ivec2(gl_GlobalInvocationID.xy), vec4(0.0f));
+        imageStore(i_Output, current_coord, vec4(0.0f));
+        imageStore(i_HistoryLength, current_coord, vec4(0.0f));
         return;
     }
 
+    if (u_PushConstants.use_tonemap == 1)
+        color.xyz = tonemap(color.xyz);
+
     float history_length;
     vec4  prev_color;
-    bool  success  = load_prev_data(ivec2(gl_GlobalInvocationID.xy),
+    bool  success  = load_prev_data(current_coord,
                                   prev_color,
                                   history_length);
     history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
+
+    if (u_PushConstants.use_tonemap == 1)
+        prev_color.xyz = tonemap(prev_color.xyz);
+
+    // Clamp
+    if (success && u_PushConstants.use_variance_clipping == 1)
+    {
+        vec3  color_std_dev = neighborhood_standard_deviation(current_coord) * u_PushConstants.neighborhood_scale;
+
+        vec3 radiance_min = color.xyz - color_std_dev;
+        vec3 radiance_max = color.xyz + color_std_dev;
+
+        prev_color.xyz = clip_aabb(radiance_min, radiance_max, prev_color.xyz);
+    }
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in
@@ -230,9 +318,12 @@ void main()
 
     out_color.a = compute_temporal_variance(luminance(color.xyz), luminance(prev_color.xyz));
 
+    if (u_PushConstants.use_tonemap == 1)
+        out_color.xyz = tonemap_invert(out_color.xyz);
+
     // temporal integration
-    imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), out_color);
-    imageStore(i_HistoryLength, ivec2(gl_GlobalInvocationID.xy), vec4(history_length));
+    imageStore(i_Output, current_coord, out_color);
+    imageStore(i_HistoryLength, current_coord, vec4(history_length));
 }
 
 // ------------------------------------------------------------------

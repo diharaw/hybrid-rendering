@@ -267,21 +267,24 @@ private:
         float    alpha;
         float    neighborhood_scale;
         uint32_t use_variance_clipping;
+        uint32_t use_tonemap;
     };
 
 public:
     TemporalReprojection(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
     ~TemporalReprojection();
 
-    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    void                       reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input, dw::vk::DescriptorSet::Ptr prev_input = nullptr);
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
     inline bool                             variance_clipping() { return m_use_variance_clipping; }
+    inline bool                             tone_map() { return m_use_tone_map; }
     inline float                            alpha() { return m_alpha; }
     inline float                            neighborhood_scale() { return m_neighborhood_scale; }
     inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_read_ds_layout; }
-    inline void                             set_variance_clipping(bool value) { m_use_variance_clipping = value; }
+    inline void                             set_variance_clipping(bool value) { m_use_tone_map = value; }
+    inline void                             set_tone_map(bool value) { m_use_variance_clipping = value; }
     inline void                             set_alpha(float value) { m_alpha = value; }
     inline void                             set_neighborhood_scale(float value) { m_neighborhood_scale = value; }
 
@@ -295,6 +298,7 @@ private:
     uint32_t         m_input_height;
     float            m_scale                 = 1.0f;
     bool             m_use_variance_clipping = true;
+    bool             m_use_tone_map = false;
     float            m_neighborhood_scale    = 1.0f;
     float            m_alpha                 = 0.01f;
     int32_t          m_read_idx              = 0;
@@ -366,6 +370,7 @@ public:
     ~BilateralBlur();
 
     void                       blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    void                       prepare_first_frame(dw::vk::CommandBuffer::Ptr cmd_buf);
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
@@ -500,21 +505,16 @@ private:
 
 class ReflectionDenoiser
 {
-private:
 public:
-    ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius);
+    ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height);
     ~ReflectionDenoiser();
 
     void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
+    void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
     inline bool temporal_pre_pass() { return m_use_temporal_pre_pass; }
     inline void set_temporal_pre_pass(bool value) { m_use_temporal_pre_pass = value; }
-
-protected:
-    void temporal_pre_pass(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void temporal_main_pass(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void bilateral_blur();
 
 private:
     std::string      m_name;
@@ -523,10 +523,8 @@ private:
     uint32_t m_input_width;
     uint32_t m_input_height;
     bool     m_use_temporal_pre_pass = true;
-    bool     m_reconstruction;
-
-    dw::vk::DescriptorSet::Ptr m_blur_read_ds;
-    dw::vk::DescriptorSet::Ptr m_blur_write_ds;
+    bool     m_use_blur_as_temporal_input = false;
+    bool     m_use_bilateral_blur = true;
 
     // Reconstruction
     std::unique_ptr<SpatialReconstruction> m_spatial_reconstruction;
@@ -534,6 +532,9 @@ private:
     // Temporal
     std::unique_ptr<TemporalReprojection> m_temporal_pre_pass;
     std::unique_ptr<TemporalReprojection> m_temporal_main_pass;
+
+    // Bilateral Blur
+    std::unique_ptr<BilateralBlur> m_bilateral_blur;
 };
 
 class HybridRendering : public dw::Application
@@ -569,9 +570,7 @@ private:
         // Denoisers
         std::unique_ptr<SVGFDenoiser>          svgf_shadow_denoiser;
         std::unique_ptr<SVGFDenoiser>          svgf_gi_denoiser;
-        std::unique_ptr<SpatialReconstruction> spatial_reconstruction;
-        std::unique_ptr<TemporalReprojection>  temporal_reconstruction;
-        std::unique_ptr<BilateralBlur>         bilateral_blur;
+        std::unique_ptr<ReflectionDenoiser> reflection_denoiser;
 
         // Ray-Traced Shadows
         dw::vk::RayTracingPipeline::Ptr shadow_mask_pipeline;
@@ -749,9 +748,7 @@ protected:
 
         m_gpu_resources->svgf_shadow_denoiser    = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(this, "SVGF Shadow Denoiser", m_gpu_resources->visibility_image->width(), m_gpu_resources->visibility_image->height(), 4));
         m_gpu_resources->svgf_gi_denoiser        = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(this, "SVGF Shadow Denoiser", m_gpu_resources->rtgi_image->width(), m_gpu_resources->rtgi_image->height(), 4));
-        m_gpu_resources->spatial_reconstruction  = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(this, "Reflections", m_gpu_resources->reflection_rt_color_image->width(), m_gpu_resources->reflection_rt_color_image->height()));
-        m_gpu_resources->temporal_reconstruction = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(this, "Reflections", m_gpu_resources->reflection_rt_color_image->width() * 2, m_gpu_resources->reflection_rt_color_image->height() * 2));
-        m_gpu_resources->bilateral_blur          = std::unique_ptr<BilateralBlur>(new BilateralBlur(this, "Reflections", m_gpu_resources->reflection_rt_color_image->width() * 2, m_gpu_resources->reflection_rt_color_image->height() * 2));
+        m_gpu_resources->reflection_denoiser     = std::unique_ptr<ReflectionDenoiser>(new ReflectionDenoiser(this, "Reflections", m_gpu_resources->reflection_rt_color_image->width(), m_gpu_resources->reflection_rt_color_image->height()));
 
         // Create camera.
         create_camera();
@@ -842,10 +839,7 @@ protected:
                 if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     ImGui::PushID("RTR");
-
-                    m_gpu_resources->temporal_reconstruction->gui();
-                    m_gpu_resources->bilateral_blur->gui();
-
+                    m_gpu_resources->reflection_denoiser->gui();
                     ImGui::PopID();
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
@@ -900,14 +894,9 @@ protected:
             ray_trace_ambient_occlusion(cmd_buf);
             m_gpu_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_gpu_resources->visibility_read_ds);
             ray_trace_reflection(cmd_buf);
+            m_gpu_resources->reflection_denoiser->denoise(cmd_buf, m_gpu_resources->reflection_rt_read_ds);
             ray_trace_gi(cmd_buf);
             m_gpu_resources->svgf_gi_denoiser->denoise(cmd_buf, m_gpu_resources->rtgi_read_ds);
-            //reflection_spatial_resolve(cmd_buf);
-            //reflection_temporal(cmd_buf);
-            //reflection_blur(cmd_buf);
-            m_gpu_resources->spatial_reconstruction->reconstruct(cmd_buf, m_gpu_resources->reflection_rt_read_ds);
-            m_gpu_resources->temporal_reconstruction->reproject(cmd_buf, m_gpu_resources->spatial_reconstruction->output_ds());
-            m_gpu_resources->bilateral_blur->blur(cmd_buf, m_gpu_resources->temporal_reconstruction->output_ds());
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
             temporal_aa(cmd_buf);
@@ -4098,7 +4087,7 @@ private:
             m_gpu_resources->g_buffer_ds[m_ping_pong]->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_shadow_denoiser->output_ds()->handle(),
-            m_gpu_resources->bilateral_blur->output_ds()->handle(),
+            m_gpu_resources->reflection_denoiser->output_ds()->handle(),
             //m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_gi_denoiser->output_ds()->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
@@ -4248,7 +4237,7 @@ private:
             m_gpu_resources->taa_read_ds[m_ping_pong]->handle(),
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_shadow_denoiser->output_ds()->handle(),
-            m_gpu_resources->bilateral_blur->output_ds()->handle(),
+            m_gpu_resources->reflection_denoiser->output_ds()->handle(),
             //m_gpu_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_gpu_resources->svgf_gi_denoiser->output_ds()->handle()
             //m_gpu_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
@@ -4580,6 +4569,7 @@ TemporalReprojection::TemporalReprojection(HybridRendering* sample, std::string 
         desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
         desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_read_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants));
@@ -4766,7 +4756,7 @@ TemporalReprojection::~TemporalReprojection()
 {
 }
 
-void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
+void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input, dw::vk::DescriptorSet::Ptr prev_input)
 {
     clear_images(cmd_buf);
 
@@ -4796,6 +4786,7 @@ void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk:
     push_constants.alpha                 = m_alpha;
     push_constants.neighborhood_scale    = m_neighborhood_scale;
     push_constants.use_variance_clipping = (uint32_t)m_use_variance_clipping;
+    push_constants.use_tonemap = (uint32_t)m_use_tone_map;
 
     vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -4804,10 +4795,11 @@ void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk:
         m_scale == 1.0f ? m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle() : m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
         m_scale == 1.0f ? m_sample->m_gpu_resources->g_buffer_ds[!m_sample->m_ping_pong]->handle() : m_sample->m_gpu_resources->downsampled_g_buffer_ds[!m_sample->m_ping_pong]->handle(),
         input->handle(),
+        (prev_input == nullptr) ? m_output_read_ds[!m_sample->m_ping_pong]->handle() : prev_input->handle(),
         m_read_ds[!m_sample->m_ping_pong]->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_input_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_input_height) / float(NUM_THREADS))), 1);
 
@@ -4828,6 +4820,7 @@ void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk:
 void TemporalReprojection::gui()
 {
     ImGui::Checkbox("Variance Clipping", &m_use_variance_clipping);
+    ImGui::Checkbox("Tonemap", &m_use_tone_map);
     ImGui::SliderFloat("Neighborhood Scale", &m_neighborhood_scale, 0.0f, 30.0f);
     ImGui::InputFloat("Alpha", &m_alpha);
 }
@@ -5154,6 +5147,18 @@ void BilateralBlur::blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorS
         cmd_buf->handle(),
         m_image->handle(),
         VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+void BilateralBlur::prepare_first_frame(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         subresource_range);
 }
@@ -6035,12 +6040,20 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
     pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
 
-ReflectionDenoiser::ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t blur_radius) :
+ReflectionDenoiser::ReflectionDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height) :
     m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height)
 {
     m_spatial_reconstruction = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(sample, name, input_width, input_height));
-    m_temporal_pre_pass      = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(sample, name, input_width, input_height));
-    m_temporal_main_pass     = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(sample, name, input_width, input_height));
+    m_temporal_pre_pass      = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(sample, name, input_width * 2, input_height * 2));
+    m_temporal_main_pass     = std::unique_ptr<TemporalReprojection>(new TemporalReprojection(sample, name, input_width * 2, input_height * 2));
+    m_bilateral_blur         = std::unique_ptr<BilateralBlur>(new BilateralBlur(sample, name, input_width * 2, input_height * 2));
+
+    m_use_blur_as_temporal_input = true;
+    m_temporal_pre_pass->set_variance_clipping(true);
+    m_temporal_pre_pass->set_neighborhood_scale(3.6f);
+    m_temporal_pre_pass->set_alpha(0.05f);
+    m_temporal_main_pass->set_variance_clipping(true);
+    m_bilateral_blur->set_blur_radius(1);
 }
 
 ReflectionDenoiser::~ReflectionDenoiser()
@@ -6049,23 +6062,56 @@ ReflectionDenoiser::~ReflectionDenoiser()
 
 void ReflectionDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
 {
+    if (m_sample->m_first_frame)
+        m_bilateral_blur->prepare_first_frame(cmd_buf);
+
+    m_spatial_reconstruction->reconstruct(cmd_buf, input);
+    
+    if (m_use_temporal_pre_pass)
+        m_temporal_pre_pass->reproject(cmd_buf, m_spatial_reconstruction->output_ds(), m_use_blur_as_temporal_input ? m_bilateral_blur->output_ds() : nullptr);
+        
+    m_temporal_main_pass->reproject(cmd_buf, m_use_temporal_pre_pass ? m_temporal_pre_pass->output_ds() : m_spatial_reconstruction->output_ds(), m_use_blur_as_temporal_input ? m_bilateral_blur->output_ds() : nullptr);
+
+    if (m_use_bilateral_blur)
+        m_bilateral_blur->blur(cmd_buf, m_temporal_main_pass->output_ds());
 }
 
-void ReflectionDenoiser::temporal_pre_pass(dw::vk::CommandBuffer::Ptr cmd_buf)
+void ReflectionDenoiser::gui()
 {
-}
-
-void ReflectionDenoiser::temporal_main_pass(dw::vk::CommandBuffer::Ptr cmd_buf)
-{
-}
-
-void ReflectionDenoiser::bilateral_blur()
-{
+    ImGui::Checkbox("Use Blur as Temporal Input", &m_use_blur_as_temporal_input);
+    {
+        //ImGui::Text("Spatial Reconstruction");
+        //m_spatial_reconstruction->gui();
+    }
+    {
+        ImGui::PushID("TemporalPrePass");
+        ImGui::Separator();
+        ImGui::Checkbox("Enable", &m_use_temporal_pre_pass);
+        ImGui::Text("Temporal Pre Pass");
+        m_temporal_pre_pass->gui();
+        ImGui::PopID();
+    }
+    {
+        ImGui::PushID("TemporalMainPass");
+        ImGui::Separator();
+        ImGui::Text("Temporal Main Pass");
+        m_temporal_main_pass->gui();
+        ImGui::PopID();
+    }
+    {
+        ImGui::Separator();
+        ImGui::Text("Bilateral Blur");
+        ImGui::Checkbox("Enable", &m_use_bilateral_blur);
+        m_bilateral_blur->gui();
+    }
 }
 
 dw::vk::DescriptorSet::Ptr ReflectionDenoiser::output_ds()
 {
-    return m_blur_read_ds;
+    if (m_use_bilateral_blur)
+        return m_bilateral_blur->output_ds();
+    else
+        return m_temporal_main_pass->output_ds();
 }
 
 DW_DECLARE_MAIN(HybridRendering)
