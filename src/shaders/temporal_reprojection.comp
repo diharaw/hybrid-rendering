@@ -5,6 +5,7 @@
 // ------------------------------------------------------------------
 
 #define NUM_THREADS 32
+#define EPSILON 0.0001f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -128,7 +129,7 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
                        (1 - x) * y,
                        x * y };
 
-        prevColor   = vec4(0, 0, 0, 0);
+        prevColor = vec4(0, 0, 0, 0);
 
         // perform the actual bilinear interpolation
         for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
@@ -143,13 +144,13 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
         }
 
         // redistribute weights in case not all taps were used
-        valid       = (sumw >= 0.01);
-        prevColor   = valid ? prevColor / sumw : vec4(0, 0, 0, 0);
+        valid     = (sumw >= 0.01);
+        prevColor = valid ? prevColor / sumw : vec4(0, 0, 0, 0);
     }
     if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
     {
         float cnt = 0.0;
-    
+
         // this code performs a binary descision for each tap of the cross-bilateral filter
         const int radius = 1;
         for (int yy = -radius; yy <= radius; yy++)
@@ -159,7 +160,7 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
                 ivec2 p            = iposPrev + ivec2(xx, yy);
                 vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, 0);
                 vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
-    
+
                 if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
                 {
                     prevColor += texelFetch(s_PrevColor, p, 0);
@@ -184,8 +185,15 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
         prevColor     = vec4(0, 0, 0, 0);
         historyLength = 0;
     }
-    
+
     return valid;
+}
+
+// ------------------------------------------------------------------
+
+float compute_temporal_variance(float current_sample_luma, float history_sample_luma)
+{
+    return abs(current_sample_luma - history_sample_luma) / max(max(current_sample_luma, history_sample_luma), EPSILON);
 }
 
 // ------------------------------------------------------------------
@@ -197,7 +205,14 @@ void main()
     ivec2 size      = textureSize(s_PrevColor, 0);
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
 
-    vec3 color = texelFetch(s_Input, ivec2(gl_GlobalInvocationID.xy), 0).rgb;
+    vec4 color = texelFetch(s_Input, ivec2(gl_GlobalInvocationID.xy), 0);
+
+    if (color.a == -1.0f)
+    {
+        imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), vec4(0.0f));
+        imageStore(i_HistoryLength, ivec2(gl_GlobalInvocationID.xy), vec4(0.0f));
+        return;
+    }
 
     float history_length;
     vec4  prev_color;
@@ -211,7 +226,9 @@ void main()
     // the beginning.
     const float alpha = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
 
-    vec4 out_color = mix(prev_color, vec4(color, 0.0f), alpha);
+    vec4 out_color = mix(prev_color, vec4(color.xyz, 0.0f), alpha);
+
+    out_color.a = compute_temporal_variance(luminance(color.xyz), luminance(prev_color.xyz));
 
     // temporal integration
     imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), out_color);

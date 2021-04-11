@@ -8,6 +8,7 @@
 
 #define NUM_THREADS 32
 #define EPSILON 0.0001f
+#define GLOSSY_ROUGHNESS_THRESHOLD 0.05f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -34,14 +35,14 @@ layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(push_constant) uniform PushConstants
 {
-    vec4 z_buffer_params;
+    vec4  z_buffer_params;
     float variance_threshold;
     float roughness_sigma_min;
     float roughness_sigma_max;
-    int radius;
-    uint roughness_weight;
-    uint depth_weight;
-    uint normal_weight;
+    int   radius;
+    uint  roughness_weight;
+    uint  depth_weight;
+    uint  normal_weight;
 }
 u_PushConstants;
 
@@ -49,7 +50,7 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-float gaussian_weight(int x, int y) 
+float gaussian_weight(int x, int y)
 {
     uint weights[] = { 6, 4, 1 };
     return float(weights[abs(x)] * weights[abs(y)]) / 256.0f;
@@ -96,7 +97,7 @@ float edge_stopping_weight(ivec2 sample_coord, float center_depth, vec3 center_n
 
         weight *= depth_edge_stopping_weight(center_depth, sample_depth);
     }
-    if (u_PushConstants.roughness_weight == 1)
+    if (u_PushConstants.normal_weight == 1)
     {
         vec3 sample_normal = texelFetch(s_GBuffer2, sample_coord, 0).rgb;
 
@@ -115,14 +116,14 @@ float edge_stopping_weight(ivec2 sample_coord, float center_depth, vec3 center_n
 // ------------------------------------------------------------------
 
 vec3 bilateral_blur(ivec2 current_coord)
-{    
+{
     float center_roughness = texelFetch(s_GBuffer1, current_coord, 0).a;
-    float center_depth = linear_01_depth(texelFetch(s_GBufferDepth, current_coord, 0).r);
-    vec3 center_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
+    float center_depth     = linear_01_depth(texelFetch(s_GBufferDepth, current_coord, 0).r);
+    vec3  center_normal    = texelFetch(s_GBuffer2, current_coord, 0).rgb;
 
     const int radius = u_PushConstants.radius;
 
-    vec3 total_color = vec3(0.0f);
+    vec3  total_color  = vec3(0.0f);
     float total_weight = 0.0f;
 
     for (int dx = -radius; dx <= radius; dx++)
@@ -143,6 +144,20 @@ vec3 bilateral_blur(ivec2 current_coord)
 }
 
 // ------------------------------------------------------------------
+
+float luminance(vec3 rgb)
+{
+    return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+// ------------------------------------------------------------------
+
+float compute_temporal_variance(float current_sample_luma, float history_sample_luma)
+{
+    return abs(current_sample_luma - history_sample_luma) / max(max(current_sample_luma, history_sample_luma), EPSILON);
+}
+
+// ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
 
@@ -155,15 +170,26 @@ void main()
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
     // Sample the center color and variance
-    vec4 center_color = texelFetch(s_Input, current_coord, 0);
+    vec4  center_color     = texelFetch(s_Input, current_coord, 0);
+    float center_roughness = texelFetch(s_GBuffer1, current_coord, 0).a;
 
-    vec3 color = center_color.xyz;
+    if (center_roughness < GLOSSY_ROUGHNESS_THRESHOLD)
+    {
+        imageStore(i_Output, current_coord, vec4(center_color.xyz, 0.0f));
+        return;
+    }
+
+    vec3  color    = center_color.xyz;
+    float variance = center_color.a;
 
     if (center_color.a > u_PushConstants.variance_threshold)
-        color = bilateral_blur(current_coord);
-    
+    {
+        color    = bilateral_blur(current_coord);
+        variance = compute_temporal_variance(luminance(color.xyz), luminance(center_color.xyz));
+    }
+
     // Store blended sample into the storage image
-    imageStore(i_Output, current_coord, vec4(color, center_color.a));
+    imageStore(i_Output, current_coord, vec4(color, variance));
 }
 
 // ------------------------------------------------------------------
