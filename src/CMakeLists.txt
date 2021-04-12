@@ -16,6 +16,22 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
+                             ${PROJECT_SOURCE_DIR}/src/hybrid_rendering.cpp
+                             ${PROJECT_SOURCE_DIR}/src/ddgi.cpp
+                             ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.cpp
+                             ${PROJECT_SOURCE_DIR}/src/path_traced_gi.cpp
+                             ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.cpp
+                             ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.cpp
+                             ${PROJECT_SOURCE_DIR}/src/ssa_reflections.cpp
+                             ${PROJECT_SOURCE_DIR}/src/stochastic_reflections.cpp
+                             ${PROJECT_SOURCE_DIR}/src/hybrid_rendering.h
+                             ${PROJECT_SOURCE_DIR}/src/ddgi.h
+                             ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.h
+                             ${PROJECT_SOURCE_DIR}/src/path_traced_gi.h
+                             ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.h
+                             ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.h
+                             ${PROJECT_SOURCE_DIR}/src/ssa_reflections.h
+                             ${PROJECT_SOURCE_DIR}/src/stochastic_reflections.h
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/brdf_preintegrate_lut.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_prefilter.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_sh_projection.cpp
