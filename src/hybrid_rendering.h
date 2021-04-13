@@ -13,9 +13,6 @@
 #include <cubemap_prefilter.h>
 #include <stdexcept>
 
-#define NUM_PILLARS 6
-#define HALTON_SAMPLES 16
-
 enum SceneType
 {
     SCENE_PILLARS,
@@ -39,33 +36,6 @@ struct Light
     glm::vec4 data1;
 };
 
-const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
-const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
-
-void set_light_direction(Light& light, glm::vec3 value)
-{
-    light.data0.x = value.x;
-    light.data0.y = value.y;
-    light.data0.z = value.z;
-}
-
-void set_light_color(Light& light, glm::vec3 value)
-{
-    light.data1.x = value.x;
-    light.data1.y = value.y;
-    light.data1.z = value.z;
-}
-
-void set_light_intensity(Light& light, float value)
-{
-    light.data0.w = value;
-}
-
-void set_light_radius(Light& light, float value)
-{
-    light.data1.w = value;
-}
-
 // Uniform buffer data structure.
 struct UBO
 {
@@ -85,177 +55,20 @@ struct UBO
     Light light;
 };
 
-struct GBufferPushConstants
-{
-    glm::mat4 model;
-    glm::mat4 prev_model;
-    uint32_t  material_index;
-};
+extern void pipeline_barrier(dw::vk::CommandBuffer::Ptr        cmd_buf,
+                             std::vector<VkMemoryBarrier>      memory_barriers,
+                             std::vector<VkImageMemoryBarrier> image_memory_barriers,
+                             VkPipelineStageFlags              srcStageMask,
+                             VkPipelineStageFlags              dstStageMask);
 
-struct ShadowPushConstants
-{
-    float    bias;
-    uint32_t num_frames;
-};
-
-struct ReflectionsPushConstants
-{
-    float    bias;
-    uint32_t num_frames;
-};
-
-struct ReflectionsSpatialResolvePushConstants
-{
-    glm::vec4 z_buffer_params;
-    uint32_t  bypass;
-};
-
-struct ReflectionsTemporalPushConstants
-{
-    uint32_t first_frame;
-    uint32_t neighborhood_clamping;
-    float    neighborhood_std_scale;
-    float    alpha;
-};
-
-struct ReflectionsBlurPushConstants
-{
-    float alpha;
-};
-
-struct GIPushConstants
-{
-    float    bias;
-    uint32_t num_frames;
-    uint32_t max_ray_depth;
-    uint32_t sample_sky;
-};
-
-struct AmbientOcclusionPushConstants
-{
-    uint32_t num_rays;
-    uint32_t num_frames;
-    float    ray_length;
-    float    power;
-    float    bias;
-};
-
-struct SVGFReprojectionPushConstants
-{
-    float alpha;
-    float moments_alpha;
-};
-
-struct SVGFFilterMomentsPushConstants
-{
-    float phi_color;
-    float phi_normal;
-};
-
-struct SVGFATrousFilterPushConstants
-{
-    int   radius;
-    int   step_size;
-    float phi_color;
-    float phi_normal;
-};
-
-struct SkyboxPushConstants
-{
-    glm::mat4 projection;
-    glm::mat4 view;
-};
-
-struct DeferredShadingPushConstants
-{
-    int shadows;
-    int ao;
-    int reflections;
-};
-
-struct TAAPushConstants
-{
-    glm::vec4 texel_size;
-    glm::vec4 current_prev_jitter;
-    glm::vec4 time_params;
-    float     feedback_min;
-    float     feedback_max;
-    int       sharpen;
-};
-
-struct ToneMapPushConstants
-{
-    int   visualization;
-    float exposure;
-};
-
-void pipeline_barrier(dw::vk::CommandBuffer::Ptr        cmd_buf,
-                      std::vector<VkMemoryBarrier>      memory_barriers,
-                      std::vector<VkImageMemoryBarrier> image_memory_barriers,
-                      VkPipelineStageFlags              srcStageMask,
-                      VkPipelineStageFlags              dstStageMask)
-{
-    vkCmdPipelineBarrier(
-        cmd_buf->handle(),
-        srcStageMask,
-        dstStageMask,
-        0,
-        memory_barriers.size(),
-        memory_barriers.data(),
-        0,
-        nullptr,
-        image_memory_barriers.size(),
-        image_memory_barriers.data());
-}
-
-VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
+extern VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
                                           VkImageLayout           oldImageLayout,
                                           VkImageLayout           newImageLayout,
                                           VkImageSubresourceRange subresourceRange,
                                           VkAccessFlags           srcAccessFlags,
-                                          VkAccessFlags           dstAccessFlags)
-{
-    // Create an image barrier object
-    VkImageMemoryBarrier memory_barrier;
-    DW_ZERO_MEMORY(memory_barrier);
+                                          VkAccessFlags           dstAccessFlags);
 
-    memory_barrier.sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    memory_barrier.oldLayout        = oldImageLayout;
-    memory_barrier.newLayout        = newImageLayout;
-    memory_barrier.image            = image->handle();
-    memory_barrier.subresourceRange = subresourceRange;
-    memory_barrier.srcAccessMask    = srcAccessFlags;
-    memory_barrier.dstAccessMask    = dstAccessFlags;
-
-    return memory_barrier;
-}
-
-VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAccessFlags)
-{
-    // Create an image barrier object
-    VkMemoryBarrier memory_barrier;
-    DW_ZERO_MEMORY(memory_barrier);
-
-    memory_barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    memory_barrier.srcAccessMask = srcAccessFlags;
-    memory_barrier.dstAccessMask = dstAccessFlags;
-
-    return memory_barrier;
-}
-
-float halton_sequence(int base, int index)
-{
-    float result = 0;
-    float f      = 1;
-    while (index > 0)
-    {
-        f /= base;
-        result += f * (index % base);
-        index = floor(index / base);
-    }
-
-    return result;
-}
+extern VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAccessFlags);
 
 class HybridRendering;
 

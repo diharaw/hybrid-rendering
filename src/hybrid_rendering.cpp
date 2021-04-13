@@ -1,6 +1,208 @@
 #include "hybrid_rendering.h"
 
-bool init(int argc, const char* argv[]) override
+#define NUM_PILLARS 6
+#define HALTON_SAMPLES 16
+
+const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
+const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
+
+void set_light_direction(Light& light, glm::vec3 value)
+{
+    light.data0.x = value.x;
+    light.data0.y = value.y;
+    light.data0.z = value.z;
+}
+
+void set_light_color(Light& light, glm::vec3 value)
+{
+    light.data1.x = value.x;
+    light.data1.y = value.y;
+    light.data1.z = value.z;
+}
+
+void set_light_intensity(Light& light, float value)
+{
+    light.data0.w = value;
+}
+
+void set_light_radius(Light& light, float value)
+{
+    light.data1.w = value;
+}
+
+struct GBufferPushConstants
+{
+    glm::mat4 model;
+    glm::mat4 prev_model;
+    uint32_t  material_index;
+};
+
+struct ShadowPushConstants
+{
+    float    bias;
+    uint32_t num_frames;
+};
+
+struct ReflectionsPushConstants
+{
+    float    bias;
+    uint32_t num_frames;
+};
+
+struct ReflectionsSpatialResolvePushConstants
+{
+    glm::vec4 z_buffer_params;
+    uint32_t  bypass;
+};
+
+struct ReflectionsTemporalPushConstants
+{
+    uint32_t first_frame;
+    uint32_t neighborhood_clamping;
+    float    neighborhood_std_scale;
+    float    alpha;
+};
+
+struct ReflectionsBlurPushConstants
+{
+    float alpha;
+};
+
+struct GIPushConstants
+{
+    float    bias;
+    uint32_t num_frames;
+    uint32_t max_ray_depth;
+    uint32_t sample_sky;
+};
+
+struct AmbientOcclusionPushConstants
+{
+    uint32_t num_rays;
+    uint32_t num_frames;
+    float    ray_length;
+    float    power;
+    float    bias;
+};
+
+struct SVGFReprojectionPushConstants
+{
+    float alpha;
+    float moments_alpha;
+};
+
+struct SVGFFilterMomentsPushConstants
+{
+    float phi_color;
+    float phi_normal;
+};
+
+struct SVGFATrousFilterPushConstants
+{
+    int   radius;
+    int   step_size;
+    float phi_color;
+    float phi_normal;
+};
+
+struct SkyboxPushConstants
+{
+    glm::mat4 projection;
+    glm::mat4 view;
+};
+
+struct DeferredShadingPushConstants
+{
+    int shadows;
+    int ao;
+    int reflections;
+};
+
+struct TAAPushConstants
+{
+    glm::vec4 texel_size;
+    glm::vec4 current_prev_jitter;
+    glm::vec4 time_params;
+    float     feedback_min;
+    float     feedback_max;
+    int       sharpen;
+};
+
+struct ToneMapPushConstants
+{
+    int   visualization;
+    float exposure;
+};
+
+void pipeline_barrier(dw::vk::CommandBuffer::Ptr        cmd_buf,
+                      std::vector<VkMemoryBarrier>      memory_barriers,
+                      std::vector<VkImageMemoryBarrier> image_memory_barriers,
+                      VkPipelineStageFlags              srcStageMask,
+                      VkPipelineStageFlags              dstStageMask)
+{
+    vkCmdPipelineBarrier(
+        cmd_buf->handle(),
+        srcStageMask,
+        dstStageMask,
+        0,
+        memory_barriers.size(),
+        memory_barriers.data(),
+        0,
+        nullptr,
+        image_memory_barriers.size(),
+        image_memory_barriers.data());
+}
+
+VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
+                                          VkImageLayout           oldImageLayout,
+                                          VkImageLayout           newImageLayout,
+                                          VkImageSubresourceRange subresourceRange,
+                                          VkAccessFlags           srcAccessFlags,
+                                          VkAccessFlags           dstAccessFlags)
+{
+    // Create an image barrier object
+    VkImageMemoryBarrier memory_barrier;
+    DW_ZERO_MEMORY(memory_barrier);
+
+    memory_barrier.sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    memory_barrier.oldLayout        = oldImageLayout;
+    memory_barrier.newLayout        = newImageLayout;
+    memory_barrier.image            = image->handle();
+    memory_barrier.subresourceRange = subresourceRange;
+    memory_barrier.srcAccessMask    = srcAccessFlags;
+    memory_barrier.dstAccessMask    = dstAccessFlags;
+
+    return memory_barrier;
+}
+
+VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAccessFlags)
+{
+    // Create an image barrier object
+    VkMemoryBarrier memory_barrier;
+    DW_ZERO_MEMORY(memory_barrier);
+
+    memory_barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memory_barrier.srcAccessMask = srcAccessFlags;
+    memory_barrier.dstAccessMask = dstAccessFlags;
+
+    return memory_barrier;
+}
+
+float halton_sequence(int base, int index)
+{
+    float result = 0;
+    float f      = 1;
+    while (index > 0)
+    {
+        f /= base;
+        result += f * (index % base);
+        index = floor(index / base);
+    }
+
+    return result;
+}
+
+bool HybridRendering::init(int argc, const char* argv[])
 {
     m_gpu_resources = std::unique_ptr<GPUResources>(new GPUResources());
 
@@ -56,7 +258,7 @@ bool init(int argc, const char* argv[]) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void update(double delta) override
+void HybridRendering::update(double delta)
 {
     dw::vk::CommandBuffer::Ptr cmd_buf = m_vk_backend->allocate_graphics_command_buffer();
 
@@ -216,14 +418,14 @@ void update(double delta) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void shutdown() override
+void HybridRendering::shutdown()
 {
     m_gpu_resources.reset();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void key_pressed(int code) override
+void HybridRendering::key_pressed(int code)
 {
     // Handle forward movement.
     if (code == GLFW_KEY_W)
@@ -246,7 +448,7 @@ void key_pressed(int code) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void key_released(int code) override
+void HybridRendering::key_released(int code)
 {
     // Handle forward movement.
     if (code == GLFW_KEY_W || code == GLFW_KEY_S)
@@ -262,7 +464,7 @@ void key_released(int code) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void mouse_pressed(int code) override
+void HybridRendering::mouse_pressed(int code)
 {
     // Enable mouse look.
     if (code == GLFW_MOUSE_BUTTON_RIGHT)
@@ -271,7 +473,7 @@ void mouse_pressed(int code) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void mouse_released(int code) override
+void HybridRendering::mouse_released(int code)
 {
     // Disable mouse look.
     if (code == GLFW_MOUSE_BUTTON_RIGHT)
@@ -280,7 +482,7 @@ void mouse_released(int code) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-dw::AppSettings intial_app_settings() override
+dw::AppSettings HybridRendering::intial_app_settings()
 {
     // Set custom settings here...
     dw::AppSettings settings;
@@ -296,7 +498,7 @@ dw::AppSettings intial_app_settings() override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void window_resized(int width, int height) override
+void HybridRendering::window_resized(int width, int height)
 {
     // Override window resized method to update camera projection.
     m_main_camera->update_projection(60.0f, m_near_plane, m_far_plane, float(m_width) / float(m_height));
@@ -310,10 +512,7 @@ void window_resized(int width, int height) override
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-private:
-// -----------------------------------------------------------------------------------------------------------------------------------
-
-void create_output_images()
+void HybridRendering::create_output_images()
 {
     m_gpu_resources->g_buffer_1_view.reset();
     m_gpu_resources->g_buffer_2_view.reset();
@@ -459,7 +658,7 @@ void create_output_images()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_render_passes()
+void HybridRendering::create_render_passes()
 {
     {
         std::vector<VkAttachmentDescription> attachments(5);
@@ -687,7 +886,7 @@ void create_render_passes()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_framebuffers()
+void HybridRendering::create_framebuffers()
 {
     m_gpu_resources->g_buffer_fbo.clear();
 
@@ -703,7 +902,7 @@ void create_framebuffers()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-bool create_uniform_buffer()
+bool HybridRendering::create_uniform_buffer()
 {
     m_ubo_size           = m_vk_backend->aligned_dynamic_ubo_size(sizeof(UBO));
     m_gpu_resources->ubo = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
@@ -713,7 +912,7 @@ bool create_uniform_buffer()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_descriptor_set_layouts()
+void HybridRendering::create_descriptor_set_layouts()
 {
     {
         dw::vk::DescriptorSetLayout::Desc desc;
@@ -766,7 +965,7 @@ void create_descriptor_set_layouts()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_descriptor_sets()
+void HybridRendering::create_descriptor_sets()
 {
     m_gpu_resources->per_frame_ds           = m_vk_backend->allocate_descriptor_set(m_gpu_resources->per_frame_ds_layout);
     m_gpu_resources->skybox_ds              = m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout);
@@ -790,7 +989,7 @@ void create_descriptor_sets()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void write_descriptor_sets()
+void HybridRendering::write_descriptor_sets()
 {
     // Per-frame
     {
@@ -1311,7 +1510,7 @@ void write_descriptor_sets()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_deferred_pipeline()
+void HybridRendering::create_deferred_pipeline()
 {
     dw::vk::PipelineLayout::Desc desc;
 
@@ -1329,7 +1528,7 @@ void create_deferred_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_tone_map_pipeline()
+void HybridRendering::create_tone_map_pipeline()
 {
     dw::vk::PipelineLayout::Desc desc;
 
@@ -1345,7 +1544,7 @@ void create_tone_map_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_shadow_mask_ray_tracing_pipeline()
+void HybridRendering::create_shadow_mask_ray_tracing_pipeline()
 {
     // ---------------------------------------------------------------------------
     // Create shader modules
@@ -1390,7 +1589,7 @@ void create_shadow_mask_ray_tracing_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_ambient_occlusion_ray_tracing_pipeline()
+void HybridRendering::create_ambient_occlusion_ray_tracing_pipeline()
 {
     // ---------------------------------------------------------------------------
     // Create shader modules
@@ -1435,7 +1634,7 @@ void create_ambient_occlusion_ray_tracing_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_reflection_ray_tracing_pipeline()
+void HybridRendering::create_reflection_ray_tracing_pipeline()
 {
     // ---------------------------------------------------------------------------
     // Create shader modules
@@ -1485,7 +1684,7 @@ void create_reflection_ray_tracing_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_gi_ray_tracing_pipeline()
+void HybridRendering::create_gi_ray_tracing_pipeline()
 {
     // ---------------------------------------------------------------------------
     // Create shader modules
@@ -1535,7 +1734,7 @@ void create_gi_ray_tracing_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_gbuffer_pipeline()
+void HybridRendering::create_gbuffer_pipeline()
 {
     // ---------------------------------------------------------------------------
     // Create shader modules
@@ -1671,7 +1870,7 @@ void create_gbuffer_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_skybox_pipeline()
+void HybridRendering::create_skybox_pipeline()
 {
     // ---------------------------------------------------------------------------
     // Create shader modules
@@ -1818,7 +2017,7 @@ void create_skybox_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_taa_pipeline()
+void HybridRendering::create_taa_pipeline()
 {
     dw::vk::PipelineLayout::Desc desc;
 
@@ -1842,7 +2041,7 @@ void create_taa_pipeline()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_cube()
+void HybridRendering::create_cube()
 {
     float cube_vertices[] = {
         // back face
@@ -2145,7 +2344,7 @@ void create_cube()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-bool load_mesh()
+bool HybridRendering::load_mesh()
 {
     {
         std::vector<dw::RayTracedScene::Instance> instances;
@@ -2298,14 +2497,14 @@ bool load_mesh()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void create_camera()
+void HybridRendering::create_camera()
 {
     m_main_camera = std::make_unique<dw::Camera>(60.0f, m_near_plane, m_far_plane, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void ray_trace_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::ray_trace_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Ray Traced Shadows", cmd_buf);
 
@@ -2359,7 +2558,7 @@ void ray_trace_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Ray Traced Ambient Occlusion", cmd_buf);
 
@@ -2419,7 +2618,7 @@ void ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Ray Traced Reflections", cmd_buf);
 
@@ -2480,7 +2679,7 @@ void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Ray Traced Global Illumination", cmd_buf);
 
@@ -2543,7 +2742,7 @@ void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("G-Buffer", cmd_buf);
 
@@ -2655,7 +2854,7 @@ void render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Downsample G-Buffer", cmd_buf);
 
@@ -2708,7 +2907,7 @@ void downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
+void HybridRendering::blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
                  dw::vk::Image::Ptr         src,
                  dw::vk::Image::Ptr         dst,
                  VkImageLayout              src_img_src_layout,
@@ -2780,7 +2979,7 @@ void blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
@@ -2836,7 +3035,7 @@ void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void deferred_shading(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::deferred_shading(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
@@ -2911,7 +3110,7 @@ void deferred_shading(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void temporal_aa(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::temporal_aa(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("TAA", cmd_buf);
 
@@ -2991,7 +3190,7 @@ void temporal_aa(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void tone_map(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::tone_map(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Tone Map", cmd_buf);
 
@@ -3068,7 +3267,7 @@ void tone_map(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void update_uniforms(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::update_uniforms(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
@@ -3095,7 +3294,7 @@ void update_uniforms(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void update_ibl(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::update_ibl(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     m_gpu_resources->hosek_wilkie_sky_model->update(cmd_buf, m_light_direction);
 
@@ -3110,7 +3309,7 @@ void update_ibl(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void update_light_animation()
+void HybridRendering::update_light_animation()
 {
     if (m_light_animation)
     {
@@ -3125,7 +3324,7 @@ void update_light_animation()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void update_camera()
+void HybridRendering::update_camera()
 {
     if (m_taa_enabled)
     {
@@ -3171,7 +3370,7 @@ void update_camera()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
+void HybridRendering::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     if (m_first_frame)
     {
@@ -3211,7 +3410,7 @@ void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void set_active_scene()
+void HybridRendering::set_active_scene()
 {
     if (m_current_scene == SCENE_PILLARS)
         m_gpu_resources->current_scene = m_gpu_resources->pillars_scene;

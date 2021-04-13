@@ -1,6 +1,11 @@
 #include "ssa_reflections.h"
 #include "hybrid_rendering.h"
 
+struct RayTracePushConstants
+{
+
+};
+
 SSaReflections::SSaReflections(HybridRendering* sample, uint32_t width, uint32_t height) :
     m_sample(sample), m_width(width), m_height(height)
 {
@@ -131,7 +136,7 @@ void SSaReflections::create_pipeline()
     pl_desc.add_descriptor_set_layout(m_sample->m_gpu_resources->g_buffer_ds_layout);
     pl_desc.add_descriptor_set_layout(m_sample->m_gpu_resources->pbr_ds_layout);
     pl_desc.add_descriptor_set_layout(m_sample->m_gpu_resources->combined_sampler_ds_layout);
-    pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ReflectionsPushConstants));
+    pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
     m_pipeline_layout = dw::vk::PipelineLayout::create(m_sample->m_vk_backend, pl_desc);
 
