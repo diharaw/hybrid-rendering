@@ -1,6 +1,8 @@
 #include "ssa_reflections.h"
 #include "hybrid_rendering.h"
 
+#define MAX_MIP_LEVELS 8
+
 struct RayTracePushConstants
 {
 
@@ -21,10 +23,10 @@ SSaReflections::~SSaReflections()
 
 void SSaReflections::create_images()
 {
-    m_color_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_color_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_color_image->set_name("Reflection RT Color Image");
 
-    m_color_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_color_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
     m_color_view->set_name("Reflection RT Color Image View");
 }
 
