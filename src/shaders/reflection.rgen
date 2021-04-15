@@ -41,6 +41,7 @@ layout(push_constant) uniform PushConstants
 {
     float bias;
     uint  num_frames;
+    uint  g_buffer_mip;
 }
 u_PushConstants;
 

@@ -81,6 +81,7 @@ private:
         float    neighborhood_scale;
         uint32_t use_variance_clipping;
         uint32_t use_tonemap;
+        uint32_t g_buffer_mip;
     };
 
 public:
@@ -136,6 +137,7 @@ private:
     {
         glm::vec4 z_buffer_params;
         uint32_t  num_frames;
+        uint32_t  g_buffer_mip;
     };
 
 public:
@@ -176,6 +178,7 @@ private:
         uint32_t  roughness_weight;
         uint32_t  depth_weight;
         uint32_t  normal_weight;
+        uint32_t  g_buffer_mip;
     };
 
 public:
@@ -233,12 +236,14 @@ public:
     {
         float alpha;
         float moments_alpha;
+        uint32_t g_buffer_mip;
     };
 
     struct FilterMomentsPushConstants
     {
         float phi_color;
         float phi_normal;
+        uint32_t g_buffer_mip;
     };
 
     struct ATrousFilterPushConstants
@@ -247,6 +252,7 @@ public:
         int   step_size;
         float phi_color;
         float phi_normal;
+        uint32_t g_buffer_mip;
     };
 
 public:
@@ -501,16 +507,13 @@ private:
         dw::vk::ImageView::Ptr                  g_buffer_3_view;
         std::vector<dw::vk::ImageView::Ptr>     g_buffer_linear_z_view;
         dw::vk::ImageView::Ptr                  g_buffer_depth_view;
-        dw::vk::Image::Ptr                      downsampled_g_buffer_1; // RGB: Albedo, A: Metallic
-        dw::vk::Image::Ptr                      downsampled_g_buffer_2; // RGB: Normal, A: Roughness
-        dw::vk::Image::Ptr                      downsampled_g_buffer_3; // RGB: Position, A: -
-        std::vector<dw::vk::Image::Ptr>         downsampled_g_buffer_linear_z;
-        dw::vk::Image::Ptr                      downsampled_g_buffer_depth;
-        dw::vk::ImageView::Ptr                  downsampled_g_buffer_1_view;
-        dw::vk::ImageView::Ptr                  downsampled_g_buffer_2_view;
-        dw::vk::ImageView::Ptr                  downsampled_g_buffer_3_view;
-        std::vector<dw::vk::ImageView::Ptr>     downsampled_g_buffer_linear_z_view;
-        dw::vk::ImageView::Ptr                  downsampled_g_buffer_depth_view;
+
+        dw::vk::ImageView::Ptr              g_buffer_1_fbo_view;
+        dw::vk::ImageView::Ptr              g_buffer_2_fbo_view;
+        dw::vk::ImageView::Ptr              g_buffer_3_fbo_view;
+        std::vector<dw::vk::ImageView::Ptr> g_buffer_linear_z_fbo_view;
+        dw::vk::ImageView::Ptr              g_buffer_depth_fbo_view;
+
         std::vector<dw::vk::Framebuffer::Ptr>   g_buffer_fbo;
         dw::vk::RenderPass::Ptr                 g_buffer_rp;
         dw::vk::GraphicsPipeline::Ptr           g_buffer_pipeline;
@@ -575,6 +578,7 @@ private:
     void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf);
     void render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf);
     void downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter);
     void blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
                      dw::vk::Image::Ptr         src,
                      dw::vk::Image::Ptr         dst,

@@ -54,6 +54,7 @@ layout(push_constant) uniform PushConstants
     uint  neighborhood_clamping;
     float neighborhood_std_scale;
     float alpha;
+    uint  g_buffer_mip;
 }
 u_PushConstants;
 

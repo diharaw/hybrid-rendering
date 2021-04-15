@@ -43,6 +43,7 @@ layout(push_constant) uniform PushConstants
     uint  roughness_weight;
     uint  depth_weight;
     uint  normal_weight;
+    uint  g_buffer_mip;
 }
 u_PushConstants;
 
@@ -93,19 +94,19 @@ float edge_stopping_weight(ivec2 sample_coord, float center_depth, vec3 center_n
 
     if (u_PushConstants.depth_weight == 1)
     {
-        float sample_depth = linear_01_depth(texelFetch(s_GBufferDepth, sample_coord, 0).r);
+        float sample_depth = linear_01_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r);
 
         weight *= depth_edge_stopping_weight(center_depth, sample_depth);
     }
     if (u_PushConstants.normal_weight == 1)
     {
-        vec3 sample_normal = texelFetch(s_GBuffer2, sample_coord, 0).rgb;
+        vec3 sample_normal = texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rgb;
 
         weight *= normal_edge_stopping_weight(center_normal, sample_normal);
     }
     if (u_PushConstants.roughness_weight == 1)
     {
-        float sample_roughness = texelFetch(s_GBuffer1, sample_coord, 0).a;
+        float sample_roughness = texelFetch(s_GBuffer1, sample_coord, u_PushConstants.g_buffer_mip).a;
 
         weight *= roughness_edge_stopping_weight(center_roughness, sample_roughness);
     }
@@ -117,9 +118,9 @@ float edge_stopping_weight(ivec2 sample_coord, float center_depth, vec3 center_n
 
 vec3 bilateral_blur(ivec2 current_coord)
 {
-    float center_roughness = texelFetch(s_GBuffer1, current_coord, 0).a;
-    float center_depth     = linear_01_depth(texelFetch(s_GBufferDepth, current_coord, 0).r);
-    vec3  center_normal    = texelFetch(s_GBuffer2, current_coord, 0).rgb;
+    float center_roughness = texelFetch(s_GBuffer1, current_coord, u_PushConstants.g_buffer_mip).a;
+    float center_depth     = linear_01_depth(texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r);
+    vec3  center_normal    = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
 
     const int radius = u_PushConstants.radius;
 
@@ -164,14 +165,14 @@ float compute_temporal_variance(float current_sample_luma, float history_sample_
 void main()
 {
     // Query the G-Buffer image size
-    ivec2 size = textureSize(s_GBuffer1, 0);
+    ivec2 size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
 
     // Compute current pixel coord
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
     // Sample the center color and variance
     vec4  center_color     = texelFetch(s_Input, current_coord, 0);
-    float center_roughness = texelFetch(s_GBuffer1, current_coord, 0).a;
+    float center_roughness = texelFetch(s_GBuffer1, current_coord, u_PushConstants.g_buffer_mip).a;
 
     if (center_roughness < GLOSSY_ROUGHNESS_THRESHOLD)
     {

@@ -23,16 +23,16 @@ SSaReflections::~SSaReflections()
 
 void SSaReflections::create_images()
 {
-    m_color_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_color_image->set_name("Reflection RT Color Image");
-
-    m_color_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
-    m_color_view->set_name("Reflection RT Color Image View");
+    m_mirror_image = dw::vk::Image::create(m_sample->m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_mirror_image->set_name("Mirror Reflection RT Color Image");
+      
+    m_mirror_view = dw::vk::ImageView::create(m_sample->m_vk_backend, m_mirror_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
+    m_mirror_view->set_name("Mirror Reflection RT Color Image View");
 }
 
 void SSaReflections::create_descriptor_sets()
 {
-    m_write_ds = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->storage_image_ds_layout);
+    m_ray_tracing_ds = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->storage_image_ds_layout);
     m_read_ds  = m_sample->m_vk_backend->allocate_descriptor_set(m_sample->m_gpu_resources->combined_sampler_ds_layout);
 }
 
@@ -49,7 +49,7 @@ void SSaReflections::write_descriptor_sets()
         VkDescriptorImageInfo storage_image_info;
 
         storage_image_info.sampler     = VK_NULL_HANDLE;
-        storage_image_info.imageView   = m_color_view->handle();
+        storage_image_info.imageView   = m_mirror_view->handle();
         storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
         image_infos.push_back(storage_image_info);
@@ -61,7 +61,7 @@ void SSaReflections::write_descriptor_sets()
         write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         write_data.pImageInfo      = &image_infos.back();
         write_data.dstBinding      = 0;
-        write_data.dstSet          = m_write_ds->handle();
+        write_data.dstSet          = m_ray_tracing_ds->handle();
 
         write_datas.push_back(write_data);
 
@@ -79,7 +79,7 @@ void SSaReflections::write_descriptor_sets()
         VkDescriptorImageInfo sampler_image_info;
 
         sampler_image_info.sampler     = m_sample->m_vk_backend->bilinear_sampler()->handle();
-        sampler_image_info.imageView   = m_color_view->handle();
+        sampler_image_info.imageView   = m_mirror_view->handle();
         sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         image_infos.push_back(sampler_image_info);

@@ -37,6 +37,7 @@ layout(push_constant) uniform PushConstants
     int   step_size;
     float phi_color;
     float phi_normal;
+    uint  g_buffer_mip;
 }
 u_PushConstants;
 

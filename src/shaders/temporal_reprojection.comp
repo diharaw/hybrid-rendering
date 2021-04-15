@@ -45,6 +45,7 @@ layout(push_constant) uniform PushConstants
     float neighborhood_scale;
     uint  use_variance_clipping;
     uint use_tonemap;
+    uint  g_buffer_mip;
 }
 u_PushConstants;
 

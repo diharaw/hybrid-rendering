@@ -2,6 +2,7 @@
 
 #define NUM_PILLARS 6
 #define HALTON_SAMPLES 16
+#define GBUFFER_MIP_LEVELS 8
 
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
@@ -30,42 +31,18 @@ void set_light_radius(Light& light, float value)
     light.data1.w = value;
 }
 
-struct GBufferPushConstants
-{
-    glm::mat4 model;
-    glm::mat4 prev_model;
-    uint32_t  material_index;
-};
-
 struct ShadowPushConstants
 {
     float    bias;
     uint32_t num_frames;
+    uint32_t g_buffer_mip;
 };
 
 struct ReflectionsPushConstants
 {
     float    bias;
     uint32_t num_frames;
-};
-
-struct ReflectionsSpatialResolvePushConstants
-{
-    glm::vec4 z_buffer_params;
-    uint32_t  bypass;
-};
-
-struct ReflectionsTemporalPushConstants
-{
-    uint32_t first_frame;
-    uint32_t neighborhood_clamping;
-    float    neighborhood_std_scale;
-    float    alpha;
-};
-
-struct ReflectionsBlurPushConstants
-{
-    float alpha;
+    uint32_t g_buffer_mip;
 };
 
 struct GIPushConstants
@@ -74,6 +51,7 @@ struct GIPushConstants
     uint32_t num_frames;
     uint32_t max_ray_depth;
     uint32_t sample_sky;
+    uint32_t g_buffer_mip;
 };
 
 struct AmbientOcclusionPushConstants
@@ -83,26 +61,14 @@ struct AmbientOcclusionPushConstants
     float    ray_length;
     float    power;
     float    bias;
+    uint32_t g_buffer_mip;
 };
 
-struct SVGFReprojectionPushConstants
+struct GBufferPushConstants
 {
-    float alpha;
-    float moments_alpha;
-};
-
-struct SVGFFilterMomentsPushConstants
-{
-    float phi_color;
-    float phi_normal;
-};
-
-struct SVGFATrousFilterPushConstants
-{
-    int   radius;
-    int   step_size;
-    float phi_color;
-    float phi_normal;
+    glm::mat4 model;
+    glm::mat4 prev_model;
+    uint32_t  material_index;
 };
 
 struct SkyboxPushConstants
@@ -527,15 +493,6 @@ void HybridRendering::create_output_images()
     m_gpu_resources->g_buffer_linear_z.clear();
     m_gpu_resources->g_buffer_depth.reset();
     m_gpu_resources->visibility_image.reset();
-
-    m_gpu_resources->downsampled_g_buffer_1_view.reset();
-    m_gpu_resources->downsampled_g_buffer_2_view.reset();
-    m_gpu_resources->downsampled_g_buffer_3_view.reset();
-    m_gpu_resources->downsampled_g_buffer_linear_z_view.clear();
-    m_gpu_resources->downsampled_g_buffer_1.reset();
-    m_gpu_resources->downsampled_g_buffer_2.reset();
-    m_gpu_resources->downsampled_g_buffer_3.reset();
-    m_gpu_resources->downsampled_g_buffer_linear_z.clear();
     m_gpu_resources->taa_image.clear();
 
     uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
@@ -568,41 +525,63 @@ void HybridRendering::create_output_images()
     m_gpu_resources->rtgi_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->rtgi_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_gpu_resources->rtgi_view->set_name("RTGI Image View");
 
-    m_gpu_resources->g_buffer_1 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_1 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_1->set_name("G-Buffer 1 Image");
 
-    m_gpu_resources->g_buffer_2 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_2 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_2->set_name("G-Buffer 2 Image");
 
-    m_gpu_resources->g_buffer_3 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_3 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_3->set_name("G-Buffer 3 Image");
 
     for (int i = 0; i < 2; i++)
     {
-        auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+        auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
         image->set_name("G-Buffer Linear-Z Image " + std::to_string(i));
 
-        auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        image_view->set_name("G-Buffer Linear-Z Image View " + std::to_string(i));
-
         m_gpu_resources->g_buffer_linear_z.push_back(image);
-        m_gpu_resources->g_buffer_linear_z_view.push_back(image_view);
+
+        {
+            auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
+            image_view->set_name("G-Buffer Linear-Z Image View " + std::to_string(i));
+
+            m_gpu_resources->g_buffer_linear_z_view.push_back(image_view);
+        }
+
+        {
+            auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+            image_view->set_name("G-Buffer Linear-Z FBO Image View " + std::to_string(i));
+
+            m_gpu_resources->g_buffer_linear_z_fbo_view.push_back(image_view);
+        }
     }
 
-    m_gpu_resources->g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_depth->set_name("G-Buffer Depth Image");
 
-    m_gpu_resources->g_buffer_1_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_gpu_resources->g_buffer_1_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
     m_gpu_resources->g_buffer_1_view->set_name("G-Buffer 1 Image View");
 
-    m_gpu_resources->g_buffer_2_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_gpu_resources->g_buffer_2_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
     m_gpu_resources->g_buffer_2_view->set_name("G-Buffer 2 Image View");
 
-    m_gpu_resources->g_buffer_3_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_gpu_resources->g_buffer_3_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
     m_gpu_resources->g_buffer_3_view->set_name("G-Buffer 3 Image View");
 
-    m_gpu_resources->g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
+    m_gpu_resources->g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, 0, GBUFFER_MIP_LEVELS);
     m_gpu_resources->g_buffer_depth_view->set_name("G-Buffer Depth Image View");
+
+    m_gpu_resources->g_buffer_1_fbo_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_gpu_resources->g_buffer_1_fbo_view->set_name("G-Buffer 1 FBO Image View");
+
+    m_gpu_resources->g_buffer_2_fbo_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_gpu_resources->g_buffer_2_fbo_view->set_name("G-Buffer 2 FBO Image View");
+
+    m_gpu_resources->g_buffer_3_fbo_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_gpu_resources->g_buffer_3_fbo_view->set_name("G-Buffer 3 FBO Image View");
+
+    m_gpu_resources->g_buffer_depth_fbo_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
+    m_gpu_resources->g_buffer_depth_fbo_view->set_name("G-Buffer Depth FBO Image View");
 
     // TAA
     for (int i = 0; i < 2; i++)
@@ -617,43 +596,6 @@ void HybridRendering::create_output_images()
 
         m_gpu_resources->taa_view.push_back(image_view);
     }
-
-    // Downsampled G-Buffer
-    for (int i = 0; i < 2; i++)
-    {
-        auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-        image->set_name("Downsampled G-Buffer Linear-Z Image " + std::to_string(i));
-
-        auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        image_view->set_name("Downsampled G-Buffer Linear-Z Image View " + std::to_string(i));
-
-        m_gpu_resources->downsampled_g_buffer_linear_z.push_back(image);
-        m_gpu_resources->downsampled_g_buffer_linear_z_view.push_back(image_view);
-    }
-
-    m_gpu_resources->downsampled_g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_gpu_resources->downsampled_g_buffer_depth->set_name("Downsampled G-Buffer Depth Image");
-
-    m_gpu_resources->downsampled_g_buffer_1 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_gpu_resources->downsampled_g_buffer_1->set_name("Downsampled G-Buffer 1 Image");
-
-    m_gpu_resources->downsampled_g_buffer_2 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_gpu_resources->downsampled_g_buffer_2->set_name("Downsampled G-Buffer 2 Image");
-
-    m_gpu_resources->downsampled_g_buffer_3 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_gpu_resources->downsampled_g_buffer_3->set_name("Downsampled G-Buffer 3 Image");
-
-    m_gpu_resources->downsampled_g_buffer_1_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-    m_gpu_resources->downsampled_g_buffer_1_view->set_name("Downsampled G-Buffer 1 Image View");
-
-    m_gpu_resources->downsampled_g_buffer_2_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-    m_gpu_resources->downsampled_g_buffer_2_view->set_name("Downsampled G-Buffer 2 Image View");
-
-    m_gpu_resources->downsampled_g_buffer_3_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-    m_gpu_resources->downsampled_g_buffer_3_view->set_name("Downsampled G-Buffer 3 Image View");
-
-    m_gpu_resources->downsampled_g_buffer_depth_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->downsampled_g_buffer_depth, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
-    m_gpu_resources->downsampled_g_buffer_depth_view->set_name("Downsampled G-Buffer Depth Image View");
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -891,7 +833,7 @@ void HybridRendering::create_framebuffers()
     m_gpu_resources->g_buffer_fbo.clear();
 
     for (int i = 0; i < 2; i++)
-        m_gpu_resources->g_buffer_fbo.push_back(dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->g_buffer_rp, { m_gpu_resources->g_buffer_1_view, m_gpu_resources->g_buffer_2_view, m_gpu_resources->g_buffer_3_view, m_gpu_resources->g_buffer_linear_z_view[i], m_gpu_resources->g_buffer_depth_view }, m_width, m_height, 1));
+        m_gpu_resources->g_buffer_fbo.push_back(dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->g_buffer_rp, { m_gpu_resources->g_buffer_1_fbo_view, m_gpu_resources->g_buffer_2_fbo_view, m_gpu_resources->g_buffer_3_fbo_view, m_gpu_resources->g_buffer_linear_z_fbo_view[i], m_gpu_resources->g_buffer_depth_fbo_view }, m_width, m_height, 1));
 
     m_gpu_resources->deferred_fbo.reset();
     m_gpu_resources->deferred_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->deferred_rp, { m_gpu_resources->deferred_view }, m_width, m_height, 1);
@@ -1125,78 +1067,6 @@ void HybridRendering::write_descriptor_sets()
             write_data[4].pImageInfo      = &image_info[4];
             write_data[4].dstBinding      = 4;
             write_data[4].dstSet          = m_gpu_resources->g_buffer_ds[i]->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 5, &write_data[0], 0, nullptr);
-        }
-    }
-
-    // Downsampled G-Buffer
-    {
-        for (int i = 0; i < 2; i++)
-        {
-            VkDescriptorImageInfo image_info[5];
-
-            image_info[0].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[0].imageView   = m_gpu_resources->downsampled_g_buffer_1_view->handle();
-            image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            image_info[1].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[1].imageView   = m_gpu_resources->downsampled_g_buffer_2_view->handle();
-            image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            image_info[2].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[2].imageView   = m_gpu_resources->downsampled_g_buffer_3_view->handle();
-            image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            image_info[3].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[3].imageView   = m_gpu_resources->downsampled_g_buffer_depth_view->handle();
-            image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            image_info[4].sampler     = m_vk_backend->nearest_sampler()->handle();
-            image_info[4].imageView   = m_gpu_resources->downsampled_g_buffer_linear_z_view[i]->handle();
-            image_info[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet write_data[5];
-            DW_ZERO_MEMORY(write_data[0]);
-            DW_ZERO_MEMORY(write_data[1]);
-            DW_ZERO_MEMORY(write_data[2]);
-            DW_ZERO_MEMORY(write_data[3]);
-            DW_ZERO_MEMORY(write_data[4]);
-
-            write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[0].descriptorCount = 1;
-            write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[0].pImageInfo      = &image_info[0];
-            write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_gpu_resources->downsampled_g_buffer_ds[i]->handle();
-
-            write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[1].descriptorCount = 1;
-            write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[1].pImageInfo      = &image_info[1];
-            write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_gpu_resources->downsampled_g_buffer_ds[i]->handle();
-
-            write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[2].descriptorCount = 1;
-            write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[2].pImageInfo      = &image_info[2];
-            write_data[2].dstBinding      = 2;
-            write_data[2].dstSet          = m_gpu_resources->downsampled_g_buffer_ds[i]->handle();
-
-            write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[3].descriptorCount = 1;
-            write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[3].pImageInfo      = &image_info[3];
-            write_data[3].dstBinding      = 3;
-            write_data[3].dstSet          = m_gpu_resources->downsampled_g_buffer_ds[i]->handle();
-
-            write_data[4].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data[4].descriptorCount = 1;
-            write_data[4].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data[4].pImageInfo      = &image_info[4];
-            write_data[4].dstBinding      = 4;
-            write_data[4].dstSet          = m_gpu_resources->downsampled_g_buffer_ds[i]->handle();
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 5, &write_data[0], 0, nullptr);
         }
@@ -2854,55 +2724,105 @@ void HybridRendering::render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+void HybridRendering::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter)
+{
+    VkImageSubresourceRange initial_subresource_range;
+    DW_ZERO_MEMORY(initial_subresource_range);
+
+    initial_subresource_range.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    initial_subresource_range.levelCount     = img->mip_levels() - 1;
+    initial_subresource_range.layerCount     = 1;
+    initial_subresource_range.baseArrayLayer = 0;
+    initial_subresource_range.baseMipLevel   = 1;
+
+    dw::vk::utilities::set_image_layout(cmd_buf->handle(),
+                                        img->handle(),
+                                        VK_IMAGE_LAYOUT_UNDEFINED,
+                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        initial_subresource_range);
+
+    VkImageSubresourceRange subresource_range;
+    DW_ZERO_MEMORY(subresource_range);
+
+    subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresource_range.levelCount = 1;
+    subresource_range.layerCount = 1;
+
+    int32_t mip_width  = m_width;
+    int32_t mip_height = m_height;
+
+    for (int mip_idx = 1; mip_idx < img->mip_levels(); mip_idx++)
+    {
+        subresource_range.baseMipLevel   = mip_idx - 1;
+        subresource_range.baseArrayLayer = 0;
+
+        VkImageLayout layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+        if (mip_idx == 1)
+            layout = src_layout;
+
+        if (layout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+        {
+            dw::vk::utilities::set_image_layout(cmd_buf->handle(),
+                                                img->handle(),
+                                                layout,
+                                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                subresource_range);
+        }
+
+        VkImageBlit blit                   = {};
+        blit.srcOffsets[0]                 = { 0, 0, 0 };
+        blit.srcOffsets[1]                 = { mip_width, mip_height, 1 };
+        blit.srcSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel       = mip_idx - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount     = 1;
+        blit.dstOffsets[0]                 = { 0, 0, 0 };
+        blit.dstOffsets[1]                 = { mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1, 1 };
+        blit.dstSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel       = mip_idx;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount     = 1;
+
+        vkCmdBlitImage(cmd_buf->handle(),
+                       img->handle(),
+                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       img->handle(),
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1,
+                       &blit,
+                       filter);
+
+        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
+                                            img->handle(),
+                                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                    dst_layout,
+                                    subresource_range);
+
+        if (mip_width > 1) mip_width /= 2;
+        if (mip_height > 1) mip_height /= 2;
+    }
+
+    subresource_range.baseMipLevel = img->mip_levels() - 1;
+
+    dw::vk::utilities::set_image_layout(cmd_buf->handle(),
+                                        img->handle(),
+                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                dst_layout,
+                                subresource_range);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void HybridRendering::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Downsample G-Buffer", cmd_buf);
 
-    blitt_image(cmd_buf,
-                m_gpu_resources->g_buffer_1,
-                m_gpu_resources->downsampled_g_buffer_1,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FILTER_NEAREST);
-    blitt_image(cmd_buf,
-                m_gpu_resources->g_buffer_2,
-                m_gpu_resources->downsampled_g_buffer_2,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FILTER_NEAREST);
-    blitt_image(cmd_buf,
-                m_gpu_resources->g_buffer_3,
-                m_gpu_resources->downsampled_g_buffer_3,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FILTER_NEAREST);
-    blitt_image(cmd_buf,
-                m_gpu_resources->g_buffer_depth,
-                m_gpu_resources->downsampled_g_buffer_depth,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_ASPECT_DEPTH_BIT,
-                VK_FILTER_NEAREST);
-    blitt_image(cmd_buf,
-                m_gpu_resources->g_buffer_linear_z[m_ping_pong],
-                m_gpu_resources->downsampled_g_buffer_linear_z[m_ping_pong],
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FILTER_NEAREST);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_2, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_3, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_linear_z[static_cast<uint32_t>(m_ping_pong)], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3396,13 +3316,6 @@ void HybridRendering::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
             cmd_buf->handle(),
             m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_gpu_resources->downsampled_g_buffer_linear_z[!m_ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
     }

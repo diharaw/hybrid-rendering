@@ -35,6 +35,7 @@ layout(push_constant) uniform PushConstants
 {
     float phi_Output;
     float phi_normal;
+    uint  g_buffer_mip;
 }
 u_PushConstants;
 
