@@ -56,7 +56,7 @@ layout(push_constant) uniform PushConstants
 {
     vec4 z_buffer_params;
     uint num_frames;
-    uint  g_buffer_mip;
+    int  g_buffer_mip;
 }
 u_PushConstants;
 

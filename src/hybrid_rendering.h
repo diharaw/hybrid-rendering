@@ -279,6 +279,7 @@ private:
     bool             m_use_spatial_for_feedback = false;
     uint32_t         m_input_width;
     uint32_t         m_input_height;
+    float            m_scale                      = 1.0f;
     float            m_alpha                      = 0.01f;
     float            m_moments_alpha              = 0.2f;
     float            m_phi_color                  = 10.0f;
@@ -520,7 +521,6 @@ private:
         dw::vk::PipelineLayout::Ptr             g_buffer_pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr        g_buffer_ds_layout;
         std::vector<dw::vk::DescriptorSet::Ptr> g_buffer_ds;
-        std::vector<dw::vk::DescriptorSet::Ptr> downsampled_g_buffer_ds;
 
         // Skybox
         dw::vk::Buffer::Ptr           cube_vbo;
@@ -578,7 +578,7 @@ private:
     void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf);
     void render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf);
     void downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter);
+    void generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter, VkImageAspectFlags aspect_flags);
     void blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
                      dw::vk::Image::Ptr         src,
                      dw::vk::Image::Ptr         dst,

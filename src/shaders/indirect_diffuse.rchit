@@ -56,7 +56,7 @@ layout(push_constant) uniform PushConstants
     uint  num_frames;
     uint  max_ray_depth;
     uint  sample_sky;
-    uint  g_buffer_mip;
+    int  g_buffer_mip;
 }
 u_PushConstants;
 

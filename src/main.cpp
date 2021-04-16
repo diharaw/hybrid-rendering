@@ -255,13 +255,14 @@ void TemporalReprojection::reproject(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk:
     push_constants.neighborhood_scale    = m_neighborhood_scale;
     push_constants.use_variance_clipping = (uint32_t)m_use_variance_clipping;
     push_constants.use_tonemap = (uint32_t)m_use_tone_map;
+    push_constants.g_buffer_mip          = m_scale == 1.0f ? 0 : 1;
 
     vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
     VkDescriptorSet descriptor_sets[] = {
         m_write_ds[m_sample->m_ping_pong]->handle(),
-        m_scale == 1.0f ? m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle() : m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
-        m_scale == 1.0f ? m_sample->m_gpu_resources->g_buffer_ds[!m_sample->m_ping_pong]->handle() : m_sample->m_gpu_resources->downsampled_g_buffer_ds[!m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[!m_sample->m_ping_pong]->handle(),
         input->handle(),
         (prev_input == nullptr) ? m_output_read_ds[!m_sample->m_ping_pong]->handle() : prev_input->handle(),
         m_read_ds[!m_sample->m_ping_pong]->handle()
@@ -452,6 +453,7 @@ void SpatialReconstruction::reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf, dw::
 
     push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_sample->m_near_plane, 1.0f / m_sample->m_near_plane);
     push_constants.num_frames      = m_sample->m_num_frames;
+    push_constants.g_buffer_mip    = m_scale == 2.0f ? 0 : 1;
 
     vkCmdPushConstants(cmd_buf->handle(), m_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -460,7 +462,7 @@ void SpatialReconstruction::reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf, dw::
     VkDescriptorSet descriptor_sets[] = {
         m_write_ds->handle(),
         input->handle(),
-        m_scale == 2.0f ? m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle() : m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
         m_sample->m_gpu_resources->per_frame_ds->handle()
     };
 
@@ -598,13 +600,14 @@ void BilateralBlur::blur(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorS
     push_constants.roughness_weight    = (uint32_t)m_use_roughness_weight;
     push_constants.depth_weight        = (uint32_t)m_use_depth_weight;
     push_constants.normal_weight       = (uint32_t)m_use_normal_weight;
-
+    push_constants.g_buffer_mip        = m_scale == 1.0f ? 0 : 1;
+    
     vkCmdPushConstants(cmd_buf->handle(), m_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
     VkDescriptorSet descriptor_sets[] = {
         m_write_ds->handle(),
         input->handle(),
-        m_scale == 1.0f ? m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle() : m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle()
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
@@ -650,6 +653,8 @@ dw::vk::DescriptorSet::Ptr BilateralBlur::output_ds()
 SVGFDenoiser::SVGFDenoiser(HybridRendering* sample, std::string name, uint32_t input_width, uint32_t input_height, uint32_t filter_iterations) :
     m_name(name), m_sample(sample), m_input_width(input_width), m_input_height(input_height), m_a_trous_filter_iterations(filter_iterations)
 {
+    m_scale = float(m_sample->m_gpu_resources->g_buffer_1->width()) / float(m_input_width);
+
     create_reprojection_resources();
     create_filter_moments_resources();
     create_a_trous_filter_resources();
@@ -1244,13 +1249,14 @@ void SVGFDenoiser::reprojection(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Desc
 
     push_constants.alpha         = m_alpha;
     push_constants.moments_alpha = m_moments_alpha;
+    push_constants.g_buffer_mip  = m_scale == 1.0f ? 0 : 1;
 
     vkCmdPushConstants(cmd_buf->handle(), m_reprojection_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
     VkDescriptorSet descriptor_sets[] = {
         m_reprojection_write_ds[m_sample->m_ping_pong]->handle(),
-        m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
-        m_sample->m_gpu_resources->downsampled_g_buffer_ds[!m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[!m_sample->m_ping_pong]->handle(),
         input->handle(),
         m_prev_reprojection_read_ds->handle(),
         m_reprojection_read_ds[!m_sample->m_ping_pong]->handle()
@@ -1351,12 +1357,13 @@ void SVGFDenoiser::filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     push_constants.phi_color  = m_phi_color;
     push_constants.phi_normal = m_phi_normal;
+    push_constants.g_buffer_mip = m_scale == 1.0f ? 0 : 1;
 
     vkCmdPushConstants(cmd_buf->handle(), m_filter_moments_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
     VkDescriptorSet descriptor_sets[] = {
         m_filter_moments_write_ds->handle(),
-        m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+        m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
         m_reprojection_read_ds[m_sample->m_ping_pong]->handle()
     };
 
@@ -1428,13 +1435,14 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.step_size  = 1 << i;
         push_constants.phi_color  = m_phi_color;
         push_constants.phi_normal = m_phi_normal;
+        push_constants.g_buffer_mip = m_scale == 1.0f ? 0 : 1;
 
         vkCmdPushConstants(cmd_buf->handle(), m_a_trous_filter_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
         VkDescriptorSet descriptor_sets[] = {
             m_a_trous_write_ds[write_idx]->handle(),
             i == 0 ? m_filter_moments_read_ds->handle() : m_a_trous_read_ds[read_idx]->handle(),
-            m_sample->m_gpu_resources->downsampled_g_buffer_ds[m_sample->m_ping_pong]->handle(),
+            m_sample->m_gpu_resources->g_buffer_ds[m_sample->m_ping_pong]->handle(),
             m_reprojection_read_ds[!m_sample->m_ping_pong]->handle()
         };
 

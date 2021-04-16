@@ -42,7 +42,6 @@ struct ReflectionsPushConstants
 {
     float    bias;
     uint32_t num_frames;
-    uint32_t g_buffer_mip;
 };
 
 struct GIPushConstants
@@ -525,13 +524,13 @@ void HybridRendering::create_output_images()
     m_gpu_resources->rtgi_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->rtgi_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_gpu_resources->rtgi_view->set_name("RTGI Image View");
 
-    m_gpu_resources->g_buffer_1 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_1 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_1->set_name("G-Buffer 1 Image");
 
-    m_gpu_resources->g_buffer_2 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_2 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_2->set_name("G-Buffer 2 Image");
 
-    m_gpu_resources->g_buffer_3 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_3 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_3->set_name("G-Buffer 3 Image");
 
     for (int i = 0; i < 2; i++)
@@ -556,7 +555,7 @@ void HybridRendering::create_output_images()
         }
     }
 
-    m_gpu_resources->g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_gpu_resources->g_buffer_depth = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, GBUFFER_MIP_LEVELS, 1, m_vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_gpu_resources->g_buffer_depth->set_name("G-Buffer Depth Image");
 
     m_gpu_resources->g_buffer_1_view = dw::vk::ImageView::create(m_vk_backend, m_gpu_resources->g_buffer_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
@@ -839,7 +838,7 @@ void HybridRendering::create_framebuffers()
     m_gpu_resources->deferred_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->deferred_rp, { m_gpu_resources->deferred_view }, m_width, m_height, 1);
 
     m_gpu_resources->skybox_fbo.reset();
-    m_gpu_resources->skybox_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->skybox_rp, { m_gpu_resources->deferred_view, m_gpu_resources->g_buffer_depth_view }, m_width, m_height, 1);
+    m_gpu_resources->skybox_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_gpu_resources->skybox_rp, { m_gpu_resources->deferred_view, m_gpu_resources->g_buffer_depth_fbo_view }, m_width, m_height, 1);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -925,7 +924,6 @@ void HybridRendering::create_descriptor_sets()
         m_gpu_resources->taa_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->combined_sampler_ds_layout));
         m_gpu_resources->taa_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->storage_image_ds_layout));
         m_gpu_resources->g_buffer_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout));
-        m_gpu_resources->downsampled_g_buffer_ds.push_back(m_vk_backend->allocate_descriptor_set(m_gpu_resources->g_buffer_ds_layout));
     }
 }
 
@@ -2396,6 +2394,7 @@ void HybridRendering::ray_trace_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     push_constants.bias       = m_ray_traced_shadows_bias;
     push_constants.num_frames = m_num_frames;
+    push_constants.g_buffer_mip = m_quarter_resolution ? 1 : 0;
 
     vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -2405,7 +2404,7 @@ void HybridRendering::ray_trace_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_gpu_resources->current_scene->descriptor_set()->handle(),
         m_gpu_resources->visibility_write_ds->handle(),
         m_gpu_resources->per_frame_ds->handle(),
-        m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
+        m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->shadow_mask_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2449,6 +2448,7 @@ void HybridRendering::ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd
     push_constants.ray_length = m_rtao_ray_length;
     push_constants.power      = m_rtao_power;
     push_constants.bias       = m_rtao_bias;
+    push_constants.g_buffer_mip = m_quarter_resolution ? 1 : 0;
 
     vkCmdPushConstants(cmd_buf->handle(), m_gpu_resources->rtao_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -2458,7 +2458,7 @@ void HybridRendering::ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd
         m_gpu_resources->current_scene->descriptor_set()->handle(),
         m_gpu_resources->visibility_write_ds->handle(),
         m_gpu_resources->per_frame_ds->handle(),
-        m_quarter_resolution ? m_gpu_resources->downsampled_g_buffer_ds[m_ping_pong]->handle() : m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
+        m_gpu_resources->g_buffer_ds[m_ping_pong]->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_gpu_resources->rtao_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
@@ -2724,12 +2724,12 @@ void HybridRendering::render_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void HybridRendering::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter)
+void HybridRendering::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter, VkImageAspectFlags aspect_flags)
 {
     VkImageSubresourceRange initial_subresource_range;
     DW_ZERO_MEMORY(initial_subresource_range);
 
-    initial_subresource_range.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    initial_subresource_range.aspectMask     = aspect_flags;
     initial_subresource_range.levelCount     = img->mip_levels() - 1;
     initial_subresource_range.layerCount     = 1;
     initial_subresource_range.baseArrayLayer = 0;
@@ -2744,7 +2744,7 @@ void HybridRendering::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::v
     VkImageSubresourceRange subresource_range;
     DW_ZERO_MEMORY(subresource_range);
 
-    subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresource_range.aspectMask = aspect_flags;
     subresource_range.levelCount = 1;
     subresource_range.layerCount = 1;
 
@@ -2773,13 +2773,13 @@ void HybridRendering::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::v
         VkImageBlit blit                   = {};
         blit.srcOffsets[0]                 = { 0, 0, 0 };
         blit.srcOffsets[1]                 = { mip_width, mip_height, 1 };
-        blit.srcSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.aspectMask     = aspect_flags;
         blit.srcSubresource.mipLevel       = mip_idx - 1;
         blit.srcSubresource.baseArrayLayer = 0;
         blit.srcSubresource.layerCount     = 1;
         blit.dstOffsets[0]                 = { 0, 0, 0 };
         blit.dstOffsets[1]                 = { mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1, 1 };
-        blit.dstSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.aspectMask     = aspect_flags;
         blit.dstSubresource.mipLevel       = mip_idx;
         blit.dstSubresource.baseArrayLayer = 0;
         blit.dstSubresource.layerCount     = 1;
@@ -2818,11 +2818,11 @@ void HybridRendering::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Downsample G-Buffer", cmd_buf);
 
-    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
-    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_2, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
-    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_3, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
-    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_linear_z[static_cast<uint32_t>(m_ping_pong)], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
-    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_2, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_3, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_linear_z[static_cast<uint32_t>(m_ping_pong)], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
+    generate_mipmaps(cmd_buf, m_gpu_resources->g_buffer_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_DEPTH_BIT);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3294,7 +3294,7 @@ void HybridRendering::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     if (m_first_frame)
     {
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, m_gpu_resources->g_buffer_linear_z[!m_ping_pong]->mip_levels(), 0, 1 };
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
