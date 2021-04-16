@@ -160,13 +160,13 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
     const vec2  imageDim = vec2(textureSize(s_PrevColor, 0));
 
     // xy = motion, z = length(fwidth(pos)), w = length(fwidth(normal))
-    vec4 motion = texelFetch(s_MotionVectors, ipos, 0);
+    vec4 motion = texelFetch(s_MotionVectors, ipos, u_PushConstants.g_buffer_mip);
 
     // +0.5 to account for texel center offset
     const ivec2 iposPrev = ivec2(vec2(ipos) + motion.xy * imageDim + vec2(0.5, 0.5));
 
     // stores: linearZ, maxChangeZ, prevLinearZ, objNorm
-    vec4 depth  = texelFetch(s_LinearZ, ipos, 0);
+    vec4 depth  = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip);
     vec3 normal = octohedral_to_direction(floatBitsToUint(depth.w));
 
     prevColor = vec4(0, 0, 0, 0);
@@ -180,7 +180,7 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
     for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
     {
         ivec2 loc        = ivec2(posPrev) + offset[sampleIdx];
-        vec4  depthPrev  = texelFetch(s_PrevLinearZ, loc, 0);
+        vec4  depthPrev  = texelFetch(s_PrevLinearZ, loc, u_PushConstants.g_buffer_mip);
         vec3  normalPrev = octohedral_to_direction(floatBitsToUint(depthPrev.w));
 
         v[sampleIdx] = is_reprojection_valid(iposPrev, depth.z, depthPrev.x, depth.y, normal, normalPrev, motion.w);
@@ -229,7 +229,7 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out float historyLength
             for (int xx = -radius; xx <= radius; xx++)
             {
                 ivec2 p            = iposPrev + ivec2(xx, yy);
-                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, 0);
+                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
                 vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
 
                 if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))

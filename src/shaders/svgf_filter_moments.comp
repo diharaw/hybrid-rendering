@@ -105,8 +105,8 @@ void main()
         const vec4  colorCenter  = texelFetch(s_Input, ipos, 0);
         const float lColorCenter = luminance(colorCenter.rgb);
 
-        vec3 normalCenter = texelFetch(s_Normals, ipos, 0).rgb;
-        vec2 zCenter      = texelFetch(s_LinearZ, ipos, 0).rg;
+        vec3 normalCenter = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
+        vec2 zCenter      = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
 
         if (zCenter.x < 0)
         {
@@ -137,8 +137,8 @@ void main()
 
                     const float lColorP = luminance(colorP.rgb);
 
-                    vec3 normalP = texelFetch(s_Normals, p, 0).rgb;
-                    vec2 zP      = texelFetch(s_LinearZ, p, 0).rg;
+                    vec3 normalP = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
+                    vec2 zP      = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
 
                     const float w = compute_weight(
                         zCenter.x, zP.x, phiDepth * length(vec2(xx, yy)), normalCenter, normalP, u_PushConstants.phi_normal, lColorCenter, lColorP, phiLColor);

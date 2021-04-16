@@ -119,7 +119,7 @@ float compute_weight(
 
 void main()
 {
-    ivec2       size = textureSize(s_Normals, 0);
+    ivec2       size = textureSize(s_Normals, u_PushConstants.g_buffer_mip);
     const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
 
     const float epsVariance      = 1e-10;
@@ -136,8 +136,8 @@ void main()
     // number of temporally integrated pixels
     const float historyLength = texelFetch(s_HistoryLength, ipos, 0).r;
 
-    vec3 normalCenter = texelFetch(s_Normals, ipos, 0).rgb;
-    vec2 zCenter      = texelFetch(s_LinearZ, ipos, 0).rg;
+    vec3 normalCenter = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
+    vec2 zCenter      = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
 
     if (zCenter.x < 0)
     {
@@ -166,8 +166,8 @@ void main()
             {
                 const vec4 colorP = texelFetch(s_Input, p, 0);
 
-                vec3 normalP = texelFetch(s_Normals, p, 0).rgb;
-                vec2 zP      = texelFetch(s_LinearZ, p, 0).rg;
+                vec3 normalP = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
+                vec2 zP      = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
 
                 const float lColorP = luminance(colorP.rgb);
 

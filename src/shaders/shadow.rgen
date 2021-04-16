@@ -82,7 +82,7 @@ void main()
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(gl_LaunchSizeEXT.xy);
 
-    float depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
     if (depth == 1.0f)
     {
@@ -91,8 +91,7 @@ void main()
     }
 
     vec3 position      = world_position_from_depth(tex_coord, depth);
-    vec3 normal        = texture(s_GBuffer2, tex_coord).rgb;
-    vec2 motion_vector = texture(s_GBuffer3, tex_coord).rg;
+    vec3 normal        = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
 
     uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
     uint  cull_mask = 0xff;
