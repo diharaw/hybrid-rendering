@@ -44,7 +44,7 @@ layout(push_constant) uniform PushConstants
 {
     float bias;
     uint  num_frames;
-    int  g_buffer_mip;
+    int   g_buffer_mip;
 }
 u_PushConstants;
 
@@ -90,8 +90,8 @@ void main()
         return;
     }
 
-    vec3 position      = world_position_from_depth(tex_coord, depth);
-    vec3 normal        = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
+    vec3 position = world_position_from_depth(tex_coord, depth);
+    vec3 normal   = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
 
     uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
     uint  cull_mask = 0xff;

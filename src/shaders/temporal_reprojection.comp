@@ -44,8 +44,8 @@ layout(push_constant) uniform PushConstants
     float alpha;
     float neighborhood_scale;
     uint  use_variance_clipping;
-    uint use_tonemap;
-    int  g_buffer_mip;
+    uint  use_tonemap;
+    int   g_buffer_mip;
 }
 u_PushConstants;
 
@@ -273,8 +273,8 @@ float compute_temporal_variance(float current_sample_luma, float history_sample_
 
 void main()
 {
-    ivec2 size      = textureSize(s_PrevColor, 0);
-    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    ivec2 size          = textureSize(s_PrevColor, 0);
+    vec2  tex_coord     = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
     vec4 color = texelFetch(s_Input, current_coord, 0);
@@ -302,7 +302,7 @@ void main()
     // Clamp
     if (success && u_PushConstants.use_variance_clipping == 1)
     {
-        vec3  color_std_dev = neighborhood_standard_deviation(current_coord) * u_PushConstants.neighborhood_scale;
+        vec3 color_std_dev = neighborhood_standard_deviation(current_coord) * u_PushConstants.neighborhood_scale;
 
         vec3 radiance_min = color.xyz - color_std_dev;
         vec3 radiance_max = color.xyz + color_std_dev;

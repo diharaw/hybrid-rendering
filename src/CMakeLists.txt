@@ -16,7 +16,6 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
-                             ${PROJECT_SOURCE_DIR}/src/hybrid_rendering.cpp
                              ${PROJECT_SOURCE_DIR}/src/ddgi.cpp
                              ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.cpp
                              ${PROJECT_SOURCE_DIR}/src/path_traced_gi.cpp
@@ -28,7 +27,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.cpp
                              ${PROJECT_SOURCE_DIR}/src/tonemap.cpp
-                             ${PROJECT_SOURCE_DIR}/src/hybrid_rendering.h
+                             ${PROJECT_SOURCE_DIR}/src/common_resources.h
                              ${PROJECT_SOURCE_DIR}/src/ddgi.h
                              ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.h
                              ${PROJECT_SOURCE_DIR}/src/path_traced_gi.h
