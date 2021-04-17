@@ -25,6 +25,8 @@ enum VisualizationType
 #define NUM_PILLARS 6
 #define HALTON_SAMPLES 16
 #define GBUFFER_MIP_LEVELS 8
+#define CAMERA_NEAR_PLANE 1.0f
+#define CAMERA_FAR_PLANE 1000.0f
 
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
@@ -584,14 +586,13 @@ protected:
         m_common_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
         m_common_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
-        m_g_buffer = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
-
         create_output_images();
-        create_render_passes();
-        create_framebuffers();
         create_descriptor_set_layouts();
         create_descriptor_sets();
         write_descriptor_sets();
+        m_g_buffer = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
+        create_render_passes();
+        create_framebuffers();
         create_deferred_pipeline();
         create_shadow_mask_ray_tracing_pipeline();
         create_ambient_occlusion_ray_tracing_pipeline();
@@ -612,6 +613,9 @@ protected:
 
         for (int i = 1; i <= HALTON_SAMPLES; i++)
             m_jitter_samples.push_back(glm::vec2((2.0f * halton_sequence(2, i) - 1.0f), (2.0f * halton_sequence(3, i) - 1.0f)));
+
+        float z_buffer_params_x             = -1.0 + (CAMERA_NEAR_PLANE / CAMERA_FAR_PLANE);
+        m_common_resources->z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / CAMERA_NEAR_PLANE, 1.0f / CAMERA_NEAR_PLANE);
 
         return true;
     }
@@ -764,16 +768,17 @@ protected:
 
         submit_and_present({ cmd_buf });
 
-        m_num_frames++;
+        m_common_resources->num_frames++;
 
-        if (m_first_frame)
-            m_first_frame = false;
+        if (m_common_resources->first_frame)
+            m_common_resources->first_frame = false;
 
-        m_ping_pong = !m_ping_pong;
+        m_common_resources->ping_pong = !m_common_resources->ping_pong;
     }
 
     void shutdown() override
     {
+        m_g_buffer.reset();
         m_common_resources.reset();
     }
 
@@ -853,7 +858,7 @@ protected:
     void window_resized(int width, int height) override
     {
         // Override window resized method to update camera projection.
-        m_main_camera->update_projection(60.0f, m_near_plane, m_far_plane, float(m_width) / float(m_height));
+        m_main_camera->update_projection(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height));
 
         m_vk_backend->wait_idle();
 
@@ -1055,8 +1060,8 @@ private:
 
     bool create_uniform_buffer()
     {
-        m_ubo_size              = m_vk_backend->aligned_dynamic_ubo_size(sizeof(UBO));
-        m_common_resources->ubo = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
+        m_common_resources->ubo_size = m_vk_backend->aligned_dynamic_ubo_size(sizeof(UBO));
+        m_common_resources->ubo      = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_common_resources->ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
         return true;
     }
@@ -2356,7 +2361,7 @@ private:
 
     void create_camera()
     {
-        m_main_camera = std::make_unique<dw::Camera>(60.0f, m_near_plane, m_far_plane, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+        m_main_camera = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2382,12 +2387,12 @@ private:
         ShadowPushConstants push_constants;
 
         push_constants.bias         = m_ray_traced_shadows_bias;
-        push_constants.num_frames   = m_num_frames;
+        push_constants.num_frames   = m_common_resources->num_frames;
         push_constants.g_buffer_mip = m_quarter_resolution ? 1 : 0;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
-        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->current_scene->descriptor_set()->handle(),
@@ -2432,7 +2437,7 @@ private:
 
         AmbientOcclusionPushConstants push_constants;
 
-        push_constants.num_frames   = m_num_frames;
+        push_constants.num_frames   = m_common_resources->num_frames;
         push_constants.num_rays     = m_rtao_num_rays;
         push_constants.ray_length   = m_rtao_ray_length;
         push_constants.power        = m_rtao_power;
@@ -2441,7 +2446,7 @@ private:
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->rtao_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
-        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->current_scene->descriptor_set()->handle(),
@@ -2496,11 +2501,11 @@ private:
         ReflectionsPushConstants push_constants;
 
         push_constants.bias       = m_ray_traced_reflections_bias;
-        push_constants.num_frames = m_num_frames;
+        push_constants.num_frames = m_common_resources->num_frames;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->reflection_rt_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
-        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->current_scene->descriptor_set()->handle(),
@@ -2557,13 +2562,13 @@ private:
         GIPushConstants push_constants;
 
         push_constants.bias          = m_ray_traced_reflections_bias;
-        push_constants.num_frames    = m_num_frames;
+        push_constants.num_frames    = m_common_resources->num_frames;
         push_constants.max_ray_depth = m_ray_traced_gi_max_ray_bounces - 1;
         push_constants.sample_sky    = static_cast<uint32_t>(m_ray_traced_gi_sample_sky);
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->rtgi_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
-        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->current_scene->descriptor_set()->handle(),
@@ -2781,7 +2786,7 @@ private:
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
-        const uint32_t dynamic_offset = m_ubo_size * m_vk_backend->current_frame_idx();
+        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
@@ -2809,8 +2814,8 @@ private:
         DW_SCOPED_SAMPLE("TAA", cmd_buf);
 
         const uint32_t NUM_THREADS = 32;
-        const uint32_t write_idx   = (uint32_t)m_ping_pong;
-        const uint32_t read_idx    = (uint32_t)!m_ping_pong;
+        const uint32_t write_idx   = (uint32_t)m_common_resources->ping_pong;
+        const uint32_t read_idx    = (uint32_t)!m_common_resources->ping_pong;
 
         if (m_taa_enabled)
         {
@@ -2823,7 +2828,7 @@ private:
                 VK_IMAGE_LAYOUT_GENERAL,
                 subresource_range);
 
-            if (m_first_frame)
+            if (m_common_resources->first_frame)
             {
                 blitt_image(cmd_buf,
                             m_common_resources->deferred_image,
@@ -2934,7 +2939,7 @@ private:
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->copy_pipeline->handle());
 
         VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->taa_read_ds[m_ping_pong]->handle(),
+            m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             //m_common_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
             m_common_resources->reflection_denoiser->output_ds()->handle(),
@@ -2972,7 +2977,7 @@ private:
         m_ubo_data.view_inverse      = glm::inverse(m_main_camera->m_view);
         m_ubo_data.view_proj         = m_projection * m_main_camera->m_view;
         m_ubo_data.view_proj_inverse = glm::inverse(m_ubo_data.view_proj);
-        m_ubo_data.prev_view_proj    = m_first_frame ? m_main_camera->m_prev_view_projection : current_jitter * m_main_camera->m_prev_view_projection;
+        m_ubo_data.prev_view_proj    = m_common_resources->first_frame ? m_main_camera->m_prev_view_projection : current_jitter * m_main_camera->m_prev_view_projection;
         m_ubo_data.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
 
         set_light_radius(m_ubo_data.light, m_light_radius);
@@ -2983,7 +2988,7 @@ private:
         m_prev_view_proj = m_ubo_data.view_proj;
 
         uint8_t* ptr = (uint8_t*)m_common_resources->ubo->mapped_ptr();
-        memcpy(ptr + m_ubo_size * m_vk_backend->current_frame_idx(), &m_ubo_data, sizeof(UBO));
+        memcpy(ptr + m_common_resources->ubo_size * m_vk_backend->current_frame_idx(), &m_ubo_data, sizeof(UBO));
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -3023,7 +3028,7 @@ private:
         if (m_taa_enabled)
         {
             m_prev_jitter        = m_current_jitter;
-            uint32_t  sample_idx = m_num_frames % (m_jitter_samples.size());
+            uint32_t  sample_idx = m_common_resources->num_frames % (m_jitter_samples.size());
             glm::vec2 halton     = m_jitter_samples[sample_idx];
 
             m_current_jitter = glm::vec2(halton.x / float(m_width), halton.y / float(m_height));
@@ -3078,9 +3083,6 @@ private:
     std::unique_ptr<CommonResources> m_common_resources;
     std::unique_ptr<GBuffer>         m_g_buffer;
 
-    bool   m_first_frame = true;
-    size_t m_ubo_size;
-
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
     glm::mat4                   m_projection;
@@ -3088,8 +3090,6 @@ private:
     std::vector<glm::vec2>      m_jitter_samples;
     glm::vec2                   m_prev_jitter    = glm::vec2(0.0f);
     glm::vec2                   m_current_jitter = glm::vec2(0.0f);
-    float                       m_near_plane     = 0.1f;
-    float                       m_far_plane      = 1000.0f;
 
     // TAA
     bool  m_taa_enabled      = true;
@@ -3122,11 +3122,9 @@ private:
     bool m_downscaled_rt      = true;
 
     // Ray Traced Shadows
-    bool    m_ping_pong                            = false;
     bool    m_svgf_shadow_denoise                  = true;
     bool    m_svgf_shadow_use_spatial_for_feedback = false;
     bool    m_rt_shadows_enabled                   = true;
-    int32_t m_num_frames                           = 0;
     float   m_ray_traced_shadows_bias              = 0.1f;
     int32_t m_max_samples                          = 10000;
     float   m_svgf_alpha                           = 0.01f;
@@ -3624,9 +3622,7 @@ void SpatialReconstruction::reconstruct(dw::vk::CommandBuffer::Ptr cmd_buf, dw::
 
     PushConstants push_constants;
 
-    float z_buffer_params_x = -1.0 + (m_common_resources->near_plane / m_common_resources->far_plane);
-
-    push_constants.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / m_common_resources->near_plane, 1.0f / m_common_resources->near_plane);
+    push_constants.z_buffer_params = m_common_resources->z_buffer_params;
     push_constants.num_frames      = m_common_resources->num_frames;
     push_constants.g_buffer_mip    = m_scale == 2.0f ? 0 : 1;
 

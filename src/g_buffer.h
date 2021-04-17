@@ -12,10 +12,10 @@ public:
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
 
-    inline dw::vk::DescriptorSetLayout::Ptr ds_layout() { return m_ds_layout; }
-    inline dw::vk::DescriptorSet::Ptr       output_ds() { return m_ds[static_cast<uint32_t>(m_ping_pong)]; }
-    inline dw::vk::DescriptorSet::Ptr       history_ds() { return m_ds[static_cast<uint32_t>(!m_ping_pong)]; }
-    inline dw::vk::ImageView::Ptr           depth_fbo_image_view() { return m_depth_fbo_view; }
+    dw::vk::DescriptorSetLayout::Ptr ds_layout();
+    dw::vk::DescriptorSet::Ptr       output_ds();
+    dw::vk::DescriptorSet::Ptr       history_ds();
+    dw::vk::ImageView::Ptr           depth_fbo_image_view();
 
 private:    
     void create_images();
@@ -33,7 +33,6 @@ private:
     CommonResources*                        m_common_resources;
     uint32_t         m_input_width;
     uint32_t         m_input_height;
-    bool                                    m_ping_pong = false;
     dw::vk::Image::Ptr                  m_image_1; // RGB: Albedo, A: Metallic
     dw::vk::Image::Ptr                  m_image_2; // RGB: Normal, A: Roughness
     dw::vk::Image::Ptr                  m_image_3; // RGB: Position, A: -

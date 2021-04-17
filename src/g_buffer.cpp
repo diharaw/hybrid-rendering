@@ -169,6 +169,26 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     downsample_gbuffer(cmd_buf);
 }
 
+dw::vk::DescriptorSetLayout::Ptr GBuffer::ds_layout() 
+{
+    return m_ds_layout; 
+}
+
+dw::vk::DescriptorSet::Ptr       GBuffer::output_ds() 
+{ 
+    return m_ds[static_cast<uint32_t>(m_common_resources->ping_pong)]; 
+}
+
+dw::vk::DescriptorSet::Ptr GBuffer::history_ds() 
+{ 
+    return m_ds[static_cast<uint32_t>(!m_common_resources->ping_pong)]; 
+}
+
+dw::vk::ImageView::Ptr           GBuffer::depth_fbo_image_view() 
+{ 
+    return m_depth_fbo_view; 
+}
+
 void GBuffer::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter, VkImageAspectFlags aspect_flags)
 {
     VkImageSubresourceRange initial_subresource_range;

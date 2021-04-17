@@ -2,12 +2,13 @@
 
 #include <vk.h>
 
-class HybridRendering;
+struct CommonResources;
+class GBuffer;
 
 class SSaReflections
 {
 public:
-    SSaReflections(HybridRendering* sample, uint32_t width, uint32_t height);
+    SSaReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height);
     ~SSaReflections();
 
 private:
@@ -17,7 +18,9 @@ private:
     void create_pipeline();
 
 private:
-    HybridRendering* m_sample;
+    std::weak_ptr<dw::vk::Backend> m_backend;
+    CommonResources*               m_common_resources;
+    GBuffer*                       m_g_buffer;
     uint32_t         m_width;
     uint32_t         m_height;
 

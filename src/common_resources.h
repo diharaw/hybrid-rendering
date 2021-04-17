@@ -19,9 +19,7 @@ struct CommonResources
 {
     bool first_frame = true;
     bool ping_pong = false;
-    uint32_t num_frames  = 0;
-    float    near_plane  = 1.0f;
-    float    far_plane   = 1000.0f;
+    int32_t num_frames  = 0;
     size_t   ubo_size    = 0;
     glm::vec4 z_buffer_params;
 
