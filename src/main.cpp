@@ -1245,68 +1245,6 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
         }
 
-        // Visibility write
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(1);
-            write_datas.reserve(1);
-
-            VkDescriptorImageInfo storage_image_info;
-
-            storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_common_resources->visibility_view->handle();
-            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            image_infos.push_back(storage_image_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write_data.pImageInfo      = &image_infos.back();
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->visibility_write_ds->handle();
-
-            write_datas.push_back(write_data);
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
-
-        // Visibility read
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(1);
-            write_datas.reserve(1);
-
-            VkDescriptorImageInfo sampler_image_info;
-
-            sampler_image_info.sampler     = m_vk_backend->nearest_sampler()->handle();
-            sampler_image_info.imageView   = m_common_resources->visibility_view->handle();
-            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            image_infos.push_back(sampler_image_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &image_infos.back();
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->visibility_read_ds->handle();
-
-            write_datas.push_back(write_data);
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
-
         // Skybox
         {
             VkDescriptorImageInfo cubemap_image;
@@ -2362,61 +2300,6 @@ private:
     void create_camera()
     {
         m_main_camera = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void ray_trace_shadows(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        DW_SCOPED_SAMPLE("Ray Traced Shadows", cmd_buf);
-
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        // Transition ray tracing output image back to general layout
-
-        {
-            std::vector<VkImageMemoryBarrier> image_barriers = {
-                image_memory_barrier(m_common_resources->visibility_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-            };
-
-            pipeline_barrier(cmd_buf, {}, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-        }
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->shadow_mask_pipeline->handle());
-
-        ShadowPushConstants push_constants;
-
-        push_constants.bias         = m_ray_traced_shadows_bias;
-        push_constants.num_frames   = m_common_resources->num_frames;
-        push_constants.g_buffer_mip = m_quarter_resolution ? 1 : 0;
-
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->shadow_mask_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
-
-        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
-
-        VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->current_scene->descriptor_set()->handle(),
-            m_common_resources->visibility_write_ds->handle(),
-            m_common_resources->per_frame_ds->handle(),
-            m_g_buffer->output_ds()->handle()
-        };
-
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->shadow_mask_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
-
-        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
-
-        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-        VkDeviceSize group_stride = group_size;
-
-        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->shadow_mask_sbt->miss_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->shadow_mask_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->shadow_mask_sbt->hit_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
-
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------

@@ -11,6 +11,8 @@ public:
     RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height);
     ~RayTracedShadows();
 
+    void render(dw::vk::CommandBuffer::Ptr cmd_buf);
+
 private:
     void create_images();
     void create_descriptor_sets();
@@ -21,6 +23,7 @@ private:
     std::weak_ptr<dw::vk::Backend>  m_backend;
     CommonResources*                m_common_resources;
     GBuffer*                        m_g_buffer;
+    uint32_t                        m_g_buffer_mip = 0;
     uint32_t                        m_width;
     uint32_t                        m_height;
     float   m_bias              = 0.1f;

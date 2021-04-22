@@ -47,15 +47,6 @@ struct CommonResources
     std::unique_ptr<ReflectionDenoiser> reflection_denoiser;
     std::unique_ptr<DiffuseDenoiser>    shadow_denoiser;
 
-    // Ray-Traced Shadows
-    dw::vk::RayTracingPipeline::Ptr shadow_mask_pipeline;
-    dw::vk::PipelineLayout::Ptr     shadow_mask_pipeline_layout;
-    dw::vk::ShaderBindingTable::Ptr shadow_mask_sbt;
-    dw::vk::Image::Ptr              visibility_image;
-    dw::vk::ImageView::Ptr          visibility_view;
-    dw::vk::DescriptorSet::Ptr      visibility_write_ds;
-    dw::vk::DescriptorSet::Ptr      visibility_read_ds;
-
     // RTAO
     dw::vk::RayTracingPipeline::Ptr rtao_pipeline;
     dw::vk::PipelineLayout::Ptr     rtao_pipeline_layout;
