@@ -13,6 +13,10 @@ public:
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
 
+    inline uint32_t width() { return m_width; }
+    inline uint32_t height() { return m_height; }
+    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_read_ds; }
+
 private:
     void create_images();
     void create_descriptor_sets();

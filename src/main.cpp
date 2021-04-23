@@ -4,6 +4,7 @@
 #include <assimp/scene.h>
 #include "common_resources.h"
 #include "g_buffer.h"
+#include "ray_traced_shadows.h"
 
 enum SceneType
 {
@@ -530,14 +531,6 @@ class GroundTruthPathTracer
 {
 };
 
-class RayTracedAO
-{
-};
-
-class RayTracedShadows
-{
-};
-
 class PathTracedGI
 {
 };
@@ -591,10 +584,10 @@ protected:
         create_descriptor_sets();
         write_descriptor_sets();
         m_g_buffer = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
+        m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
         create_render_passes();
         create_framebuffers();
         create_deferred_pipeline();
-        create_shadow_mask_ray_tracing_pipeline();
         create_ambient_occlusion_ray_tracing_pipeline();
         create_reflection_ray_tracing_pipeline();
         create_gi_ray_tracing_pipeline();
@@ -603,10 +596,10 @@ protected:
         create_taa_pipeline();
         create_cube();
 
-        m_common_resources->svgf_shadow_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->visibility_image->width(), m_common_resources->visibility_image->height(), 4));
+        m_common_resources->svgf_shadow_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_ray_traced_shadows->width(), m_ray_traced_shadows->height(), 4));
         m_common_resources->svgf_gi_denoiser     = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
         m_common_resources->reflection_denoiser  = std::unique_ptr<ReflectionDenoiser>(new ReflectionDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Reflections", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
-        m_common_resources->shadow_denoiser      = std::unique_ptr<DiffuseDenoiser>(new DiffuseDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Shadow", m_common_resources->visibility_image->width(), m_common_resources->visibility_image->height()));
+        m_common_resources->shadow_denoiser      = std::unique_ptr<DiffuseDenoiser>(new DiffuseDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Shadow", m_ray_traced_shadows->width(), m_ray_traced_shadows->height()));
 
         // Create camera.
         create_camera();
@@ -748,12 +741,11 @@ protected:
 
             // Render.
             m_g_buffer->render(cmd_buf);
-            ray_trace_shadows(cmd_buf);
             ray_trace_ambient_occlusion(cmd_buf);
             if (m_svgf_shadow_denoise)
-                m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_common_resources->visibility_read_ds);
+                m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
             else
-                m_common_resources->shadow_denoiser->denoise(cmd_buf, m_common_resources->visibility_read_ds);
+                m_common_resources->shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
             ray_trace_reflection(cmd_buf);
             m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
             ray_trace_gi(cmd_buf);
@@ -872,9 +864,7 @@ private:
 
     void create_output_images()
     {
-        m_common_resources->visibility_view.reset();
         m_common_resources->taa_view.clear();
-        m_common_resources->visibility_image.reset();
         m_common_resources->taa_image.clear();
 
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
@@ -882,12 +872,6 @@ private:
 
         uint32_t rtgi_image_width  = m_downscaled_rt ? m_width / 2 : m_width;
         uint32_t rtgi_image_height = m_downscaled_rt ? m_height / 2 : m_height;
-
-        m_common_resources->visibility_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_common_resources->visibility_image->set_name("Visibility Image");
-
-        m_common_resources->visibility_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->visibility_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->visibility_view->set_name("Visibility Image View");
 
         m_common_resources->deferred_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_common_resources->deferred_image->set_name("Deferred Image");
@@ -1119,8 +1103,6 @@ private:
         m_common_resources->rtgi_write_ds          = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
         m_common_resources->rtgi_read_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->deferred_read_ds       = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        m_common_resources->visibility_write_ds    = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_common_resources->visibility_read_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
 
         for (int i = 0; i < 2; i++)
         {
@@ -1476,96 +1458,6 @@ private:
 
         m_common_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_common_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_common_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_shadow_mask_ray_tracing_pipeline()
-    {
-        // ---------------------------------------------------------------------------
-        // Create shader modules
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
-
-        dw::vk::ShaderBindingTable::Desc sbt_desc;
-
-        sbt_desc.add_ray_gen_group(rgen, "main");
-        sbt_desc.add_hit_group(rchit, "main");
-        sbt_desc.add_miss_group(rmiss, "main");
-
-        m_common_resources->shadow_mask_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
-
-        dw::vk::RayTracingPipeline::Desc desc;
-
-        desc.set_max_pipeline_ray_recursion_depth(1);
-        desc.set_shader_binding_table(m_common_resources->shadow_mask_sbt);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline layout
-        // ---------------------------------------------------------------------------
-
-        dw::vk::PipelineLayout::Desc pl_desc;
-
-        pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-
-        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ShadowPushConstants));
-
-        m_common_resources->shadow_mask_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
-
-        desc.set_pipeline_layout(m_common_resources->shadow_mask_pipeline_layout);
-
-        m_common_resources->shadow_mask_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_ambient_occlusion_ray_tracing_pipeline()
-    {
-        // ---------------------------------------------------------------------------
-        // Create shader modules
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/ambient_occlusion.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
-
-        dw::vk::ShaderBindingTable::Desc sbt_desc;
-
-        sbt_desc.add_ray_gen_group(rgen, "main");
-        sbt_desc.add_hit_group(rchit, "main");
-        sbt_desc.add_miss_group(rmiss, "main");
-
-        m_common_resources->rtao_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
-
-        dw::vk::RayTracingPipeline::Desc desc;
-
-        desc.set_max_pipeline_ray_recursion_depth(1);
-        desc.set_shader_binding_table(m_common_resources->rtao_sbt);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline layout
-        // ---------------------------------------------------------------------------
-
-        dw::vk::PipelineLayout::Desc pl_desc;
-
-        pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-
-        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(AmbientOcclusionPushConstants));
-
-        m_common_resources->rtao_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
-
-        desc.set_pipeline_layout(m_common_resources->rtao_pipeline_layout);
-
-        m_common_resources->rtao_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2300,68 +2192,6 @@ private:
     void create_camera()
     {
         m_main_camera = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void ray_trace_ambient_occlusion(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        DW_SCOPED_SAMPLE("Ray Traced Ambient Occlusion", cmd_buf);
-
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        std::vector<VkMemoryBarrier> memory_barriers = {
-            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-
-        pipeline_barrier(cmd_buf, memory_barriers, {}, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->rtao_pipeline->handle());
-
-        AmbientOcclusionPushConstants push_constants;
-
-        push_constants.num_frames   = m_common_resources->num_frames;
-        push_constants.num_rays     = m_rtao_num_rays;
-        push_constants.ray_length   = m_rtao_ray_length;
-        push_constants.power        = m_rtao_power;
-        push_constants.bias         = m_rtao_bias;
-        push_constants.g_buffer_mip = m_quarter_resolution ? 1 : 0;
-
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->rtao_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
-
-        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
-
-        VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->current_scene->descriptor_set()->handle(),
-            m_common_resources->visibility_write_ds->handle(),
-            m_common_resources->per_frame_ds->handle(),
-            m_g_buffer->output_ds()->handle()
-        };
-
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->rtao_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
-
-        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
-
-        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-        VkDeviceSize group_stride = group_size;
-
-        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->rtao_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->rtao_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtao_sbt->miss_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->rtao_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtao_sbt->hit_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
-
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->visibility_image->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-    }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
@@ -2965,6 +2795,7 @@ private:
 private:
     std::unique_ptr<CommonResources> m_common_resources;
     std::unique_ptr<GBuffer>         m_g_buffer;
+    std::unique_ptr<RayTracedShadows> m_ray_traced_shadows;
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
@@ -3037,10 +2868,6 @@ private:
     bool    m_ray_traced_gi_sample_sky      = false;
 
     // Ambient Occlusion
-    int32_t m_rtao_num_rays   = 2;
-    float   m_rtao_ray_length = 30.0f;
-    float   m_rtao_power      = 5.0f;
-    float   m_rtao_bias       = 0.1f;
     bool    m_rtao_enabled    = true;
 
     // Uniforms.

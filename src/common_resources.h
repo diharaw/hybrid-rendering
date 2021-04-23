@@ -47,11 +47,6 @@ struct CommonResources
     std::unique_ptr<ReflectionDenoiser> reflection_denoiser;
     std::unique_ptr<DiffuseDenoiser>    shadow_denoiser;
 
-    // RTAO
-    dw::vk::RayTracingPipeline::Ptr rtao_pipeline;
-    dw::vk::PipelineLayout::Ptr     rtao_pipeline_layout;
-    dw::vk::ShaderBindingTable::Ptr rtao_sbt;
-
     // Reflection RT pass
     dw::vk::DescriptorSet::Ptr      reflection_rt_write_ds;
     dw::vk::DescriptorSet::Ptr      reflection_rt_read_ds;
