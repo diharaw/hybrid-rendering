@@ -12,6 +12,7 @@ public:
     ~RayTracedAO();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void gui();
 
     inline uint32_t                   width() { return m_width; }
     inline uint32_t                   height() { return m_height; }
@@ -30,9 +31,10 @@ private:
     uint32_t                        m_g_buffer_mip = 0;
     uint32_t                        m_width;
     uint32_t                        m_height;
+    bool                            m_enabled    = true;
     int32_t                         m_num_rays   = 2;
-    float                           m_ray_length = 30.0f;
-    float                           m_power      = 5.0f;
+    float                           m_ray_length = 7.0f;
+    float                           m_power      = 1.2f;
     float                           m_bias = 0.1f;
     dw::vk::RayTracingPipeline::Ptr m_pipeline;
     dw::vk::PipelineLayout::Ptr     m_pipeline_layout;

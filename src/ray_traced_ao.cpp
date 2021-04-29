@@ -1,8 +1,10 @@
 #include "ray_traced_ao.h"
 #include "common_resources.h"
 #include "g_buffer.h"
+#include "utilities.h"
 #include <profiler.h>
 #include <macros.h>
+#include <imgui.h>
 
 struct AmbientOcclusionPushConstants
 {
@@ -86,6 +88,17 @@ void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
         VK_IMAGE_LAYOUT_GENERAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         subresource_range);
+}
+
+void RayTracedAO::gui()
+{
+    ImGui::PushID("RTAO");
+    ImGui::Checkbox("Enabled", &m_enabled);
+    ImGui::SliderInt("Num Rays", &m_num_rays, 1, 8);
+    ImGui::SliderFloat("Ray Length", &m_ray_length, 1.0f, 100.0f);
+    ImGui::SliderFloat("Power", &m_power, 1.0f, 5.0f);
+    ImGui::InputFloat("Bias", &m_bias);
+    ImGui::PopID();
 }
 
 void RayTracedAO::create_images()

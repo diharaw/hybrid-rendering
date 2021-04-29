@@ -27,6 +27,13 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.cpp
                              ${PROJECT_SOURCE_DIR}/src/tonemap.cpp
+                             ${PROJECT_SOURCE_DIR}/src/utilities.cpp
+                             ${PROJECT_SOURCE_DIR}/src/temporal_reprojection.cpp
+                             ${PROJECT_SOURCE_DIR}/src/spatial_reconstruction.cpp
+                             ${PROJECT_SOURCE_DIR}/src/bilateral_blur.cpp
+                             ${PROJECT_SOURCE_DIR}/src/svgf_denoiser.cpp
+                             ${PROJECT_SOURCE_DIR}/src/diffuse_denoiser.cpp
+                             ${PROJECT_SOURCE_DIR}/src/reflection_denoiser.cpp
                              ${PROJECT_SOURCE_DIR}/src/common_resources.h
                              ${PROJECT_SOURCE_DIR}/src/ddgi.h
                              ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.h
@@ -39,6 +46,13 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.h
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.h
                              ${PROJECT_SOURCE_DIR}/src/tonemap.h
+                             ${PROJECT_SOURCE_DIR}/src/utilities.h
+                             ${PROJECT_SOURCE_DIR}/src/temporal_reprojection.h
+                             ${PROJECT_SOURCE_DIR}/src/spatial_reconstruction.h
+                             ${PROJECT_SOURCE_DIR}/src/bilateral_blur.h
+                             ${PROJECT_SOURCE_DIR}/src/svgf_denoiser.h
+                             ${PROJECT_SOURCE_DIR}/src/diffuse_denoiser.h
+                             ${PROJECT_SOURCE_DIR}/src/reflection_denoiser.h
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/brdf_preintegrate_lut.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_prefilter.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_sh_projection.cpp

@@ -1,8 +1,10 @@
 #include "ray_traced_shadows.h"
 #include "common_resources.h"
 #include "g_buffer.h"
+#include "utilities.h"
 #include <profiler.h>
 #include <macros.h>
+#include <imgui.h>
 
 struct ShadowPushConstants
 {
@@ -78,6 +80,14 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
 
     vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
+}
+
+void RayTracedShadows::gui()
+{
+    ImGui::PushID("RTSS");
+    ImGui::Checkbox("Enabled", &m_enabled);
+    ImGui::InputFloat("Bias", &m_bias);
+    ImGui::PopID();
 }
 
 void RayTracedShadows::create_images()
