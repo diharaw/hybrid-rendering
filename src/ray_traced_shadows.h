@@ -17,6 +17,7 @@ public:
     inline uint32_t width() { return m_width; }
     inline uint32_t height() { return m_height; }
     inline dw::vk::DescriptorSet::Ptr output_ds() { return m_read_ds; }
+    inline bool                       enabled() { return m_enabled; }
 
 private:
     void create_images();
