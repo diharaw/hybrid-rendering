@@ -23,6 +23,11 @@ private:
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipeline();
+    void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     std::weak_ptr<dw::vk::Backend>  m_backend;
@@ -36,9 +41,8 @@ private:
     float                           m_ray_length = 7.0f;
     float                           m_power      = 1.2f;
     float                           m_bias = 0.1f;
-    dw::vk::RayTracingPipeline::Ptr m_pipeline;
+    dw::vk::ComputePipeline::Ptr m_pipeline;
     dw::vk::PipelineLayout::Ptr     m_pipeline_layout;
-    dw::vk::ShaderBindingTable::Ptr m_sbt;
     dw::vk::Image::Ptr              m_image;
     dw::vk::ImageView::Ptr          m_view;
     dw::vk::DescriptorSet::Ptr      m_write_ds;

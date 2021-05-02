@@ -6,6 +6,11 @@
 #include <macros.h>
 #include <imgui.h>
 
+#define NUM_THREADS_X 32
+#define NUM_THREADS_Y 32
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct AmbientOcclusionPushConstants
 {
     uint32_t num_rays;
@@ -15,6 +20,8 @@ struct AmbientOcclusionPushConstants
     float    bias;
     uint32_t g_buffer_mip;
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 RayTracedAO::RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height)
 {
@@ -27,68 +34,23 @@ RayTracedAO::RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources
     create_pipeline();
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 RayTracedAO::~RayTracedAO()
 {
 
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("Ray Traced Ambient Occlusion", cmd_buf);
+    DW_SCOPED_SAMPLE("Ambient Occlusion", cmd_buf);
 
-    auto backend = m_backend.lock();
-
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    std::vector<VkMemoryBarrier> memory_barriers = {
-        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-    };
-
-    pipeline_barrier(cmd_buf, memory_barriers, {}, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_pipeline->handle());
-
-    AmbientOcclusionPushConstants push_constants;
-
-    push_constants.num_frames   = m_common_resources->num_frames;
-    push_constants.num_rays     = m_num_rays;
-    push_constants.ray_length   = m_ray_length;
-    push_constants.power        = m_power;
-    push_constants.bias         = m_bias;
-    push_constants.g_buffer_mip = m_g_buffer_mip;
-
-    vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
-
-    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
-
-    VkDescriptorSet descriptor_sets[] = {
-        m_common_resources->current_scene->descriptor_set()->handle(),
-        m_write_ds->handle(),
-        m_common_resources->per_frame_ds->handle(),
-        m_g_buffer->output_ds()->handle()
-    };
-
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
-
-    auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
-
-    VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-    VkDeviceSize group_stride = group_size;
-
-    const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-    const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_pipeline->shader_binding_table_buffer()->device_address() + m_sbt->miss_group_offset(), group_stride, group_size * 2 };
-    const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_pipeline->shader_binding_table_buffer()->device_address() + m_sbt->hit_group_offset(), group_stride, group_size * 2 };
-    const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
-
-    vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
-
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+    ray_trace(cmd_buf);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedAO::gui()
 {
@@ -101,16 +63,20 @@ void RayTracedAO::gui()
     ImGui::PopID();
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedAO::create_images()
 {
     auto backend = m_backend.lock();
 
-    m_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_image->set_name("Ambient Occlusion Image");
 
     m_view = dw::vk::ImageView::create(backend, m_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_view->set_name("Ambient Occlusion Image View");
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedAO::create_descriptor_sets()
 {
@@ -119,6 +85,8 @@ void RayTracedAO::create_descriptor_sets()
     m_write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
     m_read_ds  = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedAO::write_descriptor_sets()
 {
@@ -187,34 +155,13 @@ void RayTracedAO::write_descriptor_sets()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedAO::create_pipeline()
 {
     auto backend = m_backend.lock();
 
-    // ---------------------------------------------------------------------------
-    // Create shader modules
-    // ---------------------------------------------------------------------------
-
-    dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(backend, "shaders/ambient_occlusion.rgen.spv");
-    dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadow.rchit.spv");
-    dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadow.rmiss.spv");
-
-    dw::vk::ShaderBindingTable::Desc sbt_desc;
-
-    sbt_desc.add_ray_gen_group(rgen, "main");
-    sbt_desc.add_hit_group(rchit, "main");
-    sbt_desc.add_miss_group(rmiss, "main");
-
-    m_sbt = dw::vk::ShaderBindingTable::create(backend, sbt_desc);
-
-    dw::vk::RayTracingPipeline::Desc desc;
-
-    desc.set_max_pipeline_ray_recursion_depth(1);
-    desc.set_shader_binding_table(m_sbt);
-
-    // ---------------------------------------------------------------------------
-    // Create pipeline layout
-    // ---------------------------------------------------------------------------
+    dw::vk::ShaderModule::Ptr shader_module  = dw::vk::ShaderModule::create_from_file(backend, "shaders/ao_ray_trace.comp.spv");
 
     dw::vk::PipelineLayout::Desc pl_desc;
 
@@ -223,11 +170,94 @@ void RayTracedAO::create_pipeline()
     pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
     pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
 
-    pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(AmbientOcclusionPushConstants));
+    pl_desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(AmbientOcclusionPushConstants));
 
     m_pipeline_layout = dw::vk::PipelineLayout::create(backend, pl_desc);
 
+    dw::vk::ComputePipeline::Desc desc;
+
+    desc.set_shader_stage(shader_module, "main");
     desc.set_pipeline_layout(m_pipeline_layout);
 
-    m_pipeline = dw::vk::RayTracingPipeline::create(backend, desc);
+    m_pipeline = dw::vk::ComputePipeline::create(backend, desc);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
+
+    auto backend = m_backend.lock();
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    std::vector<VkMemoryBarrier> memory_barriers = {
+        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+
+    pipeline_barrier(cmd_buf, memory_barriers, {}, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline->handle());
+
+    AmbientOcclusionPushConstants push_constants;
+
+    push_constants.num_frames   = m_common_resources->num_frames;
+    push_constants.num_rays     = m_num_rays;
+    push_constants.ray_length   = m_ray_length;
+    push_constants.power        = m_power;
+    push_constants.bias         = m_bias;
+    push_constants.g_buffer_mip = m_g_buffer_mip;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_common_resources->current_scene->descriptor_set()->handle(),
+        m_write_ds->handle(),
+        m_common_resources->per_frame_ds->handle(),
+        m_g_buffer->output_ds()->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedAO::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Denoise", cmd_buf);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Upsample", cmd_buf);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Temporal Reprojection", cmd_buf);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Bilateral Blur", cmd_buf);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
