@@ -23,10 +23,11 @@ layout(location = 0) out vec4 FS_OUT_Color;
 // DESCRIPTOR SETS --------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(set = 0, binding = 0) uniform sampler2D samplerColor;
-layout(set = 1, binding = 0) uniform sampler2D samplerShadowAO;
-layout(set = 2, binding = 0) uniform sampler2D samplerReflections;
-layout(set = 3, binding = 0) uniform sampler2D samplerGlobalIllumination;
+layout(set = 0, binding = 0) uniform sampler2D s_Color;
+layout(set = 1, binding = 0) uniform sampler2D s_AO;
+layout(set = 2, binding = 0) uniform sampler2D s_Shadow;
+layout(set = 3, binding = 0) uniform sampler2D s_Reflections;
+layout(set = 4, binding = 0) uniform sampler2D s_GI;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -63,7 +64,7 @@ void main()
 
     if (u_PushConstants.visualization == VISUALIZATION_FINAL)
     {
-        color = texture(samplerColor, inUV).rgb;
+        color = texture(s_Color, inUV).rgb;
 
         // Apply exposure
         color *= u_PushConstants.exposure;
@@ -73,12 +74,12 @@ void main()
         color = pow(color, vec3(1.0 / 2.2));
     }
     else if (u_PushConstants.visualization == VISUALIZATION_SHADOWS)
-        color = texture(samplerShadowAO, inUV).rrr;
+        color = texture(s_Shadow, inUV).rrr;
     else if (u_PushConstants.visualization == VISUALIZATION_AMBIENT_OCCLUSION)
-        color = texture(samplerShadowAO, inUV).ggg;
+        color = texture(s_AO, inUV).rrr;
     else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS)
     {
-        color = texture(samplerReflections, inUV).rgb;
+        color = texture(s_Reflections, inUV).rgb;
 
         // Apply exposure
         color *= u_PushConstants.exposure;
@@ -89,7 +90,7 @@ void main()
     }
     else if (u_PushConstants.visualization == VISUALIZATION_GLOBAL_ILLUMINATION)
     {
-        color = texture(samplerGlobalIllumination, inUV).rgb;
+        color = texture(s_GI, inUV).rgb;
 
         // Apply exposure
         color *= u_PushConstants.exposure;
@@ -99,7 +100,7 @@ void main()
         color = pow(color, vec3(1.0 / 2.2));
     }
     else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE)
-        color = texture(samplerReflections, inUV).aaa;
+        color = texture(s_Reflections, inUV).aaa;
 
     FS_OUT_Color = vec4(color, 1.0);
 }

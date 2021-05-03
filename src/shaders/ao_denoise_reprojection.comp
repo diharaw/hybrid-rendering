@@ -20,10 +20,11 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 
 // Current Reprojection Write DS
 layout(set = 0, binding = 0, r8) uniform writeonly image2D i_Output;
-layout(set = 0, binding = 1, r8ui) uniform writeonly image2D i_HistoryLength;
+layout(set = 0, binding = 1, r16f) uniform writeonly image2D i_HistoryLength;
 
 // Current G-buffer DS
 layout(set = 1, binding = 2) uniform sampler2D s_MotionVectors;
+layout(set = 1, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(set = 1, binding = 4) uniform sampler2D s_LinearZ;
 
 // Previous G-Buffer DS
@@ -61,6 +62,17 @@ bool is_reprojection_valid(ivec2 coord, float Z, float Zprev, float fwidthZ, vec
     if (distance(normal, normalPrev) / (fwidthNormal + 1e-2) > 16.0) return false;
 
     return true;
+}
+
+// ------------------------------------------------------------------
+
+vec3 octohedral_to_direction(uint octo)
+{
+    vec2 e = unpackSnorm2x16(octo);
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
 }
 
 // ------------------------------------------------------------------
@@ -162,7 +174,7 @@ bool load_prev_data(ivec2 frag_coord, out float prev_ao, out float history_lengt
     else
     {
         prev_ao        = 0.0f;
-        history_length = 0;
+        history_length = 0.0f;
     }
 
     return valid;
@@ -174,7 +186,7 @@ bool load_prev_data(ivec2 frag_coord, out float prev_ao, out float history_lengt
 
 void main()
 {
-    const ivec2 size          = textureSize(s_GBuffer1, G_BUFFER_MIP);
+    const ivec2 size          = textureSize(s_Input, G_BUFFER_MIP);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
@@ -184,7 +196,7 @@ void main()
     if (depth == 1.0f)
     {
         imageStore(i_Output, current_coord, vec4(0.0f));
-        imageStore(i_HistoryLength, current_coord, vec4(0.0f));
+        imageStore(i_HistoryLength, current_coord, uvec4(0));
         return;
     }
 
@@ -195,7 +207,7 @@ void main()
     bool  success  = load_prev_data(current_coord,
                                   prev_ao,
                                   history_length);
-    history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
+    history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in

@@ -17,12 +17,14 @@ public:
     inline uint32_t                   width() { return m_width; }
     inline uint32_t                   height() { return m_height; }
     inline dw::vk::DescriptorSet::Ptr output_ds() { return m_upsample.read_ds; }
+    inline bool                       enabled() { return m_enabled; }
 
 private:
     void create_images();
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipeline();
+    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -35,7 +37,7 @@ private:
         int32_t                      num_rays   = 2;
         float                        ray_length = 7.0f;
         float                        power      = 1.2f;
-        float                        bias       = 0.1f;
+        float                        bias       = 0.3f;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::Image::Ptr           image;

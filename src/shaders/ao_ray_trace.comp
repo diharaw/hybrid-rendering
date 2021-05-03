@@ -1,8 +1,9 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_ray_tracing : enable
 #extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : require
 
 #define RAY_TRACING
 #include "common.glsl"
@@ -112,8 +113,6 @@ vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
 
 float query_visibility(vec3 world_pos, vec3 direction)
 {
-    vec3  origin    = world_pos;
-    vec3  direction = direction;
     float t_min     = 0.01f;
     float t_max     = u_PushConstants.ray_length;
     uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
@@ -125,7 +124,7 @@ float query_visibility(vec3 world_pos, vec3 direction)
                           u_TopLevelAS,
                           ray_flags,
                           0xFF,
-                          origin,
+                          world_pos,
                           t_min,
                           direction,
                           t_max);
@@ -159,8 +158,9 @@ void main()
         return;
     }
 
-    vec3 world_pos = world_position_from_depth(tex_coord, depth);
-    vec3 normal    = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rgb;
+    vec3 world_pos  = world_position_from_depth(tex_coord, depth);
+    vec3 normal     = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rgb;
+    vec3 ray_origin = world_pos + normal * u_PushConstants.bias;
 
     RNG rng = rng_init(current_coord, u_PushConstants.num_frames);
 
@@ -172,7 +172,7 @@ void main()
 
         vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 
-        ao += query_visibility(world_pos, sample_direction);
+        ao += query_visibility(ray_origin, sample_direction);
     }
 
     ao = pow(ao / float(u_PushConstants.num_rays), u_PushConstants.power);

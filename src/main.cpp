@@ -186,7 +186,7 @@ protected:
         write_descriptor_sets();
         m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
-        m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
+        m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         create_render_passes();
         create_framebuffers();
         create_deferred_pipeline();
@@ -434,8 +434,8 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 2560;
-        settings.height      = 1440;
+        settings.width       = 1920;
+        settings.height      = 1080;
         settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
         settings.resizable   = false;
@@ -660,6 +660,7 @@ private:
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_common_resources->per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_common_resources->per_frame_ds_layout->set_name("Per Frame DS Layout");
         }
 
         {
@@ -670,6 +671,7 @@ private:
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
 
             m_common_resources->pbr_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_common_resources->pbr_ds_layout->set_name("PBR DS Layout");
         }
 
         {
@@ -678,6 +680,7 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_common_resources->storage_image_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_common_resources->storage_image_ds_layout->set_name("Storage Image DS Layout");
         }
 
         {
@@ -686,6 +689,7 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_common_resources->combined_sampler_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_common_resources->combined_sampler_ds_layout->set_name("Combined Sampler DS Layout");
         }
     }
 
@@ -1034,6 +1038,7 @@ private:
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredShadingPushConstants));
@@ -1049,6 +1054,7 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants));
+        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
@@ -2090,7 +2096,7 @@ private:
         DeferredShadingPushConstants push_constants;
 
         push_constants.shadows     = (float)m_rt_shadows_enabled;
-        push_constants.ao          = (float)m_rtao_enabled;
+        push_constants.ao          = (float)m_ray_traced_ao->enabled();
         push_constants.reflections = (float)m_rt_reflections_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
@@ -2099,17 +2105,15 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
-            //m_common_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
             m_common_resources->reflection_denoiser->output_ds()->handle(),
-            //m_common_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
-            //m_common_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->deferred_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->deferred_pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
@@ -2172,7 +2176,7 @@ private:
 
             vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
-            vkCmdDispatch(cmd_buf->handle(), m_width / NUM_THREADS, m_height / NUM_THREADS, 1);
+            vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 
             // Prepare ray tracing output image as transfer source
             dw::vk::utilities::set_image_layout(
@@ -2249,12 +2253,10 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
-            //m_common_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle(),
+            m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
             m_common_resources->reflection_denoiser->output_ds()->handle(),
-            //m_common_resources->reflection_blur_read_ds[(uint32_t)m_ping_pong]->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
-            //m_common_resources->rtgi_temporal_read_ds[(uint32_t)m_ping_pong]->handle()
         };
 
         ToneMapPushConstants push_constants;
@@ -2264,7 +2266,7 @@ private:
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->copy_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->copy_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 

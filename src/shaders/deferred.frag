@@ -35,13 +35,15 @@ layout(set = 0, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Me
 layout(set = 0, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 0, binding = 3) uniform sampler2D s_GBufferDepth;
 
-layout(set = 1, binding = 0) uniform sampler2D s_Shadow;
+layout(set = 1, binding = 0) uniform sampler2D s_AO;
 
-layout(set = 2, binding = 0) uniform sampler2D s_Reflections;
+layout(set = 2, binding = 0) uniform sampler2D s_Shadow;
 
-layout(set = 3, binding = 0) uniform sampler2D s_GI;
+layout(set = 3, binding = 0) uniform sampler2D s_Reflections;
 
-layout(set = 4, binding = 0) uniform PerFrameUBO
+layout(set = 4, binding = 0) uniform sampler2D s_GI;
+
+layout(set = 5, binding = 0) uniform PerFrameUBO
 {
     mat4  view_inverse;
     mat4  proj_inverse;
@@ -53,9 +55,9 @@ layout(set = 4, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 5, binding = 0) uniform sampler2D s_IrradianceSH;
-layout(set = 5, binding = 1) uniform samplerCube s_Prefiltered;
-layout(set = 5, binding = 2) uniform sampler2D s_BRDF;
+layout(set = 6, binding = 0) uniform sampler2D s_IrradianceSH;
+layout(set = 6, binding = 1) uniform samplerCube s_Prefiltered;
+layout(set = 6, binding = 2) uniform sampler2D s_BRDF;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -217,14 +219,13 @@ void main()
     vec4 g_buffer_data_1 = texture(s_GBuffer1, FS_IN_TexCoord);
     vec4 g_buffer_data_2 = texture(s_GBuffer2, FS_IN_TexCoord);
     vec4 g_buffer_data_3 = texture(s_GBuffer3, FS_IN_TexCoord);
-    vec4 shadow_ao_data  = texture(s_Shadow, FS_IN_TexCoord);
 
     const vec3  world_pos  = world_position_from_depth(FS_IN_TexCoord, texture(s_GBufferDepth, FS_IN_TexCoord).r);
     const vec3  albedo     = g_buffer_data_1.rgb;
     const float roughness  = g_buffer_data_1.a;
     const float metallic   = g_buffer_data_2.a;
-    const float visibility = u_PushConstants.shadow == 1 ? shadow_ao_data.r : 1.0f;
-    const float ao         = u_PushConstants.ao == 1 ? shadow_ao_data.g : 1.0f;
+    const float visibility = u_PushConstants.shadow == 1 ? texture(s_Shadow, FS_IN_TexCoord).r : 1.0f;
+    const float ao         = u_PushConstants.ao == 1 ? texture(s_AO, FS_IN_TexCoord).r : 1.0f;
 
     const vec3 N  = g_buffer_data_2.rgb;
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);

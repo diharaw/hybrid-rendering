@@ -323,7 +323,7 @@ void GBuffer::create_images()
         }
     }
 
-    m_depth = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, GBUFFER_MIP_LEVELS, 1, vk_backend->swap_chain_depth_format(), VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+    m_depth = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_D32_SFLOAT_S8_UINT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_depth->set_name("G-Buffer Depth Image");
 
     m_image_1_view = dw::vk::ImageView::create(vk_backend, m_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
@@ -363,6 +363,7 @@ void GBuffer::create_descriptor_set_layouts()
 
     auto vk_backend = m_backend.lock();
     m_ds_layout     = dw::vk::DescriptorSetLayout::create(vk_backend, desc);
+    m_ds_layout->set_name("G-Buffer DS Layout");
 }
 
 void GBuffer::create_descriptor_sets()

@@ -9,6 +9,9 @@
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
 #define G_BUFFER_MIP 1
+#define DEPTH_FACTOR 0.5
+#define GAUSS_BLUR_DEVIATION 1.5
+#define PI 3.14159265359
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -47,31 +50,41 @@ u_PushConstants;
 
 shared float g_cached_ao[NUM_THREADS_X][NUM_THREADS_Y];
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
+shared vec3  g_cached_normal[NUM_THREADS_X][NUM_THREADS_Y];
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-float populate_cache(ivec2 coord)
+float linear_eye_depth(float z)
 {
-    ivec2 min_cached_coord = gl_WorkGroupID.xy * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
+}
+
+// ------------------------------------------------------------------------
+
+void populate_cache(ivec2 coord)
+{
+    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
     ivec2 cache_coord      = coord - min_cached_coord;
 
-    g_cached_ao[cache_coord.x][cache_coord.y] = texelFetch(s_Input, coord, G_BUFFER_MIP).r;
+    g_cached_ao[cache_coord.x][cache_coord.y]     = texelFetch(s_Input, coord, 0).r;
+    g_cached_depth[cache_coord.x][cache_coord.y]  = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
+    g_cached_normal[cache_coord.x][cache_coord.y] = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
 
     barrier();
 }
 
 // ------------------------------------------------------------------
 
-float load_ao_value(ivec2 coord)
+float load_ao(ivec2 coord)
 {
-    ivec2 min_cached_coord = gl_WorkGroupID.xy * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
-    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(1, 1);
 
     // If requested coord is outside of cache range, sample texture.
-    if (any(lessThan(coord, min_cached_coord) && greaterThanEqual(coord, max_cached_coord)))
-        return texelFetch(s_Input, coord, G_BUFFER_MIP).r;
+    if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
+        return texelFetch(s_Input, coord, 0).r;
     else // Otherwise read from cache.
     {
         ivec2 cache_coord = coord - min_cached_coord;
@@ -81,14 +94,14 @@ float load_ao_value(ivec2 coord)
 
 // ------------------------------------------------------------------
 
-float load_depth_value(ivec2 coord)
+float load_depth(ivec2 coord)
 {
-    ivec2 min_cached_coord = gl_WorkGroupID.xy * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
-    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(1, 1);
 
     // If requested coord is outside of cache range, sample texture.
-    if (any(lessThan(coord, min_cached_coord) && greaterThanEqual(coord, max_cached_coord)))
-        return linear_01_depth(texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r);
+    if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
+        return texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
     else // Otherwise read from cache.
     {
         ivec2 cache_coord = coord - min_cached_coord;
@@ -98,33 +111,54 @@ float load_depth_value(ivec2 coord)
 
 // ------------------------------------------------------------------
 
-float gaussian_weight(float offset, float deviation)
+vec3 load_normal(ivec2 coord)
 {
-    float weight = 1.0 / sqrt(2.0 * kPI * deviation * deviation);
-    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
-    return weight;
+    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(1, 1);
+
+    // If requested coord is outside of cache range, sample texture.
+    if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
+        return texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
+    else // Otherwise read from cache.
+    {
+        ivec2 cache_coord = coord - min_cached_coord;
+        return g_cached_normal[cache_coord.x][cache_coord.y];
+    }
 }
 
 // ------------------------------------------------------------------
 
-// Convert an exponential depth value from the current views' projection to linear 0..1 depth
-float linear_01_depth(float z)
+float gaussian_weight(float offset, float deviation)
 {
-    return 1.0 / (u_PushConstants.z_buffer_params.x * z + u_PushConstants.z_buffer_params.y);
+    float weight = 1.0 / sqrt(2.0 * PI * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
+}
+
+// ------------------------------------------------------------------------
+
+float normal_edge_stopping_weight(vec3 center_normal, vec3 sample_normal)
+{
+    return pow(abs(dot(center_normal, sample_normal)), 32);
 }
 
 // ------------------------------------------------------------------------
 
 float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 {
-    return clamp(1.0f - abs(center_lin_depth - sample_lin_depth), 0.0f, 1.0f);
+    float depth_diff = abs(center_lin_depth - sample_lin_depth);
+    float d_factor   = depth_diff * DEPTH_FACTOR;
+    return exp(-(d_factor * d_factor));
 }
 
 // ------------------------------------------------------------------
 
 float bilateral_blur(ivec2 current_coord)
 {
-    float center_depth = load_depth_value(current_coord);
+    const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
+
+    float center_depth  = linear_eye_depth(load_depth(current_coord));
+    vec3  center_normal = load_normal(current_coord);
 
     const int radius = u_PushConstants.radius;
 
@@ -133,11 +167,12 @@ float bilateral_blur(ivec2 current_coord)
 
     for (int i = -radius; i <= radius; i++)
     {
-        ivec2 sample_coord = current_coord + u_PushConstants.direction * ivec2(i);
-        float sample_ao    = load_ao_value(coord);
-        float sample_depth = load_depth_value(sample_coord);
+        ivec2 sample_coord  = current_coord + u_PushConstants.direction * ivec2(i);
+        float sample_ao     = load_ao(sample_coord);
+        float sample_depth  = linear_eye_depth(load_depth(sample_coord));
+        vec3  sample_normal = load_normal(sample_coord);
 
-        float weight = gaussian_weight(dx, dy) * depth_edge_stopping_weight(center_depth, sample_depth);
+        float weight = gaussian_weight(float(i), deviation) * depth_edge_stopping_weight(center_depth, sample_depth) * normal_edge_stopping_weight(center_normal, sample_normal);
 
         total_ao += weight * sample_ao;
         total_weight += weight;
@@ -162,7 +197,7 @@ void main()
     populate_cache(current_coord);
 
     // Skip pixel if it belongs to the background
-    float depth = load_depth_value(current_coord);
+    float depth = load_depth(current_coord);
 
     if (depth == 1.0f)
     {
