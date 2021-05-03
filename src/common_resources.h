@@ -17,10 +17,10 @@ class DiffuseDenoiser;
 
 struct CommonResources
 {
-    bool first_frame = true;
-    bool ping_pong = false;
-    int32_t num_frames  = 0;
-    size_t   ubo_size    = 0;
+    bool      first_frame = true;
+    bool      ping_pong   = false;
+    int32_t   num_frames  = 0;
+    size_t    ubo_size    = 0;
     glm::vec4 z_buffer_params;
 
     // Assets.

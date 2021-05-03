@@ -8,7 +8,7 @@ class GBuffer;
 class RayTracedAO
 {
 public:
-    RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height);
+    RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer);
     ~RayTracedAO();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -16,7 +16,7 @@ public:
 
     inline uint32_t                   width() { return m_width; }
     inline uint32_t                   height() { return m_height; }
-    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_read_ds; }
+    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_upsample.read_ds; }
 
 private:
     void create_images();
@@ -30,21 +30,65 @@ private:
     void bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
-    std::weak_ptr<dw::vk::Backend>  m_backend;
-    CommonResources*                m_common_resources;
-    GBuffer*                        m_g_buffer;
-    uint32_t                        m_g_buffer_mip = 0;
-    uint32_t                        m_width;
-    uint32_t                        m_height;
-    bool                            m_enabled    = true;
-    int32_t                         m_num_rays   = 2;
-    float                           m_ray_length = 7.0f;
-    float                           m_power      = 1.2f;
-    float                           m_bias = 0.1f;
-    dw::vk::ComputePipeline::Ptr m_pipeline;
-    dw::vk::PipelineLayout::Ptr     m_pipeline_layout;
-    dw::vk::Image::Ptr              m_image;
-    dw::vk::ImageView::Ptr          m_view;
-    dw::vk::DescriptorSet::Ptr      m_write_ds;
-    dw::vk::DescriptorSet::Ptr      m_read_ds;
+    struct RayTrace
+    {
+        int32_t                      num_rays   = 2;
+        float                        ray_length = 7.0f;
+        float                        power      = 1.2f;
+        float                        bias       = 0.1f;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       view;
+        dw::vk::DescriptorSet::Ptr   write_ds;
+        dw::vk::DescriptorSet::Ptr   read_ds;
+    };
+
+    struct TemporalReprojection
+    {
+        float                            alpha = 0.01f;
+        dw::vk::ComputePipeline::Ptr     pipeline;
+        dw::vk::PipelineLayout::Ptr      pipeline_layout;
+        dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
+        dw::vk::Image::Ptr               color_image[2];
+        dw::vk::ImageView::Ptr           color_view[2];
+        dw::vk::Image::Ptr               history_length_image[2];
+        dw::vk::ImageView::Ptr           history_length_view[2];
+        dw::vk::DescriptorSet::Ptr       write_ds[2];
+        dw::vk::DescriptorSet::Ptr       read_ds[2];
+        dw::vk::DescriptorSet::Ptr       output_read_ds[2];
+    };
+
+    struct BilateralBlur
+    {
+        int32_t                      blur_radius = 5;
+        dw::vk::PipelineLayout::Ptr  layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::Image::Ptr           image[2];
+        dw::vk::ImageView::Ptr       image_view[2];
+        dw::vk::DescriptorSet::Ptr   read_ds[2];
+        dw::vk::DescriptorSet::Ptr   write_ds[2];
+    };
+
+    struct Upsample
+    {
+        dw::vk::PipelineLayout::Ptr  layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       image_view;
+        dw::vk::DescriptorSet::Ptr   read_ds;
+        dw::vk::DescriptorSet::Ptr   write_ds;
+    };
+
+    std::weak_ptr<dw::vk::Backend> m_backend;
+    CommonResources*               m_common_resources;
+    GBuffer*                       m_g_buffer;
+    uint32_t                       m_width;
+    uint32_t                       m_height;
+    bool                           m_enabled = true;
+    RayTrace                       m_ray_trace;
+    TemporalReprojection           m_temporal_reprojection;
+    BilateralBlur                  m_bilateral_blur;
+    Upsample                       m_upsample;
 };

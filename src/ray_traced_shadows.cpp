@@ -27,7 +27,6 @@ RayTracedShadows::RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, Commo
 
 RayTracedShadows::~RayTracedShadows()
 {
-
 }
 
 void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
@@ -96,7 +95,7 @@ void RayTracedShadows::create_images()
 
     m_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_image->set_name("Visibility Image");
-    
+
     m_view = dw::vk::ImageView::create(backend, m_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_view->set_name("Visibility Image View");
 }

@@ -169,24 +169,24 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     downsample_gbuffer(cmd_buf);
 }
 
-dw::vk::DescriptorSetLayout::Ptr GBuffer::ds_layout() 
+dw::vk::DescriptorSetLayout::Ptr GBuffer::ds_layout()
 {
-    return m_ds_layout; 
+    return m_ds_layout;
 }
 
-dw::vk::DescriptorSet::Ptr       GBuffer::output_ds() 
-{ 
-    return m_ds[static_cast<uint32_t>(m_common_resources->ping_pong)]; 
+dw::vk::DescriptorSet::Ptr GBuffer::output_ds()
+{
+    return m_ds[static_cast<uint32_t>(m_common_resources->ping_pong)];
 }
 
-dw::vk::DescriptorSet::Ptr GBuffer::history_ds() 
-{ 
-    return m_ds[static_cast<uint32_t>(!m_common_resources->ping_pong)]; 
+dw::vk::DescriptorSet::Ptr GBuffer::history_ds()
+{
+    return m_ds[static_cast<uint32_t>(!m_common_resources->ping_pong)];
 }
 
-dw::vk::ImageView::Ptr           GBuffer::depth_fbo_image_view() 
-{ 
-    return m_depth_fbo_view; 
+dw::vk::ImageView::Ptr GBuffer::depth_fbo_image_view()
+{
+    return m_depth_fbo_view;
 }
 
 void GBuffer::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter, VkImageAspectFlags aspect_flags)
@@ -294,10 +294,10 @@ void GBuffer::create_images()
 
     m_image_1 = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R8G8B8A8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_image_1->set_name("G-Buffer 1 Image");
-      
+
     m_image_2 = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_image_2->set_name("G-Buffer 2 Image");
-      
+
     m_image_3 = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, GBUFFER_MIP_LEVELS, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_image_3->set_name("G-Buffer 3 Image");
 
@@ -328,10 +328,10 @@ void GBuffer::create_images()
 
     m_image_1_view = dw::vk::ImageView::create(vk_backend, m_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
     m_image_1_view->set_name("G-Buffer 1 Image View");
-      
+
     m_image_2_view = dw::vk::ImageView::create(vk_backend, m_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
     m_image_2_view->set_name("G-Buffer 2 Image View");
-      
+
     m_image_3_view = dw::vk::ImageView::create(vk_backend, m_image_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS);
     m_image_3_view->set_name("G-Buffer 3 Image View");
 
@@ -340,10 +340,10 @@ void GBuffer::create_images()
 
     m_image_1_fbo_view = dw::vk::ImageView::create(vk_backend, m_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_image_1_fbo_view->set_name("G-Buffer 1 FBO Image View");
-      
+
     m_image_2_fbo_view = dw::vk::ImageView::create(vk_backend, m_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_image_2_fbo_view->set_name("G-Buffer 2 FBO Image View");
-      
+
     m_image_3_fbo_view = dw::vk::ImageView::create(vk_backend, m_image_3, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     m_image_3_fbo_view->set_name("G-Buffer 3 FBO Image View");
 
@@ -362,7 +362,7 @@ void GBuffer::create_descriptor_set_layouts()
     desc.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
     auto vk_backend = m_backend.lock();
-    m_ds_layout = dw::vk::DescriptorSetLayout::create(vk_backend, desc);
+    m_ds_layout     = dw::vk::DescriptorSetLayout::create(vk_backend, desc);
 }
 
 void GBuffer::create_descriptor_sets()

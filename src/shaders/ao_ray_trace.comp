@@ -12,13 +12,15 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-#define NUM_THREADS 32
+#define NUM_THREADS_X 32
+#define NUM_THREADS_Y 32
+#define G_BUFFER_MIP 1
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
 
 // ------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------
@@ -35,7 +37,8 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     mat4  view_proj;
     vec4  cam_pos;
     Light light;
-} u_GlobalUBO;
+}
+u_GlobalUBO;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
@@ -53,7 +56,6 @@ layout(push_constant) uniform PushConstants
     float ray_length;
     float power;
     float bias;
-    int   g_buffer_mip;
 }
 u_PushConstants;
 
@@ -112,27 +114,27 @@ float query_visibility(vec3 world_pos, vec3 direction)
 {
     vec3  origin    = world_pos;
     vec3  direction = direction;
-    float t_min      = 0.01f;
-    float t_max      = u_PushConstants.ray_length;
-    uint  ray_flags  = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
+    float t_min     = 0.01f;
+    float t_max     = u_PushConstants.ray_length;
+    uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
 
     // Initializes a ray query object but does not start traversal
     rayQueryEXT ray_query;
 
-    rayQueryInitializeEXT(ray_query, 
-                          u_TopLevelAS, 
-                          ray_flags, 
-                          0xFF, 
-                          origin, 
+    rayQueryInitializeEXT(ray_query,
+                          u_TopLevelAS,
+                          ray_flags,
+                          0xFF,
+                          origin,
                           t_min,
-                          direction, 
+                          direction,
                           t_max);
 
     // Start traversal: return false if traversal is complete
-    while(rayQueryProceedEXT(ray_query)) {}
+    while (rayQueryProceedEXT(ray_query)) {}
 
     // Returns type of committed (true) intersection
-    if(rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
         return 0.0f;
 
     return 1.0f;
@@ -144,12 +146,12 @@ float query_visibility(vec3 world_pos, vec3 direction)
 
 void main()
 {
-    const ivec2 size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
+    const ivec2 size          = textureSize(s_GBuffer1, G_BUFFER_MIP);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
-    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
 
     if (depth == 1.0f)
     {
@@ -158,7 +160,7 @@ void main()
     }
 
     vec3 world_pos = world_position_from_depth(tex_coord, depth);
-    vec3 normal = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
+    vec3 normal    = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rgb;
 
     RNG rng = rng_init(current_coord, u_PushConstants.num_frames);
 

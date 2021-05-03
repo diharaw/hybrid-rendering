@@ -87,7 +87,11 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/bilateral_blur.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/temporal_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/spatial_reconstruction.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/spatial_reconstruction.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ao_ray_trace.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_reprojection.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_blur.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ao_upsample.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})
@@ -101,7 +105,7 @@ endif()
 target_link_libraries(HybridRendering dwSampleFramework)
 
 if(CLANG_FORMAT_EXE)
-    add_custom_target(HybridRendering-clang-format COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${PROJECT_SOURCE_DIR}/src/main.cpp ${SHADER_SOURCES})
+    add_custom_target(HybridRendering-clang-format COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES})
 endif()
 
 foreach(GLSL ${SHADER_SOURCES})

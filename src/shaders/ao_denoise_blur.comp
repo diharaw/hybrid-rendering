@@ -1,0 +1,180 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS_X 32
+#define NUM_THREADS_Y 32
+#define G_BUFFER_MIP 1
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, r8) uniform image2D i_Output;
+
+layout(set = 1, binding = 0) uniform sampler2D s_Input;
+
+layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    vec4  z_buffer_params;
+    ivec2 direction;
+    int   radius;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// SHARED MEMORY ----------------------------------------------------
+// ------------------------------------------------------------------
+
+shared float g_cached_ao[NUM_THREADS_X][NUM_THREADS_Y];
+shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+float populate_cache(ivec2 coord)
+{
+    ivec2 min_cached_coord = gl_WorkGroupID.xy * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 cache_coord      = coord - min_cached_coord;
+
+    g_cached_ao[cache_coord.x][cache_coord.y] = texelFetch(s_Input, coord, G_BUFFER_MIP).r;
+
+    barrier();
+}
+
+// ------------------------------------------------------------------
+
+float load_ao_value(ivec2 coord)
+{
+    ivec2 min_cached_coord = gl_WorkGroupID.xy * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+
+    // If requested coord is outside of cache range, sample texture.
+    if (any(lessThan(coord, min_cached_coord) && greaterThanEqual(coord, max_cached_coord)))
+        return texelFetch(s_Input, coord, G_BUFFER_MIP).r;
+    else // Otherwise read from cache.
+    {
+        ivec2 cache_coord = coord - min_cached_coord;
+        return g_cached_ao[cache_coord.x][cache_coord.y];
+    }
+}
+
+// ------------------------------------------------------------------
+
+float load_depth_value(ivec2 coord)
+{
+    ivec2 min_cached_coord = gl_WorkGroupID.xy * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+    ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+
+    // If requested coord is outside of cache range, sample texture.
+    if (any(lessThan(coord, min_cached_coord) && greaterThanEqual(coord, max_cached_coord)))
+        return linear_01_depth(texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r);
+    else // Otherwise read from cache.
+    {
+        ivec2 cache_coord = coord - min_cached_coord;
+        return g_cached_depth[cache_coord.x][cache_coord.y];
+    }
+}
+
+// ------------------------------------------------------------------
+
+float gaussian_weight(float offset, float deviation)
+{
+    float weight = 1.0 / sqrt(2.0 * kPI * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
+}
+
+// ------------------------------------------------------------------
+
+// Convert an exponential depth value from the current views' projection to linear 0..1 depth
+float linear_01_depth(float z)
+{
+    return 1.0 / (u_PushConstants.z_buffer_params.x * z + u_PushConstants.z_buffer_params.y);
+}
+
+// ------------------------------------------------------------------------
+
+float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
+{
+    return clamp(1.0f - abs(center_lin_depth - sample_lin_depth), 0.0f, 1.0f);
+}
+
+// ------------------------------------------------------------------
+
+float bilateral_blur(ivec2 current_coord)
+{
+    float center_depth = load_depth_value(current_coord);
+
+    const int radius = u_PushConstants.radius;
+
+    float total_ao     = 0.0f;
+    float total_weight = 0.0f;
+
+    for (int i = -radius; i <= radius; i++)
+    {
+        ivec2 sample_coord = current_coord + u_PushConstants.direction * ivec2(i);
+        float sample_ao    = load_ao_value(coord);
+        float sample_depth = load_depth_value(sample_coord);
+
+        float weight = gaussian_weight(dx, dy) * depth_edge_stopping_weight(center_depth, sample_depth);
+
+        total_ao += weight * sample_ao;
+        total_weight += weight;
+    }
+
+    return total_ao / max(total_weight, 0.0001f);
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    // Query the G-Buffer image size
+    ivec2 size = textureSize(s_GBuffer1, G_BUFFER_MIP);
+
+    // Compute current pixel coord
+    ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // Populate LDS cache
+    populate_cache(current_coord);
+
+    // Skip pixel if it belongs to the background
+    float depth = load_depth_value(current_coord);
+
+    if (depth == 1.0f)
+    {
+        imageStore(i_Output, current_coord, vec4(0.0f));
+        return;
+    }
+
+    // Blur
+    float ao = bilateral_blur(current_coord);
+
+    // Store blurred ao
+    imageStore(i_Output, current_coord, vec4(ao));
+}
+
+// ------------------------------------------------------------------

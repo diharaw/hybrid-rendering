@@ -21,8 +21,8 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
-    uint32_t         m_width;
-    uint32_t         m_height;
+    uint32_t                       m_width;
+    uint32_t                       m_height;
 
     dw::vk::DescriptorSet::Ptr      m_ray_tracing_ds;
     dw::vk::DescriptorSet::Ptr      m_read_ds;

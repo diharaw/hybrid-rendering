@@ -8,7 +8,6 @@
 
 struct RayTracePushConstants
 {
-
 };
 
 SSaReflections::SSaReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height) :
@@ -30,17 +29,17 @@ void SSaReflections::create_images()
 
     m_mirror_image = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_mirror_image->set_name("Mirror Reflection RT Color Image");
-      
+
     m_mirror_view = dw::vk::ImageView::create(vk_backend, m_mirror_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
     m_mirror_view->set_name("Mirror Reflection RT Color Image View");
 }
 
 void SSaReflections::create_descriptor_sets()
 {
-    auto vk_backend  = m_backend.lock();
+    auto vk_backend = m_backend.lock();
 
     m_ray_tracing_ds = vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-    m_read_ds  = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+    m_read_ds        = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
 }
 
 void SSaReflections::write_descriptor_sets()
