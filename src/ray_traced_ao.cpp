@@ -34,6 +34,7 @@ struct BilateralBlurPushConstants
     glm::vec4  z_buffer_params;
     glm::ivec2 direction;
     int32_t    radius;
+    int32_t    recurrent_blur;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -85,6 +86,7 @@ void RayTracedAO::gui()
 {
     ImGui::PushID("RTAO");
     ImGui::Checkbox("Enabled", &m_enabled);
+    ImGui::Checkbox("Recurrent Blur", &m_bilateral_blur.recurrent);
     ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
     ImGui::SliderFloat("Power", &m_ray_trace.power, 1.0f, 5.0f);
@@ -596,6 +598,7 @@ void RayTracedAO::create_pipeline()
 
         desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BilateralBlurPushConstants));
@@ -830,7 +833,7 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->output_ds()->handle(),
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
-        m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
+        m_bilateral_blur.recurrent ? m_bilateral_blur.read_ds[1]->handle() : m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
         m_temporal_reprojection.read_ds[!m_common_resources->ping_pong]->handle()
     };
 
@@ -878,16 +881,18 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(1, 0);
         push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.recurrent_blur  = (int32_t)m_bilateral_blur.recurrent;
 
         vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
         VkDescriptorSet descriptor_sets[] = {
             m_bilateral_blur.write_ds[0]->handle(),
             m_temporal_reprojection.output_read_ds[m_common_resources->ping_pong]->handle(),
+            m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
         vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
 
@@ -917,16 +922,18 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(0, 1);
         push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.recurrent_blur  = (int32_t)m_bilateral_blur.recurrent;
 
         vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
         VkDescriptorSet descriptor_sets[] = {
             m_bilateral_blur.write_ds[1]->handle(),
             m_bilateral_blur.read_ds[0]->handle(),
+            m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
         vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
 

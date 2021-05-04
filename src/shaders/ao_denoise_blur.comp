@@ -12,6 +12,7 @@
 #define DEPTH_FACTOR 0.5
 #define GAUSS_BLUR_DEVIATION 1.5
 #define PI 3.14159265359
+#define USE_NORMAL_EDGE_STOPPING
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -27,10 +28,12 @@ layout(set = 0, binding = 0, r8) uniform image2D i_Output;
 
 layout(set = 1, binding = 0) uniform sampler2D s_Input;
 
-layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
-layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+layout(set = 2, binding = 1) uniform sampler2D s_HistoryLength;
+
+layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -41,6 +44,7 @@ layout(push_constant) uniform PushConstants
     vec4  z_buffer_params;
     ivec2 direction;
     int   radius;
+    int   recurrent_blur;
 }
 u_PushConstants;
 
@@ -50,7 +54,9 @@ u_PushConstants;
 
 shared float g_cached_ao[NUM_THREADS_X][NUM_THREADS_Y];
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
+#if defined(USE_NORMAL_EDGE_STOPPING)
 shared vec3  g_cached_normal[NUM_THREADS_X][NUM_THREADS_Y];
+#endif
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -69,8 +75,10 @@ void populate_cache(ivec2 coord)
     ivec2 cache_coord      = coord - min_cached_coord;
 
     g_cached_ao[cache_coord.x][cache_coord.y]     = texelFetch(s_Input, coord, 0).r;
-    g_cached_depth[cache_coord.x][cache_coord.y]  = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
+    g_cached_depth[cache_coord.x][cache_coord.y]  = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;    
+#if defined(USE_NORMAL_EDGE_STOPPING)    
     g_cached_normal[cache_coord.x][cache_coord.y] = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
+#endif
 
     barrier();
 }
@@ -111,6 +119,7 @@ float load_depth(ivec2 coord)
 
 // ------------------------------------------------------------------
 
+#if defined(USE_NORMAL_EDGE_STOPPING)
 vec3 load_normal(ivec2 coord)
 {
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
@@ -125,6 +134,7 @@ vec3 load_normal(ivec2 coord)
         return g_cached_normal[cache_coord.x][cache_coord.y];
     }
 }
+#endif
 
 // ------------------------------------------------------------------
 
@@ -158,9 +168,18 @@ float bilateral_blur(ivec2 current_coord)
     const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
 
     float center_depth  = linear_eye_depth(load_depth(current_coord));
+#if defined(USE_NORMAL_EDGE_STOPPING)      
     vec3  center_normal = load_normal(current_coord);
+#endif
 
-    const int radius = u_PushConstants.radius;
+    int radius = u_PushConstants.radius;
+
+    if (u_PushConstants.recurrent_blur == 1)
+    {
+        float history_length = max(texelFetch(s_HistoryLength, current_coord, 0).r, 1.0f);
+        float blur_scale = 1.0f / (history_length);
+        radius = max(int(float(radius) * blur_scale), 1);
+    }
 
     float total_ao     = 0.0f;
     float total_weight = 0.0f;
@@ -170,9 +189,15 @@ float bilateral_blur(ivec2 current_coord)
         ivec2 sample_coord  = current_coord + u_PushConstants.direction * ivec2(i);
         float sample_ao     = load_ao(sample_coord);
         float sample_depth  = linear_eye_depth(load_depth(sample_coord));
+#if defined(USE_NORMAL_EDGE_STOPPING)  
         vec3  sample_normal = load_normal(sample_coord);
+#endif
 
-        float weight = gaussian_weight(float(i), deviation) * depth_edge_stopping_weight(center_depth, sample_depth) * normal_edge_stopping_weight(center_normal, sample_normal);
+        float weight = gaussian_weight(float(i), deviation);
+        weight *= depth_edge_stopping_weight(center_depth, sample_depth);
+#if defined(USE_NORMAL_EDGE_STOPPING)          
+        weight *= normal_edge_stopping_weight(center_normal, sample_normal);
+#endif
 
         total_ao += weight * sample_ao;
         total_weight += weight;

@@ -208,7 +208,7 @@ void main()
                                   prev_ao,
                                   history_length);
     history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
-
+    
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in
     // the beginning.

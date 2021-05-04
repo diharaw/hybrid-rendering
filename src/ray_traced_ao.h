@@ -64,6 +64,7 @@ private:
 
     struct BilateralBlur
     {
+        bool                         recurrent   = false;
         int32_t                      blur_radius = 5;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
