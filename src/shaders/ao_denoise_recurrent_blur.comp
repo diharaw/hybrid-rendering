@@ -10,8 +10,6 @@
 #define NUM_THREADS_Y 32
 #define G_BUFFER_MIP 1
 #define DEPTH_FACTOR 0.5
-#define GAUSS_BLUR_DEVIATION 1.5
-#define PI 3.14159265359
 #define USE_NORMAL_EDGE_STOPPING
 
 // ------------------------------------------------------------------
@@ -42,8 +40,7 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(push_constant) uniform PushConstants
 {
     vec4  z_buffer_params;
-    ivec2 direction;
-    int   radius;
+    float radius;
 }
 u_PushConstants;
 
@@ -55,6 +52,50 @@ shared float g_cached_ao[NUM_THREADS_X][NUM_THREADS_Y];
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
 #if defined(USE_NORMAL_EDGE_STOPPING)
 shared vec3  g_cached_normal[NUM_THREADS_X][NUM_THREADS_Y];
+#endif
+
+// ------------------------------------------------------------------
+// CONSTANTS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+#if defined(POISSON_DISK_SAMPLES_16)
+
+const int g_num_poisson_disk_samples = 16;
+
+const vec2 g_poisson_disk_samples[16] = vec2[](
+    vec2(0.728111f, 0.346049f),
+    vec2(0.0424818f, 0.94351f),
+    vec2(0.150121f, 0.079989f),
+    vec2(0.6068f, 0.836695f),
+    vec2(0.249214f, 0.451796f),
+    vec2(0.91702f, 0.0200201f),
+    vec2(0.523209f, 0.00186163f),
+    vec2(0.964995f, 0.992706f),
+    vec2(0.288522f, 0.776635f),
+    vec2(0.963744f, 0.632191f),
+    vec2(0.531388f, 0.550462f),
+    vec2(0.00152593f, 0.622578f),
+    vec2(0.384838f, 0.989563f),
+    vec2(0.985412f, 0.376415f),
+    vec2(0.339549f, 0.175176f),
+    vec2(0.745964f, 0.609394f)
+);
+
+#else 
+
+const int g_num_poisson_disk_samples = 8;
+
+const vec2 g_poisson_disk_samples[8] = vec2[](
+    vec2(0.222022f, 0.498978f),
+    vec2(0.756462f, 0.52504f),
+    vec2(0.628254f, 0.0187384f),
+    vec2(0.495712f, 0.976287f),
+    vec2(0.0236824f, 0.0350963f),
+    vec2(0.997406f, 0.994263f),
+    vec2(0.0237434f, 0.913358f),
+    vec2(0.989135f, 0.160924f)
+);
+
 #endif
 
 // ------------------------------------------------------------------
@@ -135,15 +176,6 @@ vec3 load_normal(ivec2 coord)
 }
 #endif
 
-// ------------------------------------------------------------------
-
-float gaussian_weight(float offset, float deviation)
-{
-    float weight = 1.0 / sqrt(2.0 * PI * deviation * deviation);
-    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
-    return weight;
-}
-
 // ------------------------------------------------------------------------
 
 float normal_edge_stopping_weight(vec3 center_normal, vec3 sample_normal)
@@ -162,10 +194,8 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 // ------------------------------------------------------------------
 
-float bilateral_blur(ivec2 current_coord)
+float recurrent_blur(ivec2 current_coord)
 {
-    const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
-
     float center_depth  = linear_eye_depth(load_depth(current_coord));
 #if defined(USE_NORMAL_EDGE_STOPPING)      
     vec3  center_normal = load_normal(current_coord);
@@ -176,17 +206,16 @@ float bilateral_blur(ivec2 current_coord)
     float total_ao     = 0.0f;
     float total_weight = 0.0f;
 
-    for (int i = -radius; i <= radius; i++)
+    for (int i = 0; i < g_num_poisson_disk_samples; i++)
     {
-        ivec2 sample_coord  = current_coord + u_PushConstants.direction * ivec2(i);
+        ivec2 sample_coord  = current_coord + ivec2(g_poisson_disk_samples[i] * u_PushConstants.radius);
         float sample_ao     = load_ao(sample_coord);
         float sample_depth  = linear_eye_depth(load_depth(sample_coord));
 #if defined(USE_NORMAL_EDGE_STOPPING)  
         vec3  sample_normal = load_normal(sample_coord);
 #endif
 
-        float weight = gaussian_weight(float(i), deviation);
-        weight *= depth_edge_stopping_weight(center_depth, sample_depth);
+        float weight = depth_edge_stopping_weight(center_depth, sample_depth);
 #if defined(USE_NORMAL_EDGE_STOPPING)          
         weight *= normal_edge_stopping_weight(center_normal, sample_normal);
 #endif
@@ -223,7 +252,7 @@ void main()
     }
 
     // Blur
-    float ao = bilateral_blur(current_coord);
+    float ao = recurrent_blur(current_coord);
 
     // Store blurred ao
     imageStore(i_Output, current_coord, vec4(ao));

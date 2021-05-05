@@ -34,7 +34,6 @@ struct BilateralBlurPushConstants
     glm::vec4  z_buffer_params;
     glm::ivec2 direction;
     int32_t    radius;
-    int32_t    recurrent_blur;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -881,7 +880,6 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(1, 0);
         push_constants.radius          = m_bilateral_blur.blur_radius;
-        push_constants.recurrent_blur  = (int32_t)m_bilateral_blur.recurrent;
 
         vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -922,7 +920,6 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(0, 1);
         push_constants.radius          = m_bilateral_blur.blur_radius;
-        push_constants.recurrent_blur  = (int32_t)m_bilateral_blur.recurrent;
 
         vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
