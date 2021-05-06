@@ -29,11 +29,20 @@ struct TemporalReprojectionPushConstants
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-struct BilateralBlurPushConstants
+struct GaussianBlurPushConstants
 {
     glm::vec4  z_buffer_params;
     glm::ivec2 direction;
     int32_t    radius;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+struct RecurrentBlurPushConstants
+{
+    glm::vec4  z_buffer_params;
+    float     radius;
+    int32_t    num_frames;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -85,13 +94,18 @@ void RayTracedAO::gui()
 {
     ImGui::PushID("RTAO");
     ImGui::Checkbox("Enabled", &m_enabled);
-    ImGui::Checkbox("Recurrent Blur", &m_bilateral_blur.recurrent);
+    ImGui::Checkbox("Recurrent Blur", &m_use_recurrent_blur);
     ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
     ImGui::SliderFloat("Power", &m_ray_trace.power, 1.0f, 5.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Temporal Alpha", &m_temporal_reprojection.alpha, 0.0f, 0.5f);
-    ImGui::SliderInt("Blur Radius", &m_bilateral_blur.blur_radius, 1, 10);
+
+    if (m_use_recurrent_blur)
+        ImGui::SliderInt("Blur Radius", &m_recurrent_blur.blur_radius, 1, 10);
+    else 
+        ImGui::SliderInt("Blur Radius", &m_gaussian_blur.blur_radius, 1, 20);
+    
     ImGui::PopID();
 }
 
@@ -128,16 +142,25 @@ void RayTracedAO::create_images()
         }
     }
 
-    // Bilateral Blur
+    // Gaussian Blur
     {
         for (int i = 0; i < 2; i++)
         {
-            m_bilateral_blur.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-            m_bilateral_blur.image[i]->set_name("AO Denoise Blur " + std::to_string(i));
+            m_gaussian_blur.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_gaussian_blur.image[i]->set_name("AO Denoise Blur " + std::to_string(i));
 
-            m_bilateral_blur.image_view[i] = dw::vk::ImageView::create(backend, m_bilateral_blur.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-            m_bilateral_blur.image_view[i]->set_name("AO Denoise Blur " + std::to_string(i));
+            m_gaussian_blur.image_view[i] = dw::vk::ImageView::create(backend, m_gaussian_blur.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+            m_gaussian_blur.image_view[i]->set_name("AO Denoise Blur " + std::to_string(i));
         }
+    }
+
+    // Recurrent Blur
+    {
+        m_recurrent_blur.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_recurrent_blur.image->set_name("AO Denoise Recurrent Blur");
+
+        m_recurrent_blur.image_view = dw::vk::ImageView::create(backend, m_recurrent_blur.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_recurrent_blur.image_view->set_name("AO Denoise Recurrent Blur");
     }
 
     // Upsample
@@ -200,16 +223,25 @@ void RayTracedAO::create_descriptor_sets()
         }
     }
 
-    // Bilateral Blur
+    // Gaussian Blur
     {
         for (int i = 0; i < 2; i++)
         {
-            m_bilateral_blur.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-            m_bilateral_blur.write_ds[i]->set_name("AO Blur Write " + std::to_string(i));
+            m_gaussian_blur.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+            m_gaussian_blur.write_ds[i]->set_name("AO Blur Write " + std::to_string(i));
 
-            m_bilateral_blur.read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-            m_bilateral_blur.read_ds[i]->set_name("AO Blur Read " + std::to_string(i));
+            m_gaussian_blur.read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+            m_gaussian_blur.read_ds[i]->set_name("AO Blur Read " + std::to_string(i));
         }
+    }
+
+    // Recurrent Blur
+    {
+        m_recurrent_blur.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        m_recurrent_blur.write_ds->set_name("AO Recurrent Blur Write");
+
+        m_recurrent_blur.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_recurrent_blur.read_ds->set_name("AO Recurrent Blur Read");
     }
 
     // Upsample
@@ -437,7 +469,7 @@ void RayTracedAO::write_descriptor_sets()
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
-    // Bilateral Blur
+    // Gaussian Blur
     {
         for (int i = 0; i < 2; i++)
         {
@@ -446,7 +478,7 @@ void RayTracedAO::write_descriptor_sets()
                 VkDescriptorImageInfo storage_image_info;
 
                 storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+                storage_image_info.imageView   = m_gaussian_blur.image_view[i]->handle();
                 storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
                 VkWriteDescriptorSet write_data;
@@ -458,7 +490,7 @@ void RayTracedAO::write_descriptor_sets()
                 write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 write_data.pImageInfo      = &storage_image_info;
                 write_data.dstBinding      = 0;
-                write_data.dstSet          = m_bilateral_blur.write_ds[i]->handle();
+                write_data.dstSet          = m_gaussian_blur.write_ds[i]->handle();
 
                 vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
             }
@@ -468,7 +500,7 @@ void RayTracedAO::write_descriptor_sets()
                 VkDescriptorImageInfo sampler_image_info;
 
                 sampler_image_info.sampler     = backend->nearest_sampler()->handle();
-                sampler_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+                sampler_image_info.imageView   = m_gaussian_blur.image_view[i]->handle();
                 sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
                 VkWriteDescriptorSet write_data;
@@ -480,11 +512,54 @@ void RayTracedAO::write_descriptor_sets()
                 write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 write_data.pImageInfo      = &sampler_image_info;
                 write_data.dstBinding      = 0;
-                write_data.dstSet          = m_bilateral_blur.read_ds[i]->handle();
+                write_data.dstSet          = m_gaussian_blur.read_ds[i]->handle();
 
                 vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
             }
         }
+    }
+
+    // Recurrent Blur
+    {
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_recurrent_blur.image_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &storage_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_recurrent_blur.write_ds->handle();
+
+        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    {
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+        sampler_image_info.imageView   = m_recurrent_blur.image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &sampler_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_recurrent_blur.read_ds->handle();
+
+        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
     }
 
     // Upsample
@@ -591,7 +666,7 @@ void RayTracedAO::create_pipeline()
         m_temporal_reprojection.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
-    // Bilateral Blur
+    // Gaussian Blur
     {
         dw::vk::PipelineLayout::Desc desc;
 
@@ -600,19 +675,43 @@ void RayTracedAO::create_pipeline()
         desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
 
-        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BilateralBlurPushConstants));
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConstants));
 
-        m_bilateral_blur.layout = dw::vk::PipelineLayout::create(backend, desc);
-        m_bilateral_blur.layout->set_name("AO Blur Pipeline Layout");
+        m_gaussian_blur.layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_gaussian_blur.layout->set_name("AO Blur Pipeline Layout");
 
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/ao_denoise_blur.comp.spv");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/ao_denoise_gaussian_blur.comp.spv");
 
         dw::vk::ComputePipeline::Desc comp_desc;
 
-        comp_desc.set_pipeline_layout(m_bilateral_blur.layout);
+        comp_desc.set_pipeline_layout(m_gaussian_blur.layout);
         comp_desc.set_shader_stage(module, "main");
 
-        m_bilateral_blur.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        m_gaussian_blur.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+    }
+
+    // Recurrent Blur
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RecurrentBlurPushConstants));
+
+        m_recurrent_blur.layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_recurrent_blur.layout->set_name("AO Recurrent Blur Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/ao_denoise_recurrent_blur.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_recurrent_blur.layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_recurrent_blur.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
     // Upsample
@@ -687,8 +786,8 @@ void RayTracedAO::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_bilateral_blur.image[1]->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
+            m_recurrent_blur.image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
     }
@@ -754,7 +853,11 @@ void RayTracedAO::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
     DW_SCOPED_SAMPLE("Denoise", cmd_buf);
 
     temporal_reprojection(cmd_buf);
-    bilateral_blur(cmd_buf);
+    
+    if (m_use_recurrent_blur)
+        recurrent_blur(cmd_buf);
+    else
+        gaussian_blur(cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -782,7 +885,7 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkDescriptorSet descriptor_sets[] = {
         m_upsample.write_ds->handle(),
-        m_bilateral_blur.read_ds[1]->handle(),
+        m_gaussian_blur.read_ds[1]->handle(),
         m_g_buffer->output_ds()->handle()
     };
 
@@ -832,7 +935,7 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->output_ds()->handle(),
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
-        m_bilateral_blur.recurrent ? m_bilateral_blur.read_ds[1]->handle() : m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
+        m_use_recurrent_blur ? m_recurrent_blur.read_ds->handle() : m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
         m_temporal_reprojection.read_ds[!m_common_resources->ping_pong]->handle()
     };
 
@@ -856,9 +959,9 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
+void RayTracedAO::gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("Bilateral Blur", cmd_buf);
+    DW_SCOPED_SAMPLE("Gaussian Blur", cmd_buf);
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -868,35 +971,35 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_bilateral_blur.image[0]->handle(),
+            m_gaussian_blur.image[0]->handle(),
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
 
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gaussian_blur.pipeline->handle());
 
-        BilateralBlurPushConstants push_constants;
+        GaussianBlurPushConstants push_constants;
 
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(1, 0);
-        push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.radius          = m_gaussian_blur.blur_radius;
 
-        vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+        vkCmdPushConstants(cmd_buf->handle(), m_gaussian_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
         VkDescriptorSet descriptor_sets[] = {
-            m_bilateral_blur.write_ds[0]->handle(),
+            m_gaussian_blur.write_ds[0]->handle(),
             m_temporal_reprojection.output_read_ds[m_common_resources->ping_pong]->handle(),
             m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gaussian_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_gaussian_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_gaussian_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_bilateral_blur.image[0]->handle(),
+            m_gaussian_blur.image[0]->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
@@ -908,39 +1011,83 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_bilateral_blur.image[1]->handle(),
+            m_gaussian_blur.image[1]->handle(),
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
 
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gaussian_blur.pipeline->handle());
 
-        BilateralBlurPushConstants push_constants;
+        GaussianBlurPushConstants push_constants;
 
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(0, 1);
-        push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.radius          = m_gaussian_blur.blur_radius;
 
-        vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+        vkCmdPushConstants(cmd_buf->handle(), m_gaussian_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
         VkDescriptorSet descriptor_sets[] = {
-            m_bilateral_blur.write_ds[1]->handle(),
-            m_bilateral_blur.read_ds[0]->handle(),
+            m_gaussian_blur.write_ds[1]->handle(),
+            m_gaussian_blur.read_ds[0]->handle(),
             m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gaussian_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_gaussian_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_gaussian_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_bilateral_blur.image[1]->handle(),
+            m_gaussian_blur.image[1]->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
     }
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedAO::recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Recurrent Blur", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_recurrent_blur.image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gaussian_blur.pipeline->handle());
+
+    RecurrentBlurPushConstants push_constants;
+
+    push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+    push_constants.radius          = m_recurrent_blur.blur_radius;
+    push_constants.num_frames      = m_common_resources->num_frames;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_recurrent_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_recurrent_blur.write_ds->handle(),
+        m_temporal_reprojection.output_read_ds[m_common_resources->ping_pong]->handle(),
+        m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
+        m_g_buffer->output_ds()->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_recurrent_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_recurrent_blur.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_recurrent_blur.image->height()) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_recurrent_blur.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

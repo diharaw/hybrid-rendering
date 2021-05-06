@@ -2,6 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : require
 
+#include "random.glsl"
+
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
@@ -41,6 +43,7 @@ layout(push_constant) uniform PushConstants
 {
     vec4  z_buffer_params;
     float radius;
+    uint num_frames;
 }
 u_PushConstants;
 
@@ -194,8 +197,27 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 // ------------------------------------------------------------------
 
+vec2 random_rotation(RNG rng)
+{
+    float rot = next_float(rng);
+    return vec2(sin(rot), cos(rot));
+}
+
+// ------------------------------------------------------------------
+
+vec2 rotate_sample(vec2 sample, vec2 rot)
+{
+    return vec2(dot(sample.x, vec2(rot.y, -rot.x)), dot(sample.y, rot));
+}
+
+// ------------------------------------------------------------------
+
 float recurrent_blur(ivec2 current_coord)
 {
+    // Initialize random numbers
+    RNG rng = rng_init(current_coord, u_PushConstants.num_frames);
+
+    // Load the center sample depth and normal
     float center_depth  = linear_eye_depth(load_depth(current_coord));
 #if defined(USE_NORMAL_EDGE_STOPPING)      
     vec3  center_normal = load_normal(current_coord);
@@ -205,25 +227,38 @@ float recurrent_blur(ivec2 current_coord)
 
     float total_ao     = 0.0f;
     float total_weight = 0.0f;
+    vec2 rotation = random_rotation(rng);
 
     for (int i = 0; i < g_num_poisson_disk_samples; i++)
     {
-        ivec2 sample_coord  = current_coord + ivec2(g_poisson_disk_samples[i] * u_PushConstants.radius);
+        // Rotate poisson sample
+        vec2 poisson_sample = rotate_sample(g_poisson_disk_samples[i], rotation); 
+        
+        // Remap it to [-1.0, +1.0] range
+        poisson_sample = 2.0f * poisson_sample - vec2(1.0f);
+        
+        // Generate sample coordinate
+        ivec2 sample_coord  = current_coord + ivec2(poisson_sample * u_PushConstants.radius);
+        
+        // Load cross bilateral samples
         float sample_ao     = load_ao(sample_coord);
         float sample_depth  = linear_eye_depth(load_depth(sample_coord));
 #if defined(USE_NORMAL_EDGE_STOPPING)  
         vec3  sample_normal = load_normal(sample_coord);
 #endif
 
+        // Compute edge-stopping weights
         float weight = depth_edge_stopping_weight(center_depth, sample_depth);
 #if defined(USE_NORMAL_EDGE_STOPPING)          
         weight *= normal_edge_stopping_weight(center_normal, sample_normal);
 #endif
 
+        // Accumulate samples and weights
         total_ao += weight * sample_ao;
         total_weight += weight;
     }
 
+    // Divide by total weight
     return total_ao / max(total_weight, 0.0001f);
 }
 

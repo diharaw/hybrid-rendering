@@ -29,7 +29,8 @@ private:
     void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     struct RayTrace
@@ -62,9 +63,8 @@ private:
         dw::vk::DescriptorSet::Ptr       output_read_ds[2];
     };
 
-    struct BilateralBlur
+    struct GaussianBlur
     {
-        bool                         recurrent   = false;
         int32_t                      blur_radius = 5;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
@@ -72,6 +72,17 @@ private:
         dw::vk::ImageView::Ptr       image_view[2];
         dw::vk::DescriptorSet::Ptr   read_ds[2];
         dw::vk::DescriptorSet::Ptr   write_ds[2];
+    };
+
+    struct RecurrentBlur
+    {
+        int32_t                      blur_radius = 5;
+        dw::vk::PipelineLayout::Ptr  layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       image_view;
+        dw::vk::DescriptorSet::Ptr   read_ds;
+        dw::vk::DescriptorSet::Ptr   write_ds;
     };
 
     struct Upsample
@@ -90,8 +101,10 @@ private:
     uint32_t                       m_width;
     uint32_t                       m_height;
     bool                           m_enabled = true;
+    bool                           m_use_recurrent_blur = false;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
-    BilateralBlur                  m_bilateral_blur;
+    GaussianBlur                   m_gaussian_blur;
+    RecurrentBlur                  m_recurrent_blur;
     Upsample                       m_upsample;
 };
