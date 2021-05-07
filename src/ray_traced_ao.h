@@ -101,7 +101,7 @@ private:
     uint32_t                       m_width;
     uint32_t                       m_height;
     bool                           m_enabled = true;
-    bool                           m_use_recurrent_blur = false;
+    bool                           m_use_recurrent_blur = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
     GaussianBlur                   m_gaussian_blur;

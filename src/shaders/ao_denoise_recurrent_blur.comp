@@ -42,7 +42,7 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(push_constant) uniform PushConstants
 {
     vec4  z_buffer_params;
-    float radius;
+    int radius;
     uint num_frames;
 }
 u_PushConstants;
@@ -205,9 +205,9 @@ vec2 random_rotation(RNG rng)
 
 // ------------------------------------------------------------------
 
-vec2 rotate_sample(vec2 sample, vec2 rot)
+vec2 rotate_sample(vec2 current_sample, vec2 rot)
 {
-    return vec2(dot(sample.x, vec2(rot.y, -rot.x)), dot(sample.y, rot));
+    return vec2(dot(current_sample, vec2(rot.y, -rot.x)), dot(current_sample, rot));
 }
 
 // ------------------------------------------------------------------

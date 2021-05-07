@@ -41,7 +41,7 @@ struct GaussianBlurPushConstants
 struct RecurrentBlurPushConstants
 {
     glm::vec4  z_buffer_params;
-    float     radius;
+    int32_t     radius;
     int32_t    num_frames;
 };
 
@@ -885,7 +885,7 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkDescriptorSet descriptor_sets[] = {
         m_upsample.write_ds->handle(),
-        m_gaussian_blur.read_ds[1]->handle(),
+        m_use_recurrent_blur ? m_recurrent_blur.read_ds->handle() : m_gaussian_blur.read_ds[1]->handle(),
         m_g_buffer->output_ds()->handle()
     };
 
@@ -936,6 +936,7 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
         m_use_recurrent_blur ? m_recurrent_blur.read_ds->handle() : m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
+        //m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
         m_temporal_reprojection.read_ds[!m_common_resources->ping_pong]->handle()
     };
 
@@ -1061,7 +1062,7 @@ void RayTracedAO::recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         VK_IMAGE_LAYOUT_GENERAL,
         subresource_range);
 
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_gaussian_blur.pipeline->handle());
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_recurrent_blur.pipeline->handle());
 
     RecurrentBlurPushConstants push_constants;
 
