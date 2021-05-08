@@ -231,11 +231,11 @@ float recurrent_blur(ivec2 current_coord)
 
     for (int i = 0; i < g_num_poisson_disk_samples; i++)
     {
-        // Rotate poisson sample
-        vec2 poisson_sample = rotate_sample(g_poisson_disk_samples[i], rotation); 
+        // Remap the poisson sample to [-1.0, +1.0] range
+        vec2 poisson_sample = 2.0f * g_poisson_disk_samples[i] - vec2(1.0f);
         
-        // Remap it to [-1.0, +1.0] range
-        poisson_sample = 2.0f * poisson_sample - vec2(1.0f);
+        // Rotate it
+        poisson_sample = rotate_sample(poisson_sample, rotation); 
         
         // Generate sample coordinate
         ivec2 sample_coord  = current_coord + ivec2(poisson_sample * u_PushConstants.radius);
