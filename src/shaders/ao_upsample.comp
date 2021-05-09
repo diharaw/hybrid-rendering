@@ -41,6 +41,8 @@ u_PushConstants;
 // CONSTANTS --------------------------------------------------------
 // ------------------------------------------------------------------
 
+const float FLT_EPS = 0.00000001;
+
 const vec2 g_kernel[4] = vec2[](
     vec2(0.0f, 1.0f),
     vec2(1.0f, 0.0f),
@@ -84,7 +86,15 @@ void main()
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
-    float hi_res_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, current_coord, 0).r);
+    float depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
+
+    if (depth == 1.0f)
+    {
+        imageStore(i_Output, current_coord, vec4(0.0f));
+        return;
+    }
+
+    float hi_res_depth  = linear_eye_depth(depth);
     vec3  hi_res_normal = texelFetch(s_GBuffer2, current_coord, 0).rgb;
 
     float upsampled_ao = 0.0f;
@@ -104,7 +114,7 @@ void main()
         total_w += w;
     }
 
-    upsampled_ao = upsampled_ao / total_w;
+    upsampled_ao = upsampled_ao / max(total_w, FLT_EPS);
 
     // Store
     imageStore(i_Output, current_coord, vec4(upsampled_ao));

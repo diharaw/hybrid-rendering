@@ -225,8 +225,8 @@ float recurrent_blur(ivec2 current_coord)
 
     int radius = u_PushConstants.radius;
 
-    float total_ao     = 0.0f;
-    float total_weight = 0.0f;
+    float total_ao     = load_ao(current_coord);
+    float total_weight = 1.0f;
     vec2 rotation = random_rotation(rng);
 
     for (int i = 0; i < g_num_poisson_disk_samples; i++)
