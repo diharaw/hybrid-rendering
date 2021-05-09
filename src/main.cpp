@@ -230,93 +230,98 @@ protected:
 
             if (m_debug_gui)
             {
-                if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
+                if (ImGui::Begin("Hybrid Rendering"))
                 {
-                    if (ImGui::BeginCombo("Scene", scene_types[m_current_scene].c_str()))
+                    if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        for (uint32_t i = 0; i < scene_types.size(); i++)
+                        if (ImGui::BeginCombo("Scene", scene_types[m_current_scene].c_str()))
                         {
-                            const bool is_selected = (i == m_current_scene);
-
-                            if (ImGui::Selectable(scene_types[i].c_str(), is_selected))
+                            for (uint32_t i = 0; i < scene_types.size(); i++)
                             {
-                                m_current_scene = (SceneType)i;
-                                set_active_scene();
+                                const bool is_selected = (i == m_current_scene);
+
+                                if (ImGui::Selectable(scene_types[i].c_str(), is_selected))
+                                {
+                                    m_current_scene = (SceneType)i;
+                                    set_active_scene();
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
                             }
-
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                            ImGui::EndCombo();
                         }
-                        ImGui::EndCombo();
-                    }
 
-                    if (ImGui::BeginCombo("Visualization", visualization_types[m_current_visualization].c_str()))
-                    {
-                        for (uint32_t i = 0; i < visualization_types.size(); i++)
+                        if (ImGui::BeginCombo("Visualization", visualization_types[m_current_visualization].c_str()))
                         {
-                            const bool is_selected = (i == m_current_visualization);
+                            for (uint32_t i = 0; i < visualization_types.size(); i++)
+                            {
+                                const bool is_selected = (i == m_current_visualization);
 
-                            if (ImGui::Selectable(visualization_types[i].c_str(), is_selected))
-                                m_current_visualization = (VisualizationType)i;
+                                if (ImGui::Selectable(visualization_types[i].c_str(), is_selected))
+                                    m_current_visualization = (VisualizationType)i;
 
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
                         }
-                        ImGui::EndCombo();
-                    }
 
-                    ImGui::InputFloat("Exposure", &m_exposure);
+                        ImGui::InputFloat("Exposure", &m_exposure);
+                    }
+                    if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::ColorEdit3("Color", &m_light_color.x);
+                        ImGui::InputFloat("Intensity", &m_light_intensity);
+                        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+                        ImGui::InputFloat3("Direction", &m_light_direction.x);
+                        ImGui::Checkbox("Animation", &m_light_animation);
+                    }
+                    if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::PushID("RTSS");
+                        ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
+                        ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
+                        ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
+                        ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
+                        ImGui::SliderFloat("Alpha", &m_svgf_alpha, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Moments Alpha", &m_svgf_moments_alpha, 0.0f, 1.0f);
+                        ImGui::Checkbox("Denoise", &m_svgf_shadow_denoise);
+                        ImGui::Checkbox("Use filter output for reprojection", &m_svgf_shadow_use_spatial_for_feedback);
+                        ImGui::InputFloat("Bias", &m_ray_traced_shadows_bias);
+                        m_common_resources->shadow_denoiser->gui();
+                        ImGui::PopID();
+                    }
+                    if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::PushID("RTR");
+                        m_common_resources->reflection_denoiser->gui();
+                        ImGui::PopID();
+                    }
+                    if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::PushID("RTR");
+                        ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
+                        ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
+                        ImGui::SliderInt("Max Bounces", &m_ray_traced_gi_max_ray_bounces, 1, 4);
+                        ImGui::PopID();
+                    }
+                    if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
+                        m_ray_traced_ao->gui();
+                    if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::PushID("TAA");
+                        ImGui::Checkbox("Enabled", &m_taa_enabled);
+                        ImGui::Checkbox("Sharpen", &m_taa_sharpen);
+                        ImGui::SliderFloat("Feedback Min", &m_taa_feedback_min, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Feedback Max", &m_taa_feedback_max, 0.0f, 1.0f);
+                        ImGui::PopID();
+                    }
+                    if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
+                        dw::profiler::ui();
+
+                    ImGui::End();
                 }
-                if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::ColorEdit3("Color", &m_light_color.x);
-                    ImGui::InputFloat("Intensity", &m_light_intensity);
-                    ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
-                    ImGui::InputFloat3("Direction", &m_light_direction.x);
-                    ImGui::Checkbox("Animation", &m_light_animation);
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("RTSS");
-                    ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
-                    ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
-                    ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
-                    ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
-                    ImGui::SliderFloat("Alpha", &m_svgf_alpha, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Moments Alpha", &m_svgf_moments_alpha, 0.0f, 1.0f);
-                    ImGui::Checkbox("Denoise", &m_svgf_shadow_denoise);
-                    ImGui::Checkbox("Use filter output for reprojection", &m_svgf_shadow_use_spatial_for_feedback);
-                    ImGui::InputFloat("Bias", &m_ray_traced_shadows_bias);
-                    m_common_resources->shadow_denoiser->gui();
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("RTR");
-                    m_common_resources->reflection_denoiser->gui();
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("RTR");
-                    ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
-                    ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
-                    ImGui::SliderInt("Max Bounces", &m_ray_traced_gi_max_ray_bounces, 1, 4);
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
-                    m_ray_traced_ao->gui();
-                if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("TAA");
-                    ImGui::Checkbox("Enabled", &m_taa_enabled);
-                    ImGui::Checkbox("Sharpen", &m_taa_sharpen);
-                    ImGui::SliderFloat("Feedback Min", &m_taa_feedback_min, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Feedback Max", &m_taa_feedback_max, 0.0f, 1.0f);
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
-                    dw::profiler::ui();
             }
 
             // Update camera.
