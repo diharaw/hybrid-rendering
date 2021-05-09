@@ -24,7 +24,7 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 // DESCRIPTOR SETS --------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(set = 0, binding = 0, r8) uniform image2D i_Output;
+layout(set = 0, binding = 0, r16f) uniform image2D i_Output;
 
 layout(set = 1, binding = 0) uniform sampler2D s_Input;
 

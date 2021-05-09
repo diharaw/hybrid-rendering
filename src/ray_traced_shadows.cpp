@@ -75,7 +75,7 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
     const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_pipeline->shader_binding_table_buffer()->device_address() + m_sbt->miss_group_offset(), group_stride, group_size * 2 };
     const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_pipeline->shader_binding_table_buffer()->device_address() + m_sbt->hit_group_offset(), group_stride, group_size * 2 };
-    const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
+    const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
     vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
 

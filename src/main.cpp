@@ -724,7 +724,7 @@ private:
             {
                 VkDescriptorBufferInfo buffer_info;
 
-                buffer_info.range  = VK_WHOLE_SIZE;
+                buffer_info.range  = sizeof(UBO);
                 buffer_info.offset = 0;
                 buffer_info.buffer = m_common_resources->ubo->handle();
 
@@ -1841,7 +1841,7 @@ private:
         const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
         const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->reflection_rt_sbt->miss_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->reflection_rt_sbt->hit_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
+        const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
         uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
@@ -1904,7 +1904,7 @@ private:
         const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
         const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->miss_group_offset(), group_stride, group_size * 2 };
         const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->hit_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR callable_sbt = { VK_NULL_HANDLE, 0, 0 };
+        const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
         uint32_t rt_image_width  = m_downscaled_rt ? m_width / 2 : m_width;
         uint32_t rt_image_height = m_downscaled_rt ? m_height / 2 : m_height;
