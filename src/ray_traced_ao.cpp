@@ -42,7 +42,8 @@ struct RecurrentBlurPushConstants
 {
     glm::vec4  z_buffer_params;
     int32_t     radius;
-    int32_t    num_frames;
+    uint32_t    num_frames;
+    uint32_t    self_stabilize;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -95,6 +96,10 @@ void RayTracedAO::gui()
     ImGui::PushID("RTAO");
     ImGui::Checkbox("Enabled", &m_enabled);
     ImGui::Checkbox("Recurrent Blur", &m_use_recurrent_blur);
+
+    if (m_use_recurrent_blur)
+        ImGui::Checkbox("Self-Stabilize", &m_recurrent_blur.self_stabilize);
+
     ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
     ImGui::SliderFloat("Power", &m_ray_trace.power, 1.0f, 5.0f);
@@ -1069,6 +1074,7 @@ void RayTracedAO::recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
     push_constants.z_buffer_params = m_common_resources->z_buffer_params;
     push_constants.radius          = m_recurrent_blur.blur_radius;
     push_constants.num_frames      = m_common_resources->num_frames;
+    push_constants.self_stabilize  = (uint32_t)m_recurrent_blur.self_stabilize;
 
     vkCmdPushConstants(cmd_buf->handle(), m_recurrent_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

@@ -12,7 +12,6 @@
 #define NUM_THREADS_Y 32
 #define G_BUFFER_MIP 1
 #define DEPTH_FACTOR 0.5
-#define USE_NORMAL_EDGE_STOPPING
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -44,6 +43,7 @@ layout(push_constant) uniform PushConstants
     vec4  z_buffer_params;
     int radius;
     uint num_frames;
+    uint self_stabilize;
 }
 u_PushConstants;
 
@@ -53,9 +53,7 @@ u_PushConstants;
 
 shared float g_cached_ao[NUM_THREADS_X][NUM_THREADS_Y];
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
-#if defined(USE_NORMAL_EDGE_STOPPING)
 shared vec3  g_cached_normal[NUM_THREADS_X][NUM_THREADS_Y];
-#endif
 
 // ------------------------------------------------------------------
 // CONSTANTS --------------------------------------------------------
@@ -119,9 +117,7 @@ void populate_cache(ivec2 coord)
 
     g_cached_ao[cache_coord.x][cache_coord.y]     = texelFetch(s_Input, coord, 0).r;
     g_cached_depth[cache_coord.x][cache_coord.y]  = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;    
-#if defined(USE_NORMAL_EDGE_STOPPING)    
     g_cached_normal[cache_coord.x][cache_coord.y] = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
-#endif
 
     barrier();
 }
@@ -162,7 +158,6 @@ float load_depth(ivec2 coord)
 
 // ------------------------------------------------------------------
 
-#if defined(USE_NORMAL_EDGE_STOPPING)
 vec3 load_normal(ivec2 coord)
 {
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
@@ -177,7 +172,6 @@ vec3 load_normal(ivec2 coord)
         return g_cached_normal[cache_coord.x][cache_coord.y];
     }
 }
-#endif
 
 // ------------------------------------------------------------------------
 
@@ -218,12 +212,19 @@ float recurrent_blur(ivec2 current_coord)
     RNG rng = rng_init(current_coord, u_PushConstants.num_frames);
 
     // Load the center sample depth and normal
-    float center_depth  = linear_eye_depth(load_depth(current_coord));
-#if defined(USE_NORMAL_EDGE_STOPPING)      
+    float center_depth  = linear_eye_depth(load_depth(current_coord));     
     vec3  center_normal = load_normal(current_coord);
-#endif
 
-    int radius = u_PushConstants.radius;
+    float blur_scale = 1.0f;
+
+    if (u_PushConstants.self_stabilize == 1)
+    {
+        float norm_history_length = max(texelFetch(s_HistoryLength, current_coord, 0).r - 1.0f, 0.0f) / 32.0f;
+        float new_count = norm_history_length * 16.0f;
+        blur_scale = 1.0f / (1.0f + new_count);    
+    }
+        
+    int radius = int(max(float(u_PushConstants.radius) * blur_scale, 1.0f));
 
     float total_ao     = load_ao(current_coord);
     float total_weight = 1.0f;
@@ -238,21 +239,16 @@ float recurrent_blur(ivec2 current_coord)
         poisson_sample = rotate_sample(poisson_sample, rotation); 
         
         // Generate sample coordinate
-        ivec2 sample_coord  = current_coord + ivec2(poisson_sample * u_PushConstants.radius);
+        ivec2 sample_coord  = current_coord + ivec2(poisson_sample * radius);
         
         // Load cross bilateral samples
         float sample_ao     = load_ao(sample_coord);
-        float sample_depth  = linear_eye_depth(load_depth(sample_coord));
-#if defined(USE_NORMAL_EDGE_STOPPING)  
+        float sample_depth  = linear_eye_depth(load_depth(sample_coord)); 
         vec3  sample_normal = load_normal(sample_coord);
-#endif
 
         // Compute edge-stopping weights
-        float weight = depth_edge_stopping_weight(center_depth, sample_depth);
-#if defined(USE_NORMAL_EDGE_STOPPING)          
-        weight *= normal_edge_stopping_weight(center_normal, sample_normal);
-#endif
-
+        float weight = depth_edge_stopping_weight(center_depth, sample_depth) * normal_edge_stopping_weight(center_normal, sample_normal);        
+ 
         // Accumulate samples and weights
         total_ao += weight * sample_ao;
         total_weight += weight;

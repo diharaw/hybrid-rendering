@@ -76,6 +76,7 @@ private:
 
     struct RecurrentBlur
     {
+        bool                         self_stabilize = true;
         int32_t                      blur_radius = 5;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
