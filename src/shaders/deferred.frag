@@ -68,6 +68,7 @@ layout(push_constant) uniform PushConstants
     int shadow;
     int ao;
     int reflections;
+    int gi;
 }
 u_PushConstants;
 
@@ -272,7 +273,7 @@ void main()
     vec3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
 
-    vec3 irradiance = textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb; //evaluate_sh9_irradiance(N);
+    vec3 irradiance = u_PushConstants.gi == 1 ? textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb : evaluate_sh9_irradiance(N);
     vec3 diffuse    = irradiance * albedo;
 
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.

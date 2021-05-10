@@ -174,7 +174,7 @@ float recurrent_blur(vec2 tex_coord, RNG rng)
         vec3  sample_normal = textureLod(s_GBuffer2, sample_tex_coord, G_BUFFER_MIP).rgb;
 
         // Compute edge-stopping weights
-        float weight = depth_edge_stopping_weight(center_depth, sample_depth) * normal_edge_stopping_weight(center_normal, sample_normal);
+        float weight = depth_edge_stopping_weight(center_depth, sample_depth) * 
 
         // Accumulate samples and weights
         total_ao += weight * sample_ao;

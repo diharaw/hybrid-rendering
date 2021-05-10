@@ -90,9 +90,10 @@ struct SkyboxPushConstants
 
 struct DeferredShadingPushConstants
 {
-    int shadows;
-    int ao;
-    int reflections;
+    int shadows     = 1;
+    int ao          = 1;
+    int reflections = 1;
+    int gi = 1;
 };
 
 struct TAAPushConstants
@@ -295,12 +296,14 @@ protected:
                     if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("RTR");
+                        ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                         m_common_resources->reflection_denoiser->gui();
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("RTR");
+                        ImGui::Checkbox("Enabled", &m_rtgi_enabled);
                         ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
                         ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
                         ImGui::SliderInt("Max Bounces", &m_ray_traced_gi_max_ray_bounces, 1, 4);
@@ -2103,6 +2106,7 @@ private:
         push_constants.shadows     = (float)m_rt_shadows_enabled;
         push_constants.ao          = (float)m_ray_traced_ao->enabled();
         push_constants.reflections = (float)m_rt_reflections_enabled;
+        push_constants.gi          = (float)m_rtgi_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -2467,6 +2471,7 @@ private:
     float m_ray_traced_reflections_sigma_max                   = 0.01f;
 
     // Ray Traced Global Illumination
+    bool    m_rtgi_enabled                  = true;
     float   m_ray_traced_gi_bias            = 0.1f;
     int32_t m_ray_traced_gi_max_ray_bounces = 1;
     bool    m_ray_traced_gi_sample_sky      = false;

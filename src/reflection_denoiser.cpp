@@ -51,11 +51,12 @@ void ReflectionDenoiser::gui()
     {
         //ImGui::Text("Spatial Reconstruction");
         //m_spatial_reconstruction->gui();
-    } {
+    } 
+    {
         ImGui::PushID("TemporalPrePass");
         ImGui::Separator();
-        ImGui::Checkbox("Enable", &m_use_temporal_pre_pass);
         ImGui::Text("Temporal Pre Pass");
+        ImGui::Checkbox("Enable", &m_use_temporal_pre_pass);
         m_temporal_pre_pass->gui();
         ImGui::PopID();
     }
@@ -67,10 +68,12 @@ void ReflectionDenoiser::gui()
         ImGui::PopID();
     }
     {
+        ImGui::PushID("BilateralBlurPass");
         ImGui::Separator();
         ImGui::Text("Bilateral Blur");
         ImGui::Checkbox("Enable", &m_use_bilateral_blur);
         m_bilateral_blur->gui();
+        ImGui::PopID();
     }
 }
 

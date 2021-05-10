@@ -29,6 +29,7 @@ private:
     void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void downsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
     void recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
@@ -61,6 +62,29 @@ private:
         dw::vk::DescriptorSet::Ptr       write_ds[2];
         dw::vk::DescriptorSet::Ptr       read_ds[2];
         dw::vk::DescriptorSet::Ptr       output_read_ds[2];
+        dw::vk::DescriptorSet::Ptr       output_bilinear_read_ds[2];
+    };
+
+    struct Downsample
+    {
+        dw::vk::PipelineLayout::Ptr      pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
+        dw::vk::ImageView::Ptr       image_view_mip1[2];
+        dw::vk::ImageView::Ptr       image_view_mip2[2];
+        dw::vk::ImageView::Ptr       image_view_mip3[2];
+        dw::vk::ImageView::Ptr       image_view_mip4[2];
+        dw::vk::DescriptorSet::Ptr   write_ds[2];
+    };
+
+    struct HistoryFix
+    {
+        dw::vk::PipelineLayout::Ptr  layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       image_view;
+        dw::vk::DescriptorSet::Ptr   read_ds;
+        dw::vk::DescriptorSet::Ptr   write_ds;
     };
 
     struct GaussianBlur
@@ -76,14 +100,28 @@ private:
 
     struct RecurrentBlur
     {
+        bool                         feedback       = true;
         bool                         self_stabilize = true;
-        int32_t                      blur_radius = 5;
+        int32_t                      blur_radius = 30;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image;
         dw::vk::ImageView::Ptr       image_view;
         dw::vk::DescriptorSet::Ptr   read_ds;
         dw::vk::DescriptorSet::Ptr   write_ds;
+    };
+
+    struct TemporalStabilization
+    {
+        float                            alpha = 0.01f;
+        dw::vk::ComputePipeline::Ptr     pipeline;
+        dw::vk::PipelineLayout::Ptr      pipeline_layout;
+        dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
+        dw::vk::Image::Ptr               image[2];
+        dw::vk::ImageView::Ptr           image_view[2];
+        dw::vk::DescriptorSet::Ptr       write_ds[2];
+        dw::vk::DescriptorSet::Ptr       read_ds[2];
     };
 
     struct Upsample
@@ -105,7 +143,10 @@ private:
     bool                           m_use_recurrent_blur = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
+    Downsample                     m_downsample;
+    HistoryFix                     m_history_fix;
     GaussianBlur                   m_gaussian_blur;
     RecurrentBlur                  m_recurrent_blur;
+    TemporalStabilization          m_temporal_stabilization;
     Upsample                       m_upsample;
 };
