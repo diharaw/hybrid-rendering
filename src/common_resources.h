@@ -15,11 +15,18 @@ class SVGFDenoiser;
 class ReflectionDenoiser;
 class DiffuseDenoiser;
 
+enum SamplerType
+{
+    SAMPLER_WHITE_NOISE,
+    SAMPLER_BLUE_NOISE_DISTRIBUTION
+};
+
 struct CommonResources
 {
     bool      first_frame = true;
     bool      ping_pong   = false;
     int32_t   num_frames  = 0;
+    SamplerType sampler_type = SAMPLER_WHITE_NOISE;
     size_t    ubo_size    = 0;
     glm::vec4 z_buffer_params;
 
@@ -40,6 +47,9 @@ struct CommonResources
     dw::vk::ImageView::Ptr           blue_noise_view_1;
     dw::vk::Image::Ptr               blue_noise_image_2;
     dw::vk::ImageView::Ptr           blue_noise_view_2;
+    dw::vk::Buffer::Ptr              bnd_sobol_buffer;
+    dw::vk::Buffer::Ptr              bnd_scrambling_tile_buffer;
+    dw::vk::Buffer::Ptr              bnd_ranking_tile_buffer;
 
     // Denoisers
     std::unique_ptr<SVGFDenoiser>       svgf_shadow_denoiser;

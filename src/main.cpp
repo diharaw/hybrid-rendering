@@ -10,6 +10,7 @@
 #include "reflection_denoiser.h"
 #include "svgf_denoiser.h"
 #include "utilities.h"
+#include "blue_noise_distribution.h"
 
 enum SceneType
 {
@@ -34,6 +35,7 @@ enum VisualizationType
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
 
+const std::vector<std::string> sampler_types = { "White Noise", "Blue Noise Distribution" };
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
 
@@ -71,6 +73,7 @@ struct ReflectionsPushConstants
 {
     float    bias;
     uint32_t num_frames;
+    uint32_t sampler_type;
 };
 
 struct GIPushConstants
@@ -181,6 +184,7 @@ protected:
         m_common_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
         m_common_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
+        create_blue_noise_buffer();
         create_output_images();
         create_descriptor_set_layouts();
         create_descriptor_sets();
@@ -278,6 +282,24 @@ protected:
                         ImGui::InputFloat3("Direction", &m_light_direction.x);
                         ImGui::Checkbox("Animation", &m_light_animation);
                     }
+                    if (ImGui::CollapsingHeader("Common"))
+                    {
+                        if (ImGui::BeginCombo("Sampler", sampler_types[m_common_resources->sampler_type].c_str()))
+                        {
+                            for (uint32_t i = 0; i < sampler_types.size(); i++)
+                            {
+                                const bool is_selected = (i == m_common_resources->sampler_type);
+
+                                if (ImGui::Selectable(sampler_types[i].c_str(), is_selected))
+                                    m_common_resources->sampler_type = (SamplerType)i;
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                    }
                     if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("RTSS");
@@ -297,6 +319,7 @@ protected:
                     {
                         ImGui::PushID("RTR");
                         ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
+                        ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
                         m_common_resources->reflection_denoiser->gui();
                         ImGui::PopID();
                     }
@@ -351,7 +374,8 @@ protected:
                 m_common_resources->shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
 
             ray_trace_reflection(cmd_buf);
-            m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
+            if (m_ray_traced_reflections_denoise)
+                m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
             ray_trace_gi(cmd_buf);
             m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
             deferred_shading(cmd_buf);
@@ -658,6 +682,15 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void create_blue_noise_buffer()
+    {
+        m_common_resources->bnd_sobol_buffer           = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(bnd::spp4::sobol_256spp_256d), VMA_MEMORY_USAGE_GPU_ONLY, 0, (void*)&bnd::spp4::sobol_256spp_256d[0]);
+        m_common_resources->bnd_ranking_tile_buffer    = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(bnd::spp4::ranking_tile), VMA_MEMORY_USAGE_GPU_ONLY, 0, (void*)&bnd::spp4::ranking_tile[0]);
+        m_common_resources->bnd_scrambling_tile_buffer = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(bnd::spp4::scrambling_tile), VMA_MEMORY_USAGE_GPU_ONLY, 0, (void*)&bnd::spp4::scrambling_tile[0]);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void create_descriptor_set_layouts()
     {
         {
@@ -666,6 +699,9 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
             m_common_resources->per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
             m_common_resources->per_frame_ds_layout->set_name("Per Frame DS Layout");
@@ -784,6 +820,66 @@ private:
                 write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 write_data.pImageInfo      = &image_info;
                 write_data.dstBinding      = 2;
+                write_data.dstSet          = m_common_resources->per_frame_ds->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorBufferInfo buffer_info;
+
+                buffer_info.range  = sizeof(bnd::spp4::sobol_256spp_256d);
+                buffer_info.offset = 0;
+                buffer_info.buffer = m_common_resources->bnd_sobol_buffer->handle();
+
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write_data.pBufferInfo     = &buffer_info;
+                write_data.dstBinding      = 3;
+                write_data.dstSet          = m_common_resources->per_frame_ds->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorBufferInfo buffer_info;
+
+                buffer_info.range  = sizeof(bnd::spp4::ranking_tile);
+                buffer_info.offset = 0;
+                buffer_info.buffer = m_common_resources->bnd_ranking_tile_buffer->handle();
+
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write_data.pBufferInfo     = &buffer_info;
+                write_data.dstBinding      = 4;
+                write_data.dstSet          = m_common_resources->per_frame_ds->handle();
+
+                write_datas.push_back(write_data);
+            }
+
+            {
+                VkDescriptorBufferInfo buffer_info;
+
+                buffer_info.range  = sizeof(bnd::spp4::scrambling_tile);
+                buffer_info.offset = 0;
+                buffer_info.buffer = m_common_resources->bnd_scrambling_tile_buffer->handle();
+
+                VkWriteDescriptorSet write_data;
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write_data.pBufferInfo     = &buffer_info;
+                write_data.dstBinding      = 5;
                 write_data.dstSet          = m_common_resources->per_frame_ds->handle();
 
                 write_datas.push_back(write_data);
@@ -1825,6 +1921,7 @@ private:
 
         push_constants.bias       = m_ray_traced_reflections_bias;
         push_constants.num_frames = m_common_resources->num_frames;
+        push_constants.sampler_type = m_common_resources->sampler_type;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->reflection_rt_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -2116,7 +2213,7 @@ private:
             m_g_buffer->output_ds()->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
-            m_common_resources->reflection_denoiser->output_ds()->handle(),
+            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()
@@ -2264,7 +2361,7 @@ private:
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
-            m_common_resources->reflection_denoiser->output_ds()->handle(),
+            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
         };
 
@@ -2460,6 +2557,7 @@ private:
 
     // Ray Traced Reflections
     float m_ray_traced_reflections_bias                        = 0.1f;
+    bool  m_ray_traced_reflections_denoise = true;
     bool  m_ray_traced_reflections_spatial_resolve             = true;
     bool  m_rt_reflections_enabled                             = true;
     bool  m_rt_reflections_neighborhood_clamping               = true;

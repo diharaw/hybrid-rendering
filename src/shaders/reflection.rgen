@@ -7,6 +7,14 @@
 #define RAY_TRACING
 #include "common.glsl"
 #include "scene_descriptor_set.glsl"
+#include "bnd_sampler.glsl"
+
+// ------------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+#define SAMPLER_WHITE_NOISE 0
+#define SAMPLER_BLUE_NOISE_DISTRIBUTION 1
 
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------
@@ -41,6 +49,7 @@ layout(push_constant) uniform PushConstants
 {
     float bias;
     uint  num_frames;
+    uint  sampler_type;
 }
 u_PushConstants;
 
@@ -103,6 +112,18 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 }
 
 // ------------------------------------------------------------------------
+
+vec2 next_sample(ivec2 coord, int index, RNG rng)
+{
+    if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
+        return next_vec2(rng);
+    else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
+        return vec2(bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2), bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2 + 1));
+    else
+        return vec2(0.0f);
+}
+
+// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -148,7 +169,7 @@ void main()
     }
     else
     {
-        vec4 Wh_pdf = importance_sample_ggx(next_vec2(p_PathTracePayload.rng), N, roughness);
+        vec4 Wh_pdf = importance_sample_ggx(next_sample(quarter_res_pixel_coord, 0, p_PathTracePayload.rng), N, roughness);
         pdf         = Wh_pdf.w;
         vec3 Wi     = reflect(-Wo, Wh_pdf.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);

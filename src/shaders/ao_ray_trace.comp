@@ -8,6 +8,7 @@
 #define RAY_TRACING
 #include "common.glsl"
 #include "scene_descriptor_set.glsl"
+#include "bnd_sampler.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -16,6 +17,8 @@
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
 #define G_BUFFER_MIP 1
+#define SAMPLER_WHITE_NOISE 0
+#define SAMPLER_BLUE_NOISE_DISTRIBUTION 1
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -57,6 +60,7 @@ layout(push_constant) uniform PushConstants
     float ray_length;
     float power;
     float bias;
+    uint  sampler_type;
 }
 u_PushConstants;
 
@@ -139,6 +143,18 @@ float query_visibility(vec3 world_pos, vec3 direction)
     return 1.0f;
 }
 
+// ------------------------------------------------------------------------
+
+vec2 next_sample(ivec2 coord, int index, RNG rng)
+{
+    if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
+        return next_vec2(rng);
+    else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
+        return vec2(bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2), bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2 + 1));
+    else
+        return vec2(0.0f);
+}
+
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
@@ -166,9 +182,9 @@ void main()
 
     float ao = 0.0f;
 
-    for (uint i = 0; i < u_PushConstants.num_rays; i++)
+    for (int i = 0; i < u_PushConstants.num_rays; i++)
     {
-        vec2 rnd_sample = next_vec2(rng);
+        vec2 rnd_sample = next_sample(current_coord, i, rng);
 
         vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 

@@ -18,6 +18,7 @@ struct RayTracePushConstants
     float    ray_length;
     float    power;
     float    bias;
+    uint32_t sampler_type;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -84,8 +85,12 @@ void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         clear_images(cmd_buf);
         ray_trace(cmd_buf);
-        denoise(cmd_buf);
-        upsample(cmd_buf);
+
+        if (m_denoise)
+        {
+            denoise(cmd_buf);
+            upsample(cmd_buf);
+        }
     }
 }
 
@@ -95,6 +100,7 @@ void RayTracedAO::gui()
 {
     ImGui::PushID("RTAO");
     ImGui::Checkbox("Enabled", &m_enabled);
+    ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::Checkbox("Recurrent Blur", &m_use_recurrent_blur);
 
     if (m_use_recurrent_blur)
@@ -1020,6 +1026,7 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     push_constants.ray_length = m_ray_trace.ray_length;
     push_constants.power      = m_ray_trace.power;
     push_constants.bias       = m_ray_trace.bias;
+    push_constants.sampler_type       = m_common_resources->sampler_type;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

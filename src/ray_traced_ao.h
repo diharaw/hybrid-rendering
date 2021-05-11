@@ -16,7 +16,7 @@ public:
 
     inline uint32_t                   width() { return m_width; }
     inline uint32_t                   height() { return m_height; }
-    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_upsample.read_ds; }
+    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_denoise ? m_upsample.read_ds : m_ray_trace.read_ds; }
     inline bool                       enabled() { return m_enabled; }
 
 private:
@@ -140,6 +140,7 @@ private:
     uint32_t                       m_width;
     uint32_t                       m_height;
     bool                           m_enabled = true;
+    bool                           m_denoise          = true;
     bool                           m_use_recurrent_blur = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
