@@ -49,6 +49,9 @@ layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Me
 layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
+layout(set = 4, binding = 0) uniform sampler2D s_SobolSequence;
+layout(set = 4, binding = 1) uniform sampler2D s_ScramblingRankingTile;
+
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -150,7 +153,8 @@ vec2 next_sample(ivec2 coord, int index, RNG rng)
     if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
         return next_vec2(rng);
     else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
-        return vec2(bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2), bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2 + 1));
+        return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile), 
+                    sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
     else
         return vec2(0.0f);
 }

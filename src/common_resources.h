@@ -10,6 +10,7 @@
 #include <cubemap_sh_projection.h>
 #include <cubemap_prefilter.h>
 #include <stdexcept>
+#include "blue_noise.h"
 
 class SVGFDenoiser;
 class ReflectionDenoiser;
@@ -39,9 +40,11 @@ struct CommonResources
 
     // Common
     dw::vk::DescriptorSet::Ptr       per_frame_ds;
+    dw::vk::DescriptorSet::Ptr       blue_noise_ds[9];
     dw::vk::DescriptorSetLayout::Ptr per_frame_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr combined_sampler_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr storage_image_ds_layout;
+    dw::vk::DescriptorSetLayout::Ptr blue_noise_ds_layout;
     dw::vk::Buffer::Ptr              ubo;
     dw::vk::Image::Ptr               blue_noise_image_1;
     dw::vk::ImageView::Ptr           blue_noise_view_1;
@@ -50,6 +53,7 @@ struct CommonResources
     dw::vk::Buffer::Ptr              bnd_sobol_buffer;
     dw::vk::Buffer::Ptr              bnd_scrambling_tile_buffer;
     dw::vk::Buffer::Ptr              bnd_ranking_tile_buffer;
+    std::unique_ptr<BlueNoise>       blue_noise;
 
     // Denoisers
     std::unique_ptr<SVGFDenoiser>       svgf_shadow_denoiser;

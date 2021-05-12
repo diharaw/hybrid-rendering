@@ -186,7 +186,7 @@ bool load_prev_data(ivec2 frag_coord, out float prev_ao, out float history_lengt
 
 void main()
 {
-    const ivec2 size          = textureSize(s_Input, G_BUFFER_MIP);
+    const ivec2 size          = textureSize(s_Input, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);

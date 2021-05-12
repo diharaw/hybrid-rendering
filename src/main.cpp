@@ -10,7 +10,6 @@
 #include "reflection_denoiser.h"
 #include "svgf_denoiser.h"
 #include "utilities.h"
-#include "blue_noise_distribution.h"
 
 enum SceneType
 {
@@ -74,6 +73,8 @@ struct ReflectionsPushConstants
     float    bias;
     uint32_t num_frames;
     uint32_t sampler_type;
+    uint32_t vndf;
+    float    trim;
 };
 
 struct GIPushConstants
@@ -184,7 +185,7 @@ protected:
         m_common_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
         m_common_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
-        create_blue_noise_buffer();
+        m_common_resources->blue_noise = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
         create_output_images();
         create_descriptor_set_layouts();
         create_descriptor_sets();
@@ -320,6 +321,9 @@ protected:
                         ImGui::PushID("RTR");
                         ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                         ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
+                        ImGui::Checkbox("VNDF", &m_ray_traced_reflections_vndf);
+                        ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
+                        ImGui::SliderFloat("Lobe Trim", &m_ray_traced_reflections_trim, 0.0f, 1.0f);
                         m_common_resources->reflection_denoiser->gui();
                         ImGui::PopID();
                     }
@@ -682,15 +686,6 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void create_blue_noise_buffer()
-    {
-        m_common_resources->bnd_sobol_buffer           = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(bnd::spp4::sobol_256spp_256d), VMA_MEMORY_USAGE_GPU_ONLY, 0, (void*)&bnd::spp4::sobol_256spp_256d[0]);
-        m_common_resources->bnd_ranking_tile_buffer    = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(bnd::spp4::ranking_tile), VMA_MEMORY_USAGE_GPU_ONLY, 0, (void*)&bnd::spp4::ranking_tile[0]);
-        m_common_resources->bnd_scrambling_tile_buffer = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(bnd::spp4::scrambling_tile), VMA_MEMORY_USAGE_GPU_ONLY, 0, (void*)&bnd::spp4::scrambling_tile[0]);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void create_descriptor_set_layouts()
     {
         {
@@ -699,12 +694,19 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-
+     
             m_common_resources->per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
             m_common_resources->per_frame_ds_layout->set_name("Per Frame DS Layout");
+        }
+
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+
+            m_common_resources->blue_noise_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_common_resources->blue_noise_ds_layout->set_name("Blue Noise DS Layout");
         }
 
         {
@@ -749,6 +751,9 @@ private:
         m_common_resources->rtgi_write_ds          = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
         m_common_resources->rtgi_read_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->deferred_read_ds       = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        
+        for (int i = 0; i < 9; i++)
+            m_common_resources->blue_noise_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->blue_noise_ds_layout);
 
         for (int i = 0; i < 2; i++)
         {
@@ -825,66 +830,6 @@ private:
                 write_datas.push_back(write_data);
             }
 
-            {
-                VkDescriptorBufferInfo buffer_info;
-
-                buffer_info.range  = sizeof(bnd::spp4::sobol_256spp_256d);
-                buffer_info.offset = 0;
-                buffer_info.buffer = m_common_resources->bnd_sobol_buffer->handle();
-
-                VkWriteDescriptorSet write_data;
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                write_data.pBufferInfo     = &buffer_info;
-                write_data.dstBinding      = 3;
-                write_data.dstSet          = m_common_resources->per_frame_ds->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            {
-                VkDescriptorBufferInfo buffer_info;
-
-                buffer_info.range  = sizeof(bnd::spp4::ranking_tile);
-                buffer_info.offset = 0;
-                buffer_info.buffer = m_common_resources->bnd_ranking_tile_buffer->handle();
-
-                VkWriteDescriptorSet write_data;
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                write_data.pBufferInfo     = &buffer_info;
-                write_data.dstBinding      = 4;
-                write_data.dstSet          = m_common_resources->per_frame_ds->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            {
-                VkDescriptorBufferInfo buffer_info;
-
-                buffer_info.range  = sizeof(bnd::spp4::scrambling_tile);
-                buffer_info.offset = 0;
-                buffer_info.buffer = m_common_resources->bnd_scrambling_tile_buffer->handle();
-
-                VkWriteDescriptorSet write_data;
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                write_data.pBufferInfo     = &buffer_info;
-                write_data.dstBinding      = 5;
-                write_data.dstSet          = m_common_resources->per_frame_ds->handle();
-
-                write_datas.push_back(write_data);
-            }
-
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
@@ -931,6 +876,42 @@ private:
             write_data[2].dstSet          = m_common_resources->pbr_ds->handle();
 
             vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
+        }
+
+        // Blue Noise
+        {
+            for (int i = 0; i < 9; i++)
+            {
+                VkDescriptorImageInfo image_info[2];
+
+                image_info[0].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[0].imageView   = m_common_resources->blue_noise->m_sobol_image_view->handle();
+                image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                image_info[1].sampler     = m_vk_backend->nearest_sampler()->handle();
+                image_info[1].imageView   = m_common_resources->blue_noise->m_scrambling_ranking_image_view[i]->handle();
+                image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write_data[2];
+                DW_ZERO_MEMORY(write_data[0]);
+                DW_ZERO_MEMORY(write_data[1]);
+ 
+                write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[0].descriptorCount = 1;
+                write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[0].pImageInfo      = &image_info[0];
+                write_data[0].dstBinding      = 0;
+                write_data[0].dstSet          = m_common_resources->blue_noise_ds[i]->handle();
+
+                write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data[1].descriptorCount = 1;
+                write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data[1].pImageInfo      = &image_info[1];
+                write_data[1].dstBinding      = 1;
+                write_data[1].dstSet          = m_common_resources->blue_noise_ds[i]->handle();
+
+                vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
+            }
         }
 
         // Skybox
@@ -1209,6 +1190,7 @@ private:
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         pl_desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ReflectionsPushConstants));
 
         m_common_resources->reflection_rt_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
@@ -1922,6 +1904,8 @@ private:
         push_constants.bias       = m_ray_traced_reflections_bias;
         push_constants.num_frames = m_common_resources->num_frames;
         push_constants.sampler_type = m_common_resources->sampler_type;
+        push_constants.vndf         = (uint32_t)m_ray_traced_reflections_vndf;
+        push_constants.trim = m_ray_traced_reflections_trim;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->reflection_rt_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -1933,10 +1917,11 @@ private:
             m_common_resources->per_frame_ds->handle(),
             m_g_buffer->output_ds()->handle(),
             m_common_resources->pbr_ds->handle(),
-            m_common_resources->skybox_ds->handle()
+            m_common_resources->skybox_ds->handle(),
+            m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->reflection_rt_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->reflection_rt_pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
         auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
 
@@ -2558,6 +2543,7 @@ private:
     // Ray Traced Reflections
     float m_ray_traced_reflections_bias                        = 0.1f;
     bool  m_ray_traced_reflections_denoise = true;
+    bool  m_ray_traced_reflections_vndf                     = false;
     bool  m_ray_traced_reflections_spatial_resolve             = true;
     bool  m_rt_reflections_enabled                             = true;
     bool  m_rt_reflections_neighborhood_clamping               = true;
@@ -2567,6 +2553,7 @@ private:
     float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;
     float m_ray_traced_reflections_sigma_min                   = 0.001f;
     float m_ray_traced_reflections_sigma_max                   = 0.01f;
+    float m_ray_traced_reflections_trim                   = 1.0f;
 
     // Ray Traced Global Illumination
     bool    m_rtgi_enabled                  = true;

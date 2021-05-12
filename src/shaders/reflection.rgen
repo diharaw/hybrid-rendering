@@ -13,6 +13,7 @@
 // DEFINES ----------------------------------------------------------------
 // ------------------------------------------------------------------------
 
+#define G_BUFFER_MIP 1
 #define SAMPLER_WHITE_NOISE 0
 #define SAMPLER_BLUE_NOISE_DISTRIBUTION 1
 
@@ -41,6 +42,9 @@ layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Me
 layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
+layout(set = 6, binding = 0) uniform sampler2D s_SobolSequence;
+layout(set = 6, binding = 1) uniform sampler2D s_ScramblingRankingTile;
+
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -50,6 +54,8 @@ layout(push_constant) uniform PushConstants
     float bias;
     uint  num_frames;
     uint  sampler_type;
+    uint vndf;
+    float trim;
 }
 u_PushConstants;
 
@@ -61,6 +67,29 @@ layout(location = 0) rayPayloadEXT ReflectionPayload p_PathTracePayload;
 
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+vec2 sample_disk(vec2 Xi)
+{
+	float theta = 2 * M_PI * Xi.x;
+	float radius = sqrt(Xi.y);
+	return radius * vec2(cos(theta), sin(theta));
+}
+
+// ------------------------------------------------------------------------
+
+mat3 get_tangent_basis(vec3 TangentZ)
+{
+    const float Sign = TangentZ.z >= 0 ? 1 : -1;
+    const float a = -1.0f/(Sign + TangentZ.z);
+    const float b = TangentZ.x * TangentZ.y * a;
+	
+    vec3 TangentX = { 1 + Sign * a * pow(TangentZ.x, 2), Sign * b, -Sign * TangentZ.x };
+    vec3 TangentY = { b, Sign + a * pow(TangentZ.y, 2), -TangentZ.y };
+
+    return mat3(TangentX, TangentY, TangentZ);
+}
+
 // ------------------------------------------------------------------------
 
 vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
@@ -94,6 +123,30 @@ vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
 
 // ------------------------------------------------------------------------
 
+vec4 sampleGGXVNDF(vec3 Ve, float alpha_x, float alpha_y, float U1, float U2)
+{
+	// Section 3.2: transforming the view direction to the hemisphere configuration
+	vec3 Vh = normalize(vec3(alpha_x * Ve.x, alpha_y * Ve.y, Ve.z));
+	// Section 4.1: orthonormal basis (with special case if cross product is zero)
+	float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+	vec3 T1 = lensq > 0 ? vec3(-Vh.y, Vh.x, 0) * inversesqrt(lensq) : vec3(1,0,0);
+	vec3 T2 = cross(Vh, T1);
+	// Section 4.2: parameterization of the projected area
+	float r = sqrt(U1);	
+	float phi = 2.0 * M_PI * U2;	
+	float t1 = r * cos(phi);
+	float t2 = r * sin(phi);
+	float s = 0.5 * (1.0 + Vh.z);
+	t2 = (1.0 - s)*sqrt(1.0 - t1*t1) + s*t2;
+	// Section 4.3: reprojection onto hemisphere
+	vec3 Nh = t1*T1 + t2*T2 + sqrt(max(0.0f, 1.0f - t1*t1 - t2*t2))*Vh;
+	// Section 3.4: transforming the normal back to the ellipsoid configuration
+	vec3 Ne = normalize(vec3(alpha_x * Nh.x, alpha_y * Nh.y, max(0.0f, Nh.z)));	
+	return vec4(Ne, 0.0f);
+}
+
+// ------------------------------------------------------------------------
+
 vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 {
     // Take texture coordinate and remap to [-1.0, 1.0] range.
@@ -118,7 +171,8 @@ vec2 next_sample(ivec2 coord, int index, RNG rng)
     if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
         return next_vec2(rng);
     else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
-        return vec2(bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2), bnd_sampler(coord, int(u_PushConstants.num_frames), index * 2 + 1));
+        return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile), 
+                    sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
     else
         return vec2(0.0f);
 }
@@ -131,25 +185,22 @@ void main()
 {
     p_PathTracePayload.rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
 
-    const ivec2 quarter_res_pixel_coord = ivec2(gl_LaunchIDEXT.xy);
-    const ivec2 noise_coord             = ((quarter_res_pixel_coord / 2) * (int(u_PushConstants.num_frames) / 2) * ivec2(3, 7)) & 31;
-    const int   subpixel_idx            = int(texelFetch(s_BlueNoise1, noise_coord, 0).r * 3.0f) + int(u_PushConstants.num_frames);
-    const ivec2 full_res_pixel_coord    = quarter_res_pixel_coord * 2 + ivec2(subpixel_idx & 1, (subpixel_idx >> 1) & 1);
-    const ivec2 full_res_size           = ivec2(gl_LaunchSizeEXT.xy) * 2;
-    const vec2  pixel_center            = vec2(full_res_pixel_coord) + vec2(0.5);
-    const vec2  tex_coord               = pixel_center / vec2(full_res_size);
+    const ivec2 size          = textureSize(s_GBuffer1, G_BUFFER_MIP);
+    const ivec2 current_coord = ivec2(gl_LaunchIDEXT.xy);
+    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(size);
 
-    float depth = texelFetch(s_GBufferDepth, full_res_pixel_coord, 0).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
 
     if (depth == 1.0f)
     {
-        imageStore(i_Color, quarter_res_pixel_coord, vec4(0.0f, 0.0f, 0.0f, -1.0f));
+        imageStore(i_Color, current_coord, vec4(0.0f, 0.0f, 0.0f, -1.0f));
         return;
     }
 
-    float roughness = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).a;
+    float roughness = texelFetch(s_GBuffer1, current_coord, G_BUFFER_MIP).a;
     vec3  P         = world_position_from_depth(tex_coord, depth);
-    vec3  N         = texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rgb;
+    vec3  N         = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rgb;
     vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
@@ -169,7 +220,15 @@ void main()
     }
     else
     {
-        vec4 Wh_pdf = importance_sample_ggx(next_sample(quarter_res_pixel_coord, 0, p_PathTracePayload.rng), N, roughness);
+        vec2 Xi = next_sample(current_coord, 0, p_PathTracePayload.rng) * u_PushConstants.trim;
+        
+        vec4 Wh_pdf;
+
+        if (u_PushConstants.vndf == 1)
+            Wh_pdf = sampleGGXVNDF(Wo, roughness, roughness, Xi.x, Xi.y);
+        else
+            Wh_pdf = importance_sample_ggx(Xi, N, roughness);
+
         pdf         = Wh_pdf.w;
         vec3 Wi     = reflect(-Wo, Wh_pdf.xyz);
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
@@ -177,7 +236,7 @@ void main()
 
     vec3 clamped_color = min(p_PathTracePayload.color, vec3(0.7f));
 
-    imageStore(i_Color, quarter_res_pixel_coord, vec4(clamped_color, p_PathTracePayload.ray_length));
+    imageStore(i_Color, current_coord, vec4(clamped_color, p_PathTracePayload.ray_length));
 }
 
 // ------------------------------------------------------------------------

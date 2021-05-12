@@ -810,6 +810,7 @@ void RayTracedAO::create_pipeline()
         pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+        pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
 
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracePushConstants));
 
@@ -834,7 +835,7 @@ void RayTracedAO::create_pipeline()
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
-
+        
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalReprojectionPushConstants));
 
         m_temporal_reprojection.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
@@ -1036,10 +1037,11 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_common_resources->current_scene->descriptor_set()->handle(),
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
-        m_g_buffer->output_ds()->handle()
+        m_g_buffer->output_ds()->handle(),
+        m_common_resources->blue_noise_ds[BLUE_NOISE_2SPP]->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 
