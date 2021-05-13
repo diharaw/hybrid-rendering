@@ -1885,7 +1885,7 @@ private:
 
     void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("Ray Traced Reflections", cmd_buf);
+        DW_SCOPED_SAMPLE("Stochastic Reflections", cmd_buf);
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
