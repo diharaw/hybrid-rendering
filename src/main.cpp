@@ -6,6 +6,7 @@
 #include "g_buffer.h"
 #include "ray_traced_shadows.h"
 #include "ray_traced_ao.h"
+#include "ssa_reflections.h"
 #include "diffuse_denoiser.h"
 #include "reflection_denoiser.h"
 #include "svgf_denoiser.h"
@@ -28,6 +29,12 @@ enum VisualizationType
     VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE
 };
 
+enum ReflectionsType
+{
+    REFLECTIONS_STOCHASTIC,
+    REFLECTIONS_SSA
+};
+
 #define NUM_PILLARS 6
 #define HALTON_SAMPLES 16
 #define GBUFFER_MIP_LEVELS 8
@@ -37,6 +44,7 @@ enum VisualizationType
 const std::vector<std::string> sampler_types = { "White Noise", "Blue Noise Distribution" };
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
+const std::vector<std::string> reflections_types         = { "Stochasitc", "SSa" };
 
 struct Light
 {
@@ -193,6 +201,8 @@ protected:
         m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
         m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ssa_reflections = std::unique_ptr<SSaReflections>(new SSaReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
+
         create_render_passes();
         create_framebuffers();
         create_deferred_pipeline();
@@ -319,12 +329,34 @@ protected:
                     if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("RTR");
-                        ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
-                        ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
-                        ImGui::Checkbox("VNDF", &m_ray_traced_reflections_vndf);
-                        ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
-                        ImGui::SliderFloat("Lobe Trim", &m_ray_traced_reflections_trim, 0.0f, 1.0f);
-                        m_common_resources->reflection_denoiser->gui();
+
+                        if (ImGui::BeginCombo("Type", reflections_types[m_reflections_type].c_str()))
+                        {
+                            for (uint32_t i = 0; i < reflections_types.size(); i++)
+                            {
+                                const bool is_selected = (i == m_reflections_type);
+
+                                if (ImGui::Selectable(reflections_types[i].c_str(), is_selected))
+                                    m_reflections_type = (ReflectionsType)i;
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        if (m_reflections_type == REFLECTIONS_STOCHASTIC)
+                        {
+                            ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
+                            ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
+                            ImGui::Checkbox("VNDF", &m_ray_traced_reflections_vndf);
+                            ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
+                            ImGui::SliderFloat("Lobe Trim", &m_ray_traced_reflections_trim, 0.0f, 1.0f);
+                            m_common_resources->reflection_denoiser->gui();
+                        }
+                        else
+                            m_ssa_reflections->gui();
+                        
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
@@ -377,9 +409,16 @@ protected:
             else
                 m_common_resources->shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
 
-            ray_trace_reflection(cmd_buf);
-            if (m_ray_traced_reflections_denoise)
-                m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
+            if (m_reflections_type == REFLECTIONS_STOCHASTIC)
+            {
+                ray_trace_reflection(cmd_buf);
+
+                if (m_ray_traced_reflections_denoise)
+                    m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
+            }
+            else
+                m_ssa_reflections->render(cmd_buf);
+
             ray_trace_gi(cmd_buf);
             m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
             deferred_shading(cmd_buf);
@@ -405,6 +444,7 @@ protected:
         m_g_buffer.reset();
         m_ray_traced_shadows.reset();
         m_ray_traced_ao.reset();
+        m_ssa_reflections.reset();
         m_common_resources.reset();
     }
 
@@ -2198,7 +2238,7 @@ private:
             m_g_buffer->output_ds()->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
-            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
+            m_reflections_type == REFLECTIONS_STOCHASTIC ? (m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle()) : m_ssa_reflections->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()
@@ -2346,7 +2386,7 @@ private:
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
-            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
+            m_reflections_type == REFLECTIONS_STOCHASTIC ? (m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle()) : m_ssa_reflections->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
         };
 
@@ -2486,6 +2526,9 @@ private:
     std::unique_ptr<GBuffer>          m_g_buffer;
     std::unique_ptr<RayTracedShadows> m_ray_traced_shadows;
     std::unique_ptr<RayTracedAO>      m_ray_traced_ao;
+    std::unique_ptr<SSaReflections>   m_ssa_reflections;
+
+    ReflectionsType m_reflections_type = REFLECTIONS_STOCHASTIC;
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;

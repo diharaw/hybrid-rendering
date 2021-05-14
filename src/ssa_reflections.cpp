@@ -3,13 +3,15 @@
 #include "g_buffer.h"
 #include <profiler.h>
 #include <macros.h>
+#include <imgui.h>
 
-#define MAX_MIP_LEVELS 8
+#define MAX_MIP_LEVELS 1
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct RayTracePushConstants
 {
+    uint32_t num_frames;
     float bias;
 };
 
@@ -45,13 +47,24 @@ void SSaReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+void SSaReflections::gui()
+{
+    ImGui::PushID("SSaReflections");
+   
+    ImGui::InputFloat("Bias", &m_bias);
+    
+    ImGui::PopID();
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
 
     auto backend = m_backend.lock();
 
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS, 0, 1 };
 
     // Transition ray tracing output image back to general layout
     dw::vk::utilities::set_image_layout(
@@ -65,6 +78,7 @@ void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
+    push_constants.num_frames = m_common_resources->num_frames;
     push_constants.bias = m_bias;
 
     vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
@@ -139,8 +153,11 @@ void SSaReflections::create_images()
     m_ray_trace_image = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
     m_ray_trace_image->set_name("SSa Reflection RT Color Image");
 
-    m_ray_trace_view = dw::vk::ImageView::create(vk_backend, m_ray_trace_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
-    m_ray_trace_view->set_name("SSa Reflection RT Color Image View");
+    m_ray_trace_write_view = dw::vk::ImageView::create(vk_backend, m_ray_trace_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
+    m_ray_trace_write_view->set_name("SSa Reflection RT Color Write Image View");
+
+    m_ray_trace_read_view = dw::vk::ImageView::create(vk_backend, m_ray_trace_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
+    m_ray_trace_read_view->set_name("SSa Reflection RT Color Read Image View");
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -170,7 +187,7 @@ void SSaReflections::write_descriptor_sets()
         VkDescriptorImageInfo storage_image_info;
 
         storage_image_info.sampler     = VK_NULL_HANDLE;
-        storage_image_info.imageView   = m_ray_trace_view->handle();
+        storage_image_info.imageView   = m_ray_trace_write_view->handle();
         storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
         image_infos.push_back(storage_image_info);
@@ -200,7 +217,7 @@ void SSaReflections::write_descriptor_sets()
         VkDescriptorImageInfo sampler_image_info;
 
         sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
-        sampler_image_info.imageView   = m_ray_trace_view->handle();
+        sampler_image_info.imageView   = m_ray_trace_read_view->handle();
         sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         image_infos.push_back(sampler_image_info);

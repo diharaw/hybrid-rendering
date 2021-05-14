@@ -7,7 +7,6 @@
 #define RAY_TRACING
 #include "common.glsl"
 #include "scene_descriptor_set.glsl"
-#include "bnd_sampler.glsl"
 
 // ------------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------------
@@ -46,6 +45,7 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(push_constant) uniform PushConstants
 {
+    uint num_frames;
     float bias;
 }
 u_PushConstants;

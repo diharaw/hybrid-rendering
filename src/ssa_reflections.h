@@ -12,6 +12,7 @@ public:
     ~SSaReflections();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void gui();
 
     inline dw::vk::DescriptorSet::Ptr output_ds() { return m_read_ds; }
 
@@ -32,14 +33,15 @@ private:
     GBuffer*                       m_g_buffer;
     uint32_t                       m_width;
     uint32_t                       m_height;
-    float                          m_bias = 0.01f;
+    float                          m_bias = 0.1f;
 
     dw::vk::DescriptorSet::Ptr      m_ray_tracing_ds;
     dw::vk::DescriptorSet::Ptr      m_read_ds;
     dw::vk::RayTracingPipeline::Ptr m_pipeline;
     dw::vk::PipelineLayout::Ptr     m_pipeline_layout;
     dw::vk::Image::Ptr              m_ray_trace_image;
-    dw::vk::ImageView::Ptr          m_ray_trace_view;
+    dw::vk::ImageView::Ptr          m_ray_trace_write_view;
+    dw::vk::ImageView::Ptr          m_ray_trace_read_view;
     dw::vk::Image::Ptr              m_blurred_image;
     dw::vk::ImageView::Ptr          m_blurred_view;
     dw::vk::Image::Ptr              m_resolved_image;
