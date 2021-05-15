@@ -14,7 +14,7 @@ public:
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gui();
 
-    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_read_ds; }
+    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_ray_trace.read_ds; }
 
 private:
     void create_images();
@@ -22,12 +22,30 @@ private:
     void write_descriptor_sets();
     void create_pipeline();
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void downsample(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void image_pyramid(dw::vk::CommandBuffer::Ptr cmd_buf);
     void blur(dw::vk::CommandBuffer::Ptr cmd_buf);
     void resolve(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
+    struct RayTrace
+    {
+        std::vector<dw::vk::DescriptorSet::Ptr> write_ds;
+        dw::vk::DescriptorSet::Ptr      read_ds;
+        dw::vk::RayTracingPipeline::Ptr pipeline;
+        dw::vk::PipelineLayout::Ptr     pipeline_layout;
+        dw::vk::Image::Ptr              image;
+        std::vector < dw::vk::ImageView::Ptr> write_image_view;
+        dw::vk::ImageView::Ptr          read_image_view;
+        dw::vk::ShaderBindingTable::Ptr sbt;
+    };
+
+    struct ImagePyramid
+    {
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+    };
+
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
@@ -35,16 +53,10 @@ private:
     uint32_t                       m_height;
     float                          m_bias = 0.1f;
 
-    dw::vk::DescriptorSet::Ptr      m_ray_tracing_ds;
-    dw::vk::DescriptorSet::Ptr      m_read_ds;
-    dw::vk::RayTracingPipeline::Ptr m_pipeline;
-    dw::vk::PipelineLayout::Ptr     m_pipeline_layout;
-    dw::vk::Image::Ptr              m_ray_trace_image;
-    dw::vk::ImageView::Ptr          m_ray_trace_write_view;
-    dw::vk::ImageView::Ptr          m_ray_trace_read_view;
+    RayTrace m_ray_trace;
+    ImagePyramid                    m_image_pyramid;
     dw::vk::Image::Ptr              m_blurred_image;
     dw::vk::ImageView::Ptr          m_blurred_view;
     dw::vk::Image::Ptr              m_resolved_image;
     dw::vk::ImageView::Ptr          m_resolved_view;
-    dw::vk::ShaderBindingTable::Ptr m_sbt;
 };

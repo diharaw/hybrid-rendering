@@ -1,0 +1,124 @@
+#version 450
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS_X 32
+#define NUM_THREADS_Y 32
+#define DEPTH_FACTOR 0.5
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D i_Output;
+
+layout(set = 1, binding = 0) uniform sampler2D s_Input;
+
+layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+
+// ------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    vec4 z_buffer_params;
+    uint current_mip;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// CONSTANTS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+const float FLT_EPS = 0.00000001;
+
+const vec2 g_kernel[4] = vec2[](
+    vec2(0.0f, 1.0f),
+    vec2(1.0f, 0.0f),
+    vec2(-1.0f, 0.0f),
+    vec2(0.0, -1.0f));
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+float linear_eye_depth(float z)
+{
+    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
+}
+
+// ------------------------------------------------------------------------
+
+float normal_edge_stopping_weight(vec3 hi_res_normal, vec3 coarse_normal)
+{
+    return pow(abs(dot(coarse_normal, hi_res_normal)), 32);
+}
+
+// ------------------------------------------------------------------------
+
+float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
+{
+    float depth_diff = abs(hi_res_depth - coarse_depth);
+    float d_factor   = depth_diff * DEPTH_FACTOR;
+    return exp(-(d_factor * d_factor));
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    const uint target_mip     = u_PushConstants.current_mip + 1;
+    const ivec2 size          = textureSize(s_GBuffer1, u_PushConstants.current_mip);
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(size);
+
+    float depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
+
+    if (depth == 1.0f)
+    {
+        imageStore(i_Output, current_coord, vec4(0.0f));
+        return;
+    }
+
+    float coarse_depth = linear_eye_depth(textureLod(s_GBufferDepth, tex_coord, target_mip).r);
+    vec3  coarse_normal = textureLod(s_GBuffer2, tex_coord, target_mip).rgb;
+
+    vec3 color    = vec3(0.0f);
+    float total_w = 0.0f;
+
+    for (int i = 0; i < 4; i++)
+    {
+        ivec2 hi_res_tex_coord = current_coord + g_kernel[i];
+        float hi_res_depth     = linear_eye_depth(texelFetch(s_GBufferDepth, hi_res_tex_coord, u_PushConstants.current_mip).r);
+        vec3  hi_res_normal    = texelFetch(s_GBuffer2, hi_res_tex_coord, u_PushConstants.current_mip).rgb;
+
+        float w_depth  = depth_edge_stopping_weight(hi_res_depth, coarse_depth);
+        float w_normal = normal_edge_stopping_weight(hi_res_normal, coarse_normal);
+        float w        = w_depth * w_normal;
+
+        color   += texelFetch(s_Input, hi_res_tex_coord, u_PushConstants.current_mip).rgb * w;
+        total_w += w;
+    }
+
+    color = color / max(total_w, FLT_EPS);
+
+    // Store
+    imageStore(i_Output, current_coord, vec4(color, 1.0f));
+}
+
+// ------------------------------------------------------------------
