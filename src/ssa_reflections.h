@@ -35,13 +35,14 @@ private:
         dw::vk::RayTracingPipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr     pipeline_layout;
         dw::vk::Image::Ptr              image;
-        std::vector < dw::vk::ImageView::Ptr> write_image_view;
-        dw::vk::ImageView::Ptr          read_image_view;
+        std::vector<dw::vk::ImageView::Ptr> single_image_views;
+        dw::vk::ImageView::Ptr          all_image_view;
         dw::vk::ShaderBindingTable::Ptr sbt;
     };
 
     struct ImagePyramid
     {
+        std::vector<dw::vk::DescriptorSet::Ptr> read_ds;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::ComputePipeline::Ptr pipeline;
     };
