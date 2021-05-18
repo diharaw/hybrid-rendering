@@ -27,14 +27,15 @@ layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Me
 layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 
-// ------------------------------------------------------------------
-// PUSH CONSTANTS ---------------------------------------------------
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
 
 layout(push_constant) uniform PushConstants
 {
-    vec4 z_buffer_params;
-    int fine_g_buffer_mip;
+    vec4  z_buffer_params;
+    float radius;
+    int g_buffer_mip;
 }
 u_PushConstants;
 
@@ -42,13 +43,45 @@ u_PushConstants;
 // CONSTANTS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-const float FLT_EPS = 0.00000001;
+#if defined(POISSON_DISK_SAMPLES_16)
 
-const vec2 g_kernel[4] = vec2[](
-    vec2(0.0f, 1.0f),
-    vec2(1.0f, 0.0f),
-    vec2(-1.0f, 0.0f),
-    vec2(0.0, -1.0f));
+const int g_num_poisson_disk_samples = 16;
+
+const vec2 g_poisson_disk_samples[16] = vec2[](
+    vec2(0.728111f, 0.346049f),
+    vec2(0.0424818f, 0.94351f),
+    vec2(0.150121f, 0.079989f),
+    vec2(0.6068f, 0.836695f),
+    vec2(0.249214f, 0.451796f),
+    vec2(0.91702f, 0.0200201f),
+    vec2(0.523209f, 0.00186163f),
+    vec2(0.964995f, 0.992706f),
+    vec2(0.288522f, 0.776635f),
+    vec2(0.963744f, 0.632191f),
+    vec2(0.531388f, 0.550462f),
+    vec2(0.00152593f, 0.622578f),
+    vec2(0.384838f, 0.989563f),
+    vec2(0.985412f, 0.376415f),
+    vec2(0.339549f, 0.175176f),
+    vec2(0.745964f, 0.609394f)
+);
+
+#else 
+
+const int g_num_poisson_disk_samples = 8;
+
+const vec2 g_poisson_disk_samples[8] = vec2[](
+    vec2(0.222022f, 0.498978f),
+    vec2(0.756462f, 0.52504f),
+    vec2(0.628254f, 0.0187384f),
+    vec2(0.495712f, 0.976287f),
+    vec2(0.0236824f, 0.0350963f),
+    vec2(0.997406f, 0.994263f),
+    vec2(0.0237434f, 0.913358f),
+    vec2(0.989135f, 0.160924f)
+);
+
+#endif
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -61,18 +94,74 @@ float linear_eye_depth(float z)
 
 // ------------------------------------------------------------------------
 
-float normal_edge_stopping_weight(vec3 hi_res_normal, vec3 coarse_normal)
+float normal_edge_stopping_weight(vec3 center_normal, vec3 sample_normal)
 {
-    return pow(abs(dot(coarse_normal, hi_res_normal)), 32);
+    return pow(abs(dot(center_normal, sample_normal)), 32);
 }
 
 // ------------------------------------------------------------------------
 
-float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
+float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 {
-    float depth_diff = abs(hi_res_depth - coarse_depth);
+    float depth_diff = abs(center_lin_depth - sample_lin_depth);
     float d_factor   = depth_diff * DEPTH_FACTOR;
     return exp(-(d_factor * d_factor));
+}
+
+// ------------------------------------------------------------------
+
+vec2 random_rotation(RNG rng)
+{
+    float rot = next_float(rng);
+    return vec2(sin(rot), cos(rot));
+}
+
+// ------------------------------------------------------------------
+
+vec2 rotate_sample(vec2 current_sample, vec2 rot)
+{
+    return vec2(dot(current_sample, vec2(rot.y, -rot.x)), dot(current_sample, rot));
+}
+
+// ------------------------------------------------------------------
+
+float poisson_disk_blur(vec2 tex_coord)
+{
+    const ivec2 size = textureSize(s_Input, 0);
+    const vec2 inv_size = vec2(1.0f / size.x, 1.0f / size.y);
+
+    // Load the center sample depth and normal
+    float center_depth  = linear_eye_depth(textureLod(s_GBufferDepth, tex_coord, u_PushConstants.g_buffer_mip).r);     
+    vec3  center_normal = textureLod(s_GBuffer2, tex_coord, u_PushConstants.g_buffer_mip).rgb;
+
+    float radius = u_PushConstants.radius;
+
+    vec3 total_color     = textureLod(s_Input, tex_coord, 0).rgb;
+    float total_weight = 1.0f;
+
+    for (int i = 0; i < g_num_poisson_disk_samples; i++)
+    {
+        // Remap the poisson sample to [-1.0, +1.0] range
+        vec2 poisson_sample = 2.0f * g_poisson_disk_samples[i] - vec2(1.0f);
+        
+        // Generate sample coordinate
+        vec2 sample_tex_coord  = tex_coord + (poisson_sample * radius * inv_size);
+        
+        // Load cross bilateral samples
+        vec3 sample_color     = textureLod(s_Input, sample_tex_coord, 0).rgb;
+        float sample_depth  = linear_eye_depth(textureLod(s_GBufferDepth, sample_tex_coord, u_PushConstants.g_buffer_mip).r); 
+        vec3  sample_normal = textureLod(s_GBuffer2, sample_tex_coord, u_PushConstants.g_buffer_mip).rgb;
+
+        // Compute edge-stopping weights
+        float weight = depth_edge_stopping_weight(center_depth, sample_depth) * normal_edge_stopping_weight(center_normal, sample_normal);
+
+        // Accumulate samples and weights
+        total_color += weight * sample_ao;
+        total_weight += weight;
+    }
+
+    // Divide by total weight
+    return total_ao / total_weight;
 }
 
 // ------------------------------------------------------------------
@@ -81,16 +170,16 @@ float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
 
 void main()
 {
-    const int fine_g_buffer_mip = u_PushConstants.fine_g_buffer_mip;
-    const int coarse_g_buffer_mip = fine_g_buffer_mip + 1;
+    // Query the G-Buffer image size
+    const ivec2 size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
+
+    // Compute current pixel coord
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
-    const ivec2 fine_size    = textureSize(s_GBuffer1, fine_g_buffer_mip);
-    const ivec2 coarse_size   = textureSize(s_GBuffer1, coarse_g_buffer_mip);
-    const vec2  fine_texel_size    = vec2(1.0f) / vec2(fine_size);
-    const vec2  tex_coord     = pixel_center / vec2(coarse_size);
+    const vec2  tex_coord     = pixel_center / vec2(size);
 
-    float depth = texelFetch(s_GBufferDepth, current_coord, coarse_g_buffer_mip).r;
+    // Skip pixel if it belongs to the background
+    float depth = textureLod(s_GBufferDepth, tex_coord, u_PushConstants.g_buffer_mip).r;
 
     if (depth == 1.0f)
     {
@@ -98,30 +187,11 @@ void main()
         return;
     }
 
-    float coarse_depth = linear_eye_depth(depth);
-    vec3  coarse_normal = texelFetch(s_GBuffer2, current_coord, coarse_g_buffer_mip).rgb;
+    // Blur
+    float ao = poisson_disk_blur(tex_coord);
 
-    vec3 color    = vec3(0.0f);
-    float total_w = 0.0f;
-
-    for (int i = 0; i < 4; i++)
-    {
-        vec2 fine_tex_coord = tex_coord + g_kernel[i] * fine_texel_size;
-        float fine_depth     = linear_eye_depth(textureLod(s_GBufferDepth, fine_tex_coord, fine_g_buffer_mip).r);
-        vec3  fine_normal    = textureLod(s_GBuffer2, fine_tex_coord, fine_g_buffer_mip).rgb;
-
-        float w_depth  = depth_edge_stopping_weight(fine_depth, coarse_depth);
-        float w_normal = normal_edge_stopping_weight(fine_normal, coarse_normal);
-        float w        = w_depth * w_normal;
-
-        color   += textureLod(s_Input, fine_tex_coord, 0).rgb * w;
-        total_w += w;
-    }
-
-    color = color / max(total_w, FLT_EPS);
-
-    // Store
-    imageStore(i_Output, current_coord, vec4(color, 1.0f));
+    // Store blurred ao
+    imageStore(i_Output, current_coord, vec4(ao));
 }
 
 // ------------------------------------------------------------------

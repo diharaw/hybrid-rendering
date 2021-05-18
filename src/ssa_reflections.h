@@ -14,7 +14,7 @@ public:
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gui();
 
-    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_ray_trace.read_ds; }
+    inline dw::vk::DescriptorSet::Ptr output_ds() { return m_blur.read_ds; }
 
 private:
     void create_images();
@@ -47,6 +47,18 @@ private:
         dw::vk::ComputePipeline::Ptr pipeline;
     };
 
+    struct Blur
+    {
+        float                                   radius;
+        std::vector<dw::vk::DescriptorSet::Ptr> write_ds;
+        dw::vk::DescriptorSet::Ptr              read_ds;
+        dw::vk::PipelineLayout::Ptr             pipeline_layout;
+        dw::vk::ComputePipeline::Ptr            pipeline;
+        dw::vk::Image::Ptr                      image;
+        std::vector<dw::vk::ImageView::Ptr>     single_image_views;
+        dw::vk::ImageView::Ptr                  all_image_view;
+    };
+
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
@@ -56,8 +68,5 @@ private:
 
     RayTrace m_ray_trace;
     ImagePyramid                    m_image_pyramid;
-    dw::vk::Image::Ptr              m_blurred_image;
-    dw::vk::ImageView::Ptr          m_blurred_view;
-    dw::vk::Image::Ptr              m_resolved_image;
-    dw::vk::ImageView::Ptr          m_resolved_view;
+    Blur                            m_blur;
 };
