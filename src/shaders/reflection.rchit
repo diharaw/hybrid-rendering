@@ -267,7 +267,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         float point_radius = light_radius(light) * sqrt(rnd_sample.x);
         float point_angle  = rnd_sample.y * 2.0f * M_PI;
         vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-        vec3  Wi           = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+        vec3  Wi           = light_direction(light);//normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
 
         vec3 Wh = normalize(Wo + Wi);
 
@@ -284,7 +284,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
                     tmax,
                     2);
 
-        Li *= float(p_Visibility);
+        //Li *= float(p_Visibility);
 
         vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
         float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
@@ -318,7 +318,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
         float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
 
-        L += (brdf * cos_theta * Li) / pdf;
+        //L += (brdf * cos_theta * Li) / pdf;
     }
 
     return L;

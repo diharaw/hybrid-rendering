@@ -110,22 +110,7 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 // ------------------------------------------------------------------
 
-vec2 random_rotation(RNG rng)
-{
-    float rot = next_float(rng);
-    return vec2(sin(rot), cos(rot));
-}
-
-// ------------------------------------------------------------------
-
-vec2 rotate_sample(vec2 current_sample, vec2 rot)
-{
-    return vec2(dot(current_sample, vec2(rot.y, -rot.x)), dot(current_sample, rot));
-}
-
-// ------------------------------------------------------------------
-
-float poisson_disk_blur(vec2 tex_coord)
+vec3 poisson_disk_blur(vec2 tex_coord)
 {
     const ivec2 size = textureSize(s_Input, 0);
     const vec2 inv_size = vec2(1.0f / size.x, 1.0f / size.y);
@@ -156,12 +141,12 @@ float poisson_disk_blur(vec2 tex_coord)
         float weight = depth_edge_stopping_weight(center_depth, sample_depth) * normal_edge_stopping_weight(center_normal, sample_normal);
 
         // Accumulate samples and weights
-        total_color += weight * sample_ao;
+        total_color += weight * sample_color;
         total_weight += weight;
     }
 
     // Divide by total weight
-    return total_ao / total_weight;
+    return total_color / total_weight;
 }
 
 // ------------------------------------------------------------------
@@ -188,10 +173,10 @@ void main()
     }
 
     // Blur
-    float ao = poisson_disk_blur(tex_coord);
+    vec3 color = poisson_disk_blur(tex_coord);
 
     // Store blurred ao
-    imageStore(i_Output, current_coord, vec4(ao));
+    imageStore(i_Output, current_coord, vec4(color, 1.0f));
 }
 
 // ------------------------------------------------------------------

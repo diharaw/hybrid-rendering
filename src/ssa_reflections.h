@@ -49,7 +49,7 @@ private:
 
     struct Blur
     {
-        float                                   radius;
+        int32_t                                 radius = 2;
         std::vector<dw::vk::DescriptorSet::Ptr> write_ds;
         dw::vk::DescriptorSet::Ptr              read_ds;
         dw::vk::PipelineLayout::Ptr             pipeline_layout;

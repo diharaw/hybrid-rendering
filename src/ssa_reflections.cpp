@@ -71,6 +71,7 @@ void SSaReflections::gui()
     ImGui::PushID("SSaReflections");
    
     ImGui::InputFloat("Bias", &m_bias);
+    ImGui::SliderInt("Blur Radius", &m_blur.radius, 1, 5);
     
     ImGui::PopID();
 }
