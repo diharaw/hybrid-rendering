@@ -42,12 +42,13 @@ u_PushConstants;
 // CONSTANTS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-const ivec2 g_offsets[15] = ivec2[](
+const ivec2 g_offsets[16] = ivec2[](
     ivec2(-1, -1),
     ivec2(0, -1),
     ivec2(1, -1),
     ivec2(2, -1),
     ivec2(-1, 0),
+    ivec2(0, 0),
     ivec2(1, 0),
     ivec2(2, 0),
     ivec2(-1, 1),
@@ -87,7 +88,7 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 // ------------------------------------------------------------------
 
-vec3 blur(vec2 tex_coord)
+vec3 poisson_disk_blur(vec2 tex_coord)
 {
     const ivec2 size = textureSize(s_Input, 0);
     const vec2 inv_size = vec2(1.0f / size.x, 1.0f / size.y);
@@ -96,16 +97,18 @@ vec3 blur(vec2 tex_coord)
     float center_depth  = linear_eye_depth(textureLod(s_GBufferDepth, tex_coord, u_PushConstants.g_buffer_mip).r);     
     vec3  center_normal = textureLod(s_GBuffer2, tex_coord, u_PushConstants.g_buffer_mip).rgb;
 
+    float radius = u_PushConstants.radius;
+
     vec3 total_color     = textureLod(s_Input, tex_coord, 0).rgb;
     float total_weight = 1.0f;
 
-    for (int i = 0; i < 15; i++)
+    for (int i = 0; i < g_num_poisson_disk_samples; i++)
     {
         // Remap the poisson sample to [-1.0, +1.0] range
-        vec2 offset = vec2(g_offsets[i]);
+        vec2 poisson_sample = 2.0f * g_poisson_disk_samples[i] - vec2(1.0f);
         
         // Generate sample coordinate
-        vec2 sample_tex_coord  = tex_coord + (offset * inv_size);
+        vec2 sample_tex_coord  = tex_coord + (poisson_sample * radius * inv_size);
         
         // Load cross bilateral samples
         vec3 sample_color     = textureLod(s_Input, sample_tex_coord, 0).rgb;
@@ -138,9 +141,6 @@ void main()
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
-    if (current_coord.x >= size.x  || current_coord.y >= size.y)
-        return;
-
     // Skip pixel if it belongs to the background
     float depth = textureLod(s_GBufferDepth, tex_coord, u_PushConstants.g_buffer_mip).r;
 
@@ -151,7 +151,7 @@ void main()
     }
 
     // Blur
-    vec3 color = blur(tex_coord);
+    vec3 color = poisson_disk_blur(tex_coord);
 
     // Store blurred ao
     imageStore(i_Output, current_coord, vec4(color, 1.0f));

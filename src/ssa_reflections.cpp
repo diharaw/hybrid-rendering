@@ -30,7 +30,6 @@ struct ImagePyramidPushConstants
 struct BlurPushConstants
 {
     glm::vec4 z_buffer_params;
-    float     radius;
     int32_t   g_buffer_mip;
 };
 
@@ -71,8 +70,7 @@ void SSaReflections::gui()
     ImGui::PushID("SSaReflections");
    
     ImGui::InputFloat("Bias", &m_bias);
-    ImGui::SliderInt("Blur Radius", &m_blur.radius, 1, 5);
-    
+
     ImGui::PopID();
 }
 
@@ -90,7 +88,18 @@ void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         // Transition ray tracing output image back to general layout
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_ray_trace.image->handle(),
+            m_ray_trace.color_image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+    }
+
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_ray_trace.hit_distance_image->handle(),
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
@@ -109,7 +118,7 @@ void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkDescriptorSet descriptor_sets[] = {
         m_common_resources->current_scene->descriptor_set()->handle(),
-        m_ray_trace.write_ds[0]->handle(),
+        m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
         m_g_buffer->output_ds()->handle(),
         m_common_resources->pbr_ds->handle(),
@@ -135,7 +144,14 @@ void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_ray_trace.image->handle(),
+            m_ray_trace.color_image->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_ray_trace.hit_distance_image->handle(),
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
@@ -148,8 +164,8 @@ void SSaReflections::image_pyramid(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Image Pyramid", cmd_buf);
 
-    uint32_t w = m_ray_trace.image->width() / 2;
-    uint32_t h = m_ray_trace.image->height() / 2;
+    uint32_t w = m_ray_trace.color_image->width() / 2;
+    uint32_t h = m_ray_trace.color_image->height() / 2;
 
     for (int i = 1; i < MAX_MIP_LEVELS; i++)
     {
@@ -163,7 +179,7 @@ void SSaReflections::image_pyramid(dw::vk::CommandBuffer::Ptr cmd_buf)
         vkCmdPushConstants(cmd_buf->handle(), m_image_pyramid.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
         VkDescriptorSet descriptor_sets[] = {
-            m_ray_trace.write_ds[i]->handle(),
+            m_image_pyramid.write_ds[i]->handle(),
             m_image_pyramid.read_ds[i - 1]->handle(),
             m_g_buffer->output_ds()->handle()
         };
@@ -177,7 +193,7 @@ void SSaReflections::image_pyramid(dw::vk::CommandBuffer::Ptr cmd_buf)
 
             dw::vk::utilities::set_image_layout(
                 cmd_buf->handle(),
-                m_ray_trace.image->handle(),
+                m_ray_trace.color_image->handle(),
                 VK_IMAGE_LAYOUT_GENERAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 subresource_range);
@@ -215,7 +231,6 @@ void SSaReflections::blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         BlurPushConstants push_constants;
 
         push_constants.z_buffer_params   = m_common_resources->z_buffer_params;
-        push_constants.radius          = m_blur.radius;
         push_constants.g_buffer_mip = i + 1;
 
         vkCmdPushConstants(cmd_buf->handle(), m_blur.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -268,19 +283,25 @@ void SSaReflections::create_images()
 
     // Ray Trace
     {
-        m_ray_trace.image = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_ray_trace.image->set_name("SSa Reflection RT Color Image");
+        m_ray_trace.color_image = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_MIP_LEVELS, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.color_image->set_name("SSa Reflection RT Color Image");
 
-        m_ray_trace.single_image_views.resize(MAX_MIP_LEVELS);
+        m_ray_trace.hit_distance_image = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.hit_distance_image->set_name("SSa Reflection RT Hit Distance Image");
+
+        m_ray_trace.hit_distance_image_view = dw::vk::ImageView::create(vk_backend, m_ray_trace.hit_distance_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
+        m_ray_trace.hit_distance_image_view->set_name("SSa Reflection RT Hit Distance Image View"); 
+    
+        m_ray_trace.all_color_image_view = dw::vk::ImageView::create(vk_backend, m_ray_trace.color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
+        m_ray_trace.all_color_image_view->set_name("SSa Reflection RT Color All Image View"); 
+
+         m_ray_trace.single_color_image_views.resize(MAX_MIP_LEVELS);
 
         for (int i = 0; i < MAX_MIP_LEVELS; i++)
         {
-            m_ray_trace.single_image_views[i] = dw::vk::ImageView::create(vk_backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, i, 1);
-            m_ray_trace.single_image_views[i]->set_name("SSa Reflection RT Color Single Image View " + std::to_string(i));
+            m_ray_trace.single_color_image_views[i] = dw::vk::ImageView::create(vk_backend, m_ray_trace.color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, i, 1);
+            m_ray_trace.single_color_image_views[i]->set_name("SSa Reflection RT Color Single Image View " + std::to_string(i));
         }
-
-        m_ray_trace.all_image_view = dw::vk::ImageView::create(vk_backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
-        m_ray_trace.all_image_view->set_name("SSa Reflection RT Color All Image View"); 
     }
 
     // Blur
@@ -309,16 +330,26 @@ void SSaReflections::create_descriptor_sets()
     
     // Ray Trace
     {
-        m_ray_trace.write_ds.resize(MAX_MIP_LEVELS);
+        dw::vk::DescriptorSetLayout::Desc desc;
 
-        for (int i = 0; i < MAX_MIP_LEVELS; i++)
-            m_ray_trace.write_ds[i] = vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+
+        m_ray_trace.write_ds_layout = dw::vk::DescriptorSetLayout::create(vk_backend, desc);
+        m_ray_trace.write_ds_layout->set_name("SSa Reflections RT Write DS Layout");
+
+        m_ray_trace.write_ds = vk_backend->allocate_descriptor_set(m_ray_trace.write_ds_layout);
+
         m_ray_trace.read_ds  = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     }
 
     // Image Pyramid
     {
+        m_image_pyramid.write_ds.resize(MAX_MIP_LEVELS);
+
+        for (int i = 0; i < MAX_MIP_LEVELS; i++)
+            m_image_pyramid.write_ds[i] = vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        
         m_image_pyramid.read_ds.resize(MAX_MIP_LEVELS);
 
         for (int i = 0; i < MAX_MIP_LEVELS; i++)
@@ -344,19 +375,18 @@ void SSaReflections::write_descriptor_sets()
 
     // Ray Trace
     {
-        for (int i = 0; i < MAX_MIP_LEVELS; i++)
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
         {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(1);
-            write_datas.reserve(1);
-
             VkDescriptorImageInfo storage_image_info;
 
             storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_ray_trace.single_image_views[i]->handle();
+            storage_image_info.imageView   = m_ray_trace.single_color_image_views[0]->handle();
             storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
             image_infos.push_back(storage_image_info);
@@ -368,12 +398,31 @@ void SSaReflections::write_descriptor_sets()
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             write_data.pImageInfo      = &image_infos.back();
             write_data.dstBinding      = 0;
-            write_data.dstSet          = m_ray_trace.write_ds[i]->handle();
+            write_data.dstSet          = m_ray_trace.write_ds->handle();
 
             write_datas.push_back(write_data);
-
-            vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
+
+        {
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_ray_trace.hit_distance_image_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            image_infos.push_back(storage_image_info);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_ray_trace.write_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
     {
@@ -387,7 +436,7 @@ void SSaReflections::write_descriptor_sets()
         VkDescriptorImageInfo sampler_image_info;
 
         sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
-        sampler_image_info.imageView   = m_ray_trace.all_image_view->handle();
+        sampler_image_info.imageView   = m_ray_trace.all_color_image_view->handle();
         sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         image_infos.push_back(sampler_image_info);
@@ -417,10 +466,43 @@ void SSaReflections::write_descriptor_sets()
             image_infos.reserve(1);
             write_datas.reserve(1);
 
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_ray_trace.single_color_image_views[i]->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            image_infos.push_back(storage_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_image_pyramid.write_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+
+            vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+        }
+    }
+
+    {
+        for (int i = 0; i < MAX_MIP_LEVELS; i++)
+        {
+            std::vector<VkDescriptorImageInfo> image_infos;
+            std::vector<VkWriteDescriptorSet>  write_datas;
+            VkWriteDescriptorSet               write_data;
+
+            image_infos.reserve(1);
+            write_datas.reserve(1);
+
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
-            sampler_image_info.imageView   = m_ray_trace.single_image_views[i]->handle();
+            sampler_image_info.sampler     = vk_backend->bilinear_sampler()->handle();
+            sampler_image_info.imageView   = m_ray_trace.single_color_image_views[i]->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             image_infos.push_back(sampler_image_info);
@@ -545,7 +627,7 @@ void SSaReflections::create_pipeline()
         dw::vk::PipelineLayout::Desc pl_desc;
 
         pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_ray_trace.write_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         pl_desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);

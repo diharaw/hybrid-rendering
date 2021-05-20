@@ -90,6 +90,9 @@ void main()
     const vec2  fine_texel_size    = vec2(1.0f) / vec2(fine_size);
     const vec2  tex_coord     = pixel_center / vec2(coarse_size);
 
+    if (current_coord.x >= coarse_size.x || current_coord.y >= coarse_size.y)
+        return;
+
     float depth = texelFetch(s_GBufferDepth, current_coord, coarse_g_buffer_mip).r;
 
     if (depth == 1.0f)

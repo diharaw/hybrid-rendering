@@ -3,7 +3,7 @@
 #include <profiler.h>
 #include <macros.h>
 
-#define GBUFFER_MIP_LEVELS 8
+#define GBUFFER_MIP_LEVELS 9
 
 struct GBufferPushConstants
 {
