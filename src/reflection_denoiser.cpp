@@ -51,8 +51,7 @@ void ReflectionDenoiser::gui()
     {
         //ImGui::Text("Spatial Reconstruction");
         //m_spatial_reconstruction->gui();
-    } 
-    {
+    } {
         ImGui::PushID("TemporalPrePass");
         ImGui::Separator();
         ImGui::Text("Temporal Pre Pass");

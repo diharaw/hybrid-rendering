@@ -14,7 +14,7 @@
 struct RayTracePushConstants
 {
     uint32_t num_frames;
-    float bias;
+    float    bias;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -31,6 +31,15 @@ struct BlurPushConstants
 {
     glm::vec4 z_buffer_params;
     int32_t   g_buffer_mip;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+struct ResolvePushConstants
+{
+    glm::vec4 z_buffer_params;
+    float     p;
+    int       debug_mip_level;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -68,8 +77,10 @@ void SSaReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 void SSaReflections::gui()
 {
     ImGui::PushID("SSaReflections");
-   
+
     ImGui::InputFloat("Bias", &m_bias);
+    ImGui::SliderFloat("P", &m_resolve.p, 0.0f, 1.0f);
+    ImGui::Checkbox("Visualize Mip Level", &m_resolve.debug_mip_level);
 
     ImGui::PopID();
 }
@@ -110,7 +121,7 @@ void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     RayTracePushConstants push_constants;
 
     push_constants.num_frames = m_common_resources->num_frames;
-    push_constants.bias = m_bias;
+    push_constants.bias       = m_bias;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -138,7 +149,7 @@ void SSaReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
     vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
-    
+
     {
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -173,7 +184,7 @@ void SSaReflections::image_pyramid(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         ImagePyramidPushConstants push_constants;
 
-        push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+        push_constants.z_buffer_params   = m_common_resources->z_buffer_params;
         push_constants.fine_g_buffer_mip = i;
 
         vkCmdPushConstants(cmd_buf->handle(), m_image_pyramid.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -230,8 +241,8 @@ void SSaReflections::blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         BlurPushConstants push_constants;
 
-        push_constants.z_buffer_params   = m_common_resources->z_buffer_params;
-        push_constants.g_buffer_mip = i + 1;
+        push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+        push_constants.g_buffer_mip    = i + 1;
 
         vkCmdPushConstants(cmd_buf->handle(), m_blur.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -266,6 +277,50 @@ void SSaReflections::blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 void SSaReflections::resolve(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Resolve", cmd_buf);
+
+    auto backend = m_backend.lock();
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_resolve.image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    uint32_t w = m_resolve.image->width();
+    uint32_t h = m_resolve.image->height();
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_resolve.pipeline->handle());
+
+    ResolvePushConstants push_constants;
+
+    push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+    push_constants.p               = m_resolve.p;
+    push_constants.debug_mip_level               = m_resolve.debug_mip_level;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_resolve.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_resolve.write_ds->handle(),
+        m_resolve.read_ds->handle(),
+        m_g_buffer->output_ds()->handle(),
+        m_common_resources->per_frame_ds->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_resolve.pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(w) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(h) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_resolve.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -290,12 +345,12 @@ void SSaReflections::create_images()
         m_ray_trace.hit_distance_image->set_name("SSa Reflection RT Hit Distance Image");
 
         m_ray_trace.hit_distance_image_view = dw::vk::ImageView::create(vk_backend, m_ray_trace.hit_distance_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
-        m_ray_trace.hit_distance_image_view->set_name("SSa Reflection RT Hit Distance Image View"); 
-    
-        m_ray_trace.all_color_image_view = dw::vk::ImageView::create(vk_backend, m_ray_trace.color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
-        m_ray_trace.all_color_image_view->set_name("SSa Reflection RT Color All Image View"); 
+        m_ray_trace.hit_distance_image_view->set_name("SSa Reflection RT Hit Distance Image View");
 
-         m_ray_trace.single_color_image_views.resize(MAX_MIP_LEVELS);
+        m_ray_trace.all_color_image_view = dw::vk::ImageView::create(vk_backend, m_ray_trace.color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
+        m_ray_trace.all_color_image_view->set_name("SSa Reflection RT Color All Image View");
+
+        m_ray_trace.single_color_image_views.resize(MAX_MIP_LEVELS);
 
         for (int i = 0; i < MAX_MIP_LEVELS; i++)
         {
@@ -320,6 +375,15 @@ void SSaReflections::create_images()
         m_blur.all_image_view = dw::vk::ImageView::create(vk_backend, m_blur.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_MIP_LEVELS);
         m_blur.all_image_view->set_name("SSa Reflection Blur Image View");
     }
+
+    // Resolve
+    {
+        m_resolve.image = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_resolve.image->set_name("SSa Reflection Resolve Image");
+
+        m_resolve.image_view = dw::vk::ImageView::create(vk_backend, m_resolve.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
+        m_resolve.image_view->set_name("SSa Reflection Resolve Image View");
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -327,7 +391,7 @@ void SSaReflections::create_images()
 void SSaReflections::create_descriptor_sets()
 {
     auto vk_backend = m_backend.lock();
-    
+
     // Ray Trace
     {
         dw::vk::DescriptorSetLayout::Desc desc;
@@ -340,7 +404,7 @@ void SSaReflections::create_descriptor_sets()
 
         m_ray_trace.write_ds = vk_backend->allocate_descriptor_set(m_ray_trace.write_ds_layout);
 
-        m_ray_trace.read_ds  = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_ray_trace.read_ds = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     }
 
     // Image Pyramid
@@ -349,7 +413,7 @@ void SSaReflections::create_descriptor_sets()
 
         for (int i = 0; i < MAX_MIP_LEVELS; i++)
             m_image_pyramid.write_ds[i] = vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        
+
         m_image_pyramid.read_ds.resize(MAX_MIP_LEVELS);
 
         for (int i = 0; i < MAX_MIP_LEVELS; i++)
@@ -364,6 +428,21 @@ void SSaReflections::create_descriptor_sets()
             m_blur.write_ds[i] = vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
 
         m_blur.read_ds = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+    }
+
+    // Resolve
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_resolve.read_ds_layout = dw::vk::DescriptorSetLayout::create(vk_backend, desc);
+        m_resolve.read_ds_layout->set_name("SSa Reflections Resolve Read DS Layout");
+
+        m_resolve.read_ds  = vk_backend->allocate_descriptor_set(m_resolve.read_ds_layout);
+        m_resolve.output_read_ds  = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_resolve.write_ds = vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
     }
 }
 
@@ -522,7 +601,7 @@ void SSaReflections::write_descriptor_sets()
         }
     }
 
-    // Ray Trace
+    // Blur
     {
         for (int i = 0; i < MAX_MIP_LEVELS; i++)
         {
@@ -566,7 +645,7 @@ void SSaReflections::write_descriptor_sets()
 
         VkDescriptorImageInfo sampler_image_info;
 
-        sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
+        sampler_image_info.sampler     = vk_backend->bilinear_sampler()->handle();
         sampler_image_info.imageView   = m_blur.all_image_view->handle();
         sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -580,6 +659,120 @@ void SSaReflections::write_descriptor_sets()
         write_data.pImageInfo      = &image_infos.back();
         write_data.dstBinding      = 0;
         write_data.dstSet          = m_blur.read_ds->handle();
+
+        write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Resolve
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_resolve.image_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        image_infos.push_back(storage_image_info);
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &image_infos.back();
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_resolve.write_ds->handle();
+
+        write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_blur.all_image_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_resolve.read_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_ray_trace.hit_distance_image_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_resolve.read_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
+        sampler_image_info.imageView   = m_resolve.image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        image_infos.push_back(sampler_image_info);
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &image_infos.back();
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_resolve.output_read_ds->handle();
 
         write_datas.push_back(write_data);
 
@@ -685,6 +878,30 @@ void SSaReflections::create_pipeline()
         comp_desc.set_shader_stage(module, "main");
 
         m_blur.pipeline = dw::vk::ComputePipeline::create(vk_backend, comp_desc);
+    }
+
+    // Resolve
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_resolve.read_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+        desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ResolvePushConstants));
+
+        m_resolve.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
+        m_resolve.pipeline_layout->set_name("Resolve Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/ssa_resolve.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_resolve.pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_resolve.pipeline = dw::vk::ComputePipeline::create(vk_backend, comp_desc);
     }
 }
 

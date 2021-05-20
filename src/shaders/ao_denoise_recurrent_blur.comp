@@ -42,8 +42,8 @@ layout(push_constant) uniform PushConstants
 {
     vec4  z_buffer_params;
     float radius;
-    uint num_frames;
-    uint self_stabilize;
+    uint  num_frames;
+    uint  self_stabilize;
 }
 u_PushConstants;
 
@@ -71,10 +71,9 @@ const vec2 g_poisson_disk_samples[16] = vec2[](
     vec2(0.384838f, 0.989563f),
     vec2(0.985412f, 0.376415f),
     vec2(0.339549f, 0.175176f),
-    vec2(0.745964f, 0.609394f)
-);
+    vec2(0.745964f, 0.609394f));
 
-#else 
+#else
 
 const int g_num_poisson_disk_samples = 8;
 
@@ -86,8 +85,7 @@ const vec2 g_poisson_disk_samples[8] = vec2[](
     vec2(0.0236824f, 0.0350963f),
     vec2(0.997406f, 0.994263f),
     vec2(0.0237434f, 0.913358f),
-    vec2(0.989135f, 0.160924f)
-);
+    vec2(0.989135f, 0.160924f));
 
 #endif
 
@@ -135,11 +133,11 @@ vec2 rotate_sample(vec2 current_sample, vec2 rot)
 
 float recurrent_blur(vec2 tex_coord, RNG rng)
 {
-    const ivec2 size = textureSize(s_Input, 0);
-    const vec2 inv_size = vec2(1.0f / size.x, 1.0f / size.y);
+    const ivec2 size     = textureSize(s_Input, 0);
+    const vec2  inv_size = vec2(1.0f / size.x, 1.0f / size.y);
 
     // Load the center sample depth and normal
-    float center_depth  = linear_eye_depth(textureLod(s_GBufferDepth, tex_coord, G_BUFFER_MIP).r);     
+    float center_depth  = linear_eye_depth(textureLod(s_GBufferDepth, tex_coord, G_BUFFER_MIP).r);
     vec3  center_normal = textureLod(s_GBuffer2, tex_coord, G_BUFFER_MIP).rgb;
 
     float blur_scale = 1.0f;
@@ -147,30 +145,30 @@ float recurrent_blur(vec2 tex_coord, RNG rng)
     if (u_PushConstants.self_stabilize == 1)
     {
         float norm_history_length = max(textureLod(s_HistoryLength, tex_coord, 0).r - 1.0f, 0.0f) / 32.0f;
-        float new_count = norm_history_length * 63.0f;
-        blur_scale = 1.0f / (1.0f + new_count);    
+        float new_count           = norm_history_length * 63.0f;
+        blur_scale                = 1.0f / (1.0f + new_count);
     }
-        
+
     float radius = u_PushConstants.radius * blur_scale;
 
     float total_ao     = textureLod(s_Input, tex_coord, 0).r;
     float total_weight = 1.0f;
-    vec2 rotation = random_rotation(rng);
+    vec2  rotation     = random_rotation(rng);
 
     for (int i = 0; i < g_num_poisson_disk_samples; i++)
     {
         // Remap the poisson sample to [-1.0, +1.0] range
         vec2 poisson_sample = 2.0f * g_poisson_disk_samples[i] - vec2(1.0f);
-        
+
         // Rotate it
-        poisson_sample = rotate_sample(poisson_sample, rotation); 
-        
+        poisson_sample = rotate_sample(poisson_sample, rotation);
+
         // Generate sample coordinate
-        vec2 sample_tex_coord  = tex_coord + (poisson_sample * radius * inv_size);
-        
+        vec2 sample_tex_coord = tex_coord + (poisson_sample * radius * inv_size);
+
         // Load cross bilateral samples
         float sample_ao     = textureLod(s_Input, sample_tex_coord, 0).r;
-        float sample_depth  = linear_eye_depth(textureLod(s_GBufferDepth, sample_tex_coord, G_BUFFER_MIP).r); 
+        float sample_depth  = linear_eye_depth(textureLod(s_GBufferDepth, sample_tex_coord, G_BUFFER_MIP).r);
         vec3  sample_normal = textureLod(s_GBuffer2, sample_tex_coord, G_BUFFER_MIP).rgb;
 
         // Compute edge-stopping weights

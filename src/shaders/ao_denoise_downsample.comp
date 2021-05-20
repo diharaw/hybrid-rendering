@@ -39,11 +39,11 @@ shared vec4 g_tile[64];
 
 void main()
 {
-    const ivec2 size = textureSize(s_Input, 0);
-    const vec2 inv_size = vec2(1.0f / size.x, 1.0f / size.y);
+    const ivec2 size     = textureSize(s_Input, 0);
+    const vec2  inv_size = vec2(1.0f / size.x, 1.0f / size.y);
 
-    uint GI = uint(gl_LocalInvocationIndex);
-    uvec3 DTid = uvec3(gl_GlobalInvocationID); 
+    uint  GI   = uint(gl_LocalInvocationIndex);
+    uvec3 DTid = uvec3(gl_GlobalInvocationID);
 
     // You can tell if both x and y are divisible by a power of two with this value
     uint parity = DTid.x | DTid.y;
@@ -51,7 +51,7 @@ void main()
     // Downsample and store the 8x8 block
     vec2 centerUV = (vec2(DTid.xy) * 2.0f + 1.0f) * inv_size;
     vec4 avgPixel = textureLod(s_Input, centerUV, 0.0f);
-    g_tile[GI] = avgPixel;
+    g_tile[GI]    = avgPixel;
 
     imageStore(i_OutputMip1, ivec2(DTid.xy), avgPixel);
 
@@ -60,7 +60,7 @@ void main()
     // Downsample and store the 4x4 block
     if ((parity & 1) == 0)
     {
-        avgPixel = 0.25f * (avgPixel + g_tile[GI+1] + g_tile[GI+8] + g_tile[GI+9]);
+        avgPixel   = 0.25f * (avgPixel + g_tile[GI + 1] + g_tile[GI + 8] + g_tile[GI + 9]);
         g_tile[GI] = avgPixel;
 
         imageStore(i_OutputMip2, ivec2(DTid.xy >> 1), avgPixel);
@@ -71,7 +71,7 @@ void main()
     // Downsample and store the 2x2 block
     if ((parity & 3) == 0)
     {
-        avgPixel = 0.25f * (avgPixel + g_tile[GI+2] + g_tile[GI+16] + g_tile[GI+18]);
+        avgPixel   = 0.25f * (avgPixel + g_tile[GI + 2] + g_tile[GI + 16] + g_tile[GI + 18]);
         g_tile[GI] = avgPixel;
 
         imageStore(i_OutputMip3, ivec2(DTid.xy >> 2), avgPixel);
@@ -82,7 +82,7 @@ void main()
     // Downsample and store the 1x1 block
     if ((parity & 7) == 0)
     {
-        avgPixel = 0.25f * (avgPixel + g_tile[GI+4] + g_tile[GI+32] + g_tile[GI+36]);
+        avgPixel = 0.25f * (avgPixel + g_tile[GI + 4] + g_tile[GI + 32] + g_tile[GI + 36]);
 
         imageStore(i_OutputMip4, ivec2(DTid.xy >> 3), avgPixel);
     }

@@ -68,13 +68,13 @@ private:
     struct Downsample
     {
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
-        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
-        dw::vk::ImageView::Ptr       image_view_mip1[2];
-        dw::vk::ImageView::Ptr       image_view_mip2[2];
-        dw::vk::ImageView::Ptr       image_view_mip3[2];
-        dw::vk::ImageView::Ptr       image_view_mip4[2];
-        dw::vk::DescriptorSet::Ptr   write_ds[2];
+        dw::vk::ImageView::Ptr           image_view_mip1[2];
+        dw::vk::ImageView::Ptr           image_view_mip2[2];
+        dw::vk::ImageView::Ptr           image_view_mip3[2];
+        dw::vk::ImageView::Ptr           image_view_mip4[2];
+        dw::vk::DescriptorSet::Ptr       write_ds[2];
     };
 
     struct HistoryFix
@@ -102,7 +102,7 @@ private:
     {
         bool                         feedback       = true;
         bool                         self_stabilize = true;
-        int32_t                      blur_radius = 30;
+        int32_t                      blur_radius    = 30;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image;
@@ -139,8 +139,8 @@ private:
     GBuffer*                       m_g_buffer;
     uint32_t                       m_width;
     uint32_t                       m_height;
-    bool                           m_enabled = true;
-    bool                           m_denoise          = true;
+    bool                           m_enabled            = true;
+    bool                           m_denoise            = true;
     bool                           m_use_recurrent_blur = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;

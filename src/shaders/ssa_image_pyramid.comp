@@ -34,7 +34,7 @@ layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(push_constant) uniform PushConstants
 {
     vec4 z_buffer_params;
-    int fine_g_buffer_mip;
+    int  fine_g_buffer_mip;
 }
 u_PushConstants;
 
@@ -81,14 +81,14 @@ float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
 
 void main()
 {
-    const int fine_g_buffer_mip = u_PushConstants.fine_g_buffer_mip;
-    const int coarse_g_buffer_mip = fine_g_buffer_mip + 1;
-    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
-    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
-    const ivec2 fine_size    = textureSize(s_GBuffer1, fine_g_buffer_mip);
-    const ivec2 coarse_size   = textureSize(s_GBuffer1, coarse_g_buffer_mip);
-    const vec2  fine_texel_size    = vec2(1.0f) / vec2(fine_size);
-    const vec2  tex_coord     = pixel_center / vec2(coarse_size);
+    const int   fine_g_buffer_mip   = u_PushConstants.fine_g_buffer_mip;
+    const int   coarse_g_buffer_mip = fine_g_buffer_mip + 1;
+    const ivec2 current_coord       = ivec2(gl_GlobalInvocationID.xy);
+    const vec2  pixel_center        = vec2(current_coord) + vec2(0.5);
+    const ivec2 fine_size           = textureSize(s_GBuffer1, fine_g_buffer_mip);
+    const ivec2 coarse_size         = textureSize(s_GBuffer1, coarse_g_buffer_mip);
+    const vec2  fine_texel_size     = vec2(1.0f) / vec2(fine_size);
+    const vec2  tex_coord           = pixel_center / vec2(coarse_size);
 
     if (current_coord.x >= coarse_size.x || current_coord.y >= coarse_size.y)
         return;
@@ -101,15 +101,15 @@ void main()
         return;
     }
 
-    float coarse_depth = linear_eye_depth(depth);
+    float coarse_depth  = linear_eye_depth(depth);
     vec3  coarse_normal = texelFetch(s_GBuffer2, current_coord, coarse_g_buffer_mip).rgb;
 
-    vec3 color    = vec3(0.0f);
+    vec3  color   = vec3(0.0f);
     float total_w = 0.0f;
 
     for (int i = 0; i < 4; i++)
     {
-        vec2 fine_tex_coord = tex_coord + g_kernel[i] * fine_texel_size;
+        vec2  fine_tex_coord = tex_coord + g_kernel[i] * fine_texel_size;
         float fine_depth     = linear_eye_depth(textureLod(s_GBufferDepth, fine_tex_coord, fine_g_buffer_mip).r);
         vec3  fine_normal    = textureLod(s_GBuffer2, fine_tex_coord, fine_g_buffer_mip).rgb;
 
@@ -117,7 +117,7 @@ void main()
         float w_normal = normal_edge_stopping_weight(fine_normal, coarse_normal);
         float w        = w_depth * w_normal;
 
-        color   += textureLod(s_Input, fine_tex_coord, 0).rgb * w;
+        color += textureLod(s_Input, fine_tex_coord, 0).rgb * w;
         total_w += w;
     }
 

@@ -41,10 +41,10 @@ enum ReflectionsType
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
 
-const std::vector<std::string> sampler_types = { "White Noise", "Blue Noise Distribution" };
+const std::vector<std::string> sampler_types       = { "White Noise", "Blue Noise Distribution" };
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
-const std::vector<std::string> reflections_types         = { "Stochasitc", "SSa" };
+const std::vector<std::string> reflections_types   = { "Stochasitc", "SSa" };
 
 struct Light
 {
@@ -105,7 +105,7 @@ struct DeferredShadingPushConstants
     int shadows     = 1;
     int ao          = 1;
     int reflections = 1;
-    int gi = 1;
+    int gi          = 1;
 };
 
 struct TAAPushConstants
@@ -201,7 +201,7 @@ protected:
         m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
         m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ssa_reflections = std::unique_ptr<SSaReflections>(new SSaReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
+        m_ssa_reflections    = std::unique_ptr<SSaReflections>(new SSaReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
 
         create_render_passes();
         create_framebuffers();
@@ -309,7 +309,6 @@ protected:
                             }
                             ImGui::EndCombo();
                         }
-
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
@@ -356,7 +355,7 @@ protected:
                         }
                         else
                             m_ssa_reflections->gui();
-                        
+
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
@@ -734,7 +733,7 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-     
+
             m_common_resources->per_frame_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
             m_common_resources->per_frame_ds_layout->set_name("Per Frame DS Layout");
         }
@@ -791,7 +790,7 @@ private:
         m_common_resources->rtgi_write_ds          = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
         m_common_resources->rtgi_read_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->deferred_read_ds       = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        
+
         for (int i = 0; i < 9; i++)
             m_common_resources->blue_noise_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->blue_noise_ds_layout);
 
@@ -935,7 +934,7 @@ private:
                 VkWriteDescriptorSet write_data[2];
                 DW_ZERO_MEMORY(write_data[0]);
                 DW_ZERO_MEMORY(write_data[1]);
- 
+
                 write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 write_data[0].descriptorCount = 1;
                 write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -1941,11 +1940,11 @@ private:
 
         ReflectionsPushConstants push_constants;
 
-        push_constants.bias       = m_ray_traced_reflections_bias;
-        push_constants.num_frames = m_common_resources->num_frames;
+        push_constants.bias         = m_ray_traced_reflections_bias;
+        push_constants.num_frames   = m_common_resources->num_frames;
         push_constants.sampler_type = m_common_resources->sampler_type;
         push_constants.vndf         = (uint32_t)m_ray_traced_reflections_vndf;
-        push_constants.trim = m_ray_traced_reflections_trim;
+        push_constants.trim         = m_ray_traced_reflections_trim;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->reflection_rt_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -2585,8 +2584,8 @@ private:
 
     // Ray Traced Reflections
     float m_ray_traced_reflections_bias                        = 0.1f;
-    bool  m_ray_traced_reflections_denoise = true;
-    bool  m_ray_traced_reflections_vndf                     = false;
+    bool  m_ray_traced_reflections_denoise                     = true;
+    bool  m_ray_traced_reflections_vndf                        = false;
     bool  m_ray_traced_reflections_spatial_resolve             = true;
     bool  m_rt_reflections_enabled                             = true;
     bool  m_rt_reflections_neighborhood_clamping               = true;
@@ -2596,7 +2595,7 @@ private:
     float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;
     float m_ray_traced_reflections_sigma_min                   = 0.001f;
     float m_ray_traced_reflections_sigma_max                   = 0.01f;
-    float m_ray_traced_reflections_trim                   = 1.0f;
+    float m_ray_traced_reflections_trim                        = 1.0f;
 
     // Ray Traced Global Illumination
     bool    m_rtgi_enabled                  = true;

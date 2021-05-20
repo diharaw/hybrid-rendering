@@ -24,12 +24,12 @@ enum SamplerType
 
 struct CommonResources
 {
-    bool      first_frame = true;
-    bool      ping_pong   = false;
-    int32_t   num_frames  = 0;
+    bool        first_frame  = true;
+    bool        ping_pong    = false;
+    int32_t     num_frames   = 0;
     SamplerType sampler_type = SAMPLER_WHITE_NOISE;
-    size_t    ubo_size    = 0;
-    glm::vec4 z_buffer_params;
+    size_t      ubo_size     = 0;
+    glm::vec4   z_buffer_params;
 
     // Assets.
     std::vector<dw::Mesh::Ptr> meshes;

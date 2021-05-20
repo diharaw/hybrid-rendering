@@ -54,7 +54,7 @@ u_PushConstants;
 shared float g_cached_ao[NUM_THREADS_X][NUM_THREADS_Y];
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
 #if defined(USE_NORMAL_EDGE_STOPPING)
-shared vec3  g_cached_normal[NUM_THREADS_X][NUM_THREADS_Y];
+shared vec3 g_cached_normal[NUM_THREADS_X][NUM_THREADS_Y];
 #endif
 
 // ------------------------------------------------------------------
@@ -73,9 +73,9 @@ void populate_cache(ivec2 coord)
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
     ivec2 cache_coord      = coord - min_cached_coord;
 
-    g_cached_ao[cache_coord.x][cache_coord.y]     = texelFetch(s_Input, coord, 0).r;
-    g_cached_depth[cache_coord.x][cache_coord.y]  = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;    
-#if defined(USE_NORMAL_EDGE_STOPPING)    
+    g_cached_ao[cache_coord.x][cache_coord.y]    = texelFetch(s_Input, coord, 0).r;
+    g_cached_depth[cache_coord.x][cache_coord.y] = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
+#if defined(USE_NORMAL_EDGE_STOPPING)
     g_cached_normal[cache_coord.x][cache_coord.y] = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
 #endif
 
@@ -166,9 +166,9 @@ float bilateral_blur(ivec2 current_coord)
 {
     const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
 
-    float center_depth  = linear_eye_depth(load_depth(current_coord));
-#if defined(USE_NORMAL_EDGE_STOPPING)      
-    vec3  center_normal = load_normal(current_coord);
+    float center_depth = linear_eye_depth(load_depth(current_coord));
+#if defined(USE_NORMAL_EDGE_STOPPING)
+    vec3 center_normal = load_normal(current_coord);
 #endif
 
     int radius = u_PushConstants.radius;
@@ -178,16 +178,16 @@ float bilateral_blur(ivec2 current_coord)
 
     for (int i = -radius; i <= radius; i++)
     {
-        ivec2 sample_coord  = current_coord + u_PushConstants.direction * ivec2(i);
-        float sample_ao     = load_ao(sample_coord);
-        float sample_depth  = linear_eye_depth(load_depth(sample_coord));
-#if defined(USE_NORMAL_EDGE_STOPPING)  
-        vec3  sample_normal = load_normal(sample_coord);
+        ivec2 sample_coord = current_coord + u_PushConstants.direction * ivec2(i);
+        float sample_ao    = load_ao(sample_coord);
+        float sample_depth = linear_eye_depth(load_depth(sample_coord));
+#if defined(USE_NORMAL_EDGE_STOPPING)
+        vec3 sample_normal = load_normal(sample_coord);
 #endif
 
         float weight = gaussian_weight(float(i), deviation);
         weight *= depth_edge_stopping_weight(center_depth, sample_depth);
-#if defined(USE_NORMAL_EDGE_STOPPING)          
+#if defined(USE_NORMAL_EDGE_STOPPING)
         weight *= normal_edge_stopping_weight(center_normal, sample_normal);
 #endif
 

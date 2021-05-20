@@ -28,7 +28,7 @@ void main()
 {
     p_PathTracePayload.color      = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
     p_PathTracePayload.hit        = false;
-    p_PathTracePayload.ray_length = 0.0f;
+    p_PathTracePayload.ray_length = -1.0f;
 }
 
 // ------------------------------------------------------------------------

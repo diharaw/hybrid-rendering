@@ -153,7 +153,7 @@ vec2 next_sample(ivec2 coord, int index, RNG rng)
     if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
         return next_vec2(rng);
     else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
-        return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile), 
+        return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile),
                     sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
     else
         return vec2(0.0f);

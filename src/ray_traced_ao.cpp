@@ -41,10 +41,10 @@ struct GaussianBlurPushConstants
 
 struct RecurrentBlurPushConstants
 {
-    glm::vec4  z_buffer_params;
-    float       radius;
-    uint32_t    num_frames;
-    uint32_t    self_stabilize;
+    glm::vec4 z_buffer_params;
+    float     radius;
+    uint32_t  num_frames;
+    uint32_t  self_stabilize;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -117,9 +117,9 @@ void RayTracedAO::gui()
 
     if (m_use_recurrent_blur)
         ImGui::SliderInt("Blur Radius", &m_recurrent_blur.blur_radius, 1, 30);
-    else 
+    else
         ImGui::SliderInt("Blur Radius", &m_gaussian_blur.blur_radius, 1, 20);
-    
+
     ImGui::PopID();
 }
 
@@ -271,7 +271,6 @@ void RayTracedAO::create_descriptor_sets()
             m_downsample.write_ds[i]->set_name("Downsample Write " + std::to_string(i));
         }
     }
-
 
     // Gaussian Blur
     {
@@ -835,7 +834,7 @@ void RayTracedAO::create_pipeline()
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
-        
+
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalReprojectionPushConstants));
 
         m_temporal_reprojection.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
@@ -1022,12 +1021,12 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
-    push_constants.num_frames = m_common_resources->num_frames;
-    push_constants.num_rays   = m_ray_trace.num_rays;
-    push_constants.ray_length = m_ray_trace.ray_length;
-    push_constants.power      = m_ray_trace.power;
-    push_constants.bias       = m_ray_trace.bias;
-    push_constants.sampler_type       = m_common_resources->sampler_type;
+    push_constants.num_frames   = m_common_resources->num_frames;
+    push_constants.num_rays     = m_ray_trace.num_rays;
+    push_constants.ray_length   = m_ray_trace.ray_length;
+    push_constants.power        = m_ray_trace.power;
+    push_constants.bias         = m_ray_trace.bias;
+    push_constants.sampler_type = m_common_resources->sampler_type;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1061,7 +1060,7 @@ void RayTracedAO::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     temporal_reprojection(cmd_buf);
     downsample(cmd_buf);
-    
+
     if (m_use_recurrent_blur)
         recurrent_blur(cmd_buf);
     else
@@ -1195,7 +1194,7 @@ void RayTracedAO::downsample(dw::vk::CommandBuffer::Ptr cmd_buf)
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_downsample.pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
 
     int w = m_recurrent_blur.image->width() / 2;
-    int h = m_recurrent_blur.image->height() / 2;    
+    int h = m_recurrent_blur.image->height() / 2;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(w) / float(8))), static_cast<uint32_t>(ceil(float(h) / float(8))), 1);
 
