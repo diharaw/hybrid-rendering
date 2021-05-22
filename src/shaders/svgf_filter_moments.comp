@@ -88,7 +88,7 @@ float compute_weight(
 
 void main()
 {
-    ivec2 size      = textureSize(s_Normals, 0);
+    ivec2 size      = textureSize(s_Normals, u_PushConstants.g_buffer_mip);
     vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
 
     vec4        out_color;

@@ -25,6 +25,7 @@ layout(set = 2, binding = 1) uniform sampler2D s_Normals;
 layout(set = 2, binding = 4) uniform sampler2D s_LinearZ;
 
 // Current SVGF Read DS
+//layout(set = 3, binding = 0) uniform sampler2D s_Input;
 layout(set = 3, binding = 2) uniform sampler2D s_HistoryLength;
 
 // ------------------------------------------------------------------

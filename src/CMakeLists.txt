@@ -21,7 +21,6 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/path_traced_gi.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.cpp
-                             ${PROJECT_SOURCE_DIR}/src/ssa_reflections.cpp
                              ${PROJECT_SOURCE_DIR}/src/stochastic_reflections.cpp
                              ${PROJECT_SOURCE_DIR}/src/g_buffer.cpp
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.cpp
@@ -41,7 +40,6 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/path_traced_gi.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.h
-                             ${PROJECT_SOURCE_DIR}/src/ssa_reflections.h
                              ${PROJECT_SOURCE_DIR}/src/stochastic_reflections.h
                              ${PROJECT_SOURCE_DIR}/src/g_buffer.h
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.h
@@ -70,7 +68,6 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rchit
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rgen
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_ssa.rgen
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rchit
                    ${PROJECT_SOURCE_DIR}/src/shaders/ambient_occlusion.rgen
@@ -91,9 +88,6 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/bilateral_blur.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/temporal_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/spatial_reconstruction.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/ssa_image_pyramid.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/ssa_blur.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/ssa_resolve.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_ray_trace.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_downsample.comp

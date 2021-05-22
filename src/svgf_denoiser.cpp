@@ -808,7 +808,7 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
             m_a_trous_write_ds[write_idx]->handle(),
             i == 0 ? m_filter_moments_read_ds->handle() : m_a_trous_read_ds[read_idx]->handle(),
             m_g_buffer->history_ds()->handle(),
-            m_reprojection_read_ds[!m_common_resources->ping_pong]->handle()
+            m_reprojection_read_ds[m_common_resources->ping_pong]->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous_filter_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
