@@ -11,7 +11,7 @@ A simple Raster/Ray-Trace hybrid renderer using NVIDIA RTX ray-tracing in Vulkan
 
 ## License
 ```
-Copyright (c) 2020 Dihara Wijetunga
+Copyright (c) 2021 Dihara Wijetunga
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and 
 associated documentation files (the "Software"), to deal in the Software without restriction, 
