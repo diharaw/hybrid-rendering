@@ -306,15 +306,7 @@ protected:
                     {
                         ImGui::PushID("RTSS");
                         ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
-                        ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
-                        ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
-                        ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
-                        ImGui::SliderFloat("Alpha", &m_svgf_alpha, 0.0f, 1.0f);
-                        ImGui::SliderFloat("Moments Alpha", &m_svgf_moments_alpha, 0.0f, 1.0f);
-                        ImGui::Checkbox("Denoise", &m_svgf_shadow_denoise);
-                        ImGui::Checkbox("Use filter output for reprojection", &m_svgf_shadow_use_spatial_for_feedback);
-                        ImGui::InputFloat("Bias", &m_ray_traced_shadows_bias);
-                        m_common_resources->shadow_denoiser->gui();
+                        m_common_resources->svgf_shadow_denoiser->gui();
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
@@ -377,8 +369,6 @@ protected:
 
             if (m_svgf_shadow_denoise)
                 m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
-            else
-                m_common_resources->shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
 
             ray_trace_reflection(cmd_buf);
 
@@ -2202,7 +2192,7 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
             m_ray_traced_ao->output_ds()->handle(),
-            m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
+            m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
             m_common_resources->per_frame_ds->handle(),
@@ -2350,7 +2340,7 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             m_ray_traced_ao->output_ds()->handle(),
-            m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_common_resources->shadow_denoiser->output_ds()->handle(),
+            m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
         };
@@ -2531,23 +2521,11 @@ private:
     bool m_downscaled_rt      = true;
 
     // Ray Traced Shadows
-    bool    m_quarter_res_shadows                  = false;
     bool    m_svgf_shadow_denoise                  = true;
-    bool    m_svgf_shadow_use_spatial_for_feedback = false;
     bool    m_rt_shadows_enabled                   = true;
-    float   m_ray_traced_shadows_bias              = 0.1f;
-    int32_t m_max_samples                          = 10000;
-    float   m_svgf_alpha                           = 0.01f;
-    float   m_svgf_moments_alpha                   = 0.2f;
-    float   m_svgf_phi_color                       = 10.0f;
-    float   m_svgf_phi_normal                      = 128.0f;
-    int32_t m_a_trous_radius                       = 1;
-    int32_t m_a_trous_filter_iterations            = 4;
-    int32_t m_a_trous_feedback_iteration           = 1;
-    int32_t m_visiblity_read_idx                   = 0;
 
     // Ray Traced Reflections
-    float m_ray_traced_reflections_bias                        = 0.1f;
+    float m_ray_traced_reflections_bias                        = 0.5f;
     bool  m_ray_traced_reflections_denoise                     = true;
     bool  m_ray_traced_reflections_vndf                        = false;
     bool  m_ray_traced_reflections_spatial_resolve             = true;
@@ -2559,7 +2537,7 @@ private:
     float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;
     float m_ray_traced_reflections_sigma_min                   = 0.001f;
     float m_ray_traced_reflections_sigma_max                   = 0.01f;
-    float m_ray_traced_reflections_trim                        = 1.0f;
+    float m_ray_traced_reflections_trim                        = 0.8f;
 
     // Ray Traced Global Illumination
     bool    m_rtgi_enabled                  = true;

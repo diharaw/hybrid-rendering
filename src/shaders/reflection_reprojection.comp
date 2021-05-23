@@ -96,7 +96,7 @@ vec3 neighborhood_standard_deviation(ivec2 coord)
     vec3 color_sum         = vec3(0.0f);
     vec3 color_sum_squared = vec3(0.0f);
 
-    int   radius = 1;
+    int   radius = 9;
     float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
 
     for (int dx = -radius; dx <= radius; dx++)

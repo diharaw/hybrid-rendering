@@ -37,6 +37,7 @@ public:
     ~SVGFDenoiser();
     void                       denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input);
     dw::vk::DescriptorSet::Ptr output_ds();
+    void                       gui();
 
     inline uint32_t filter_iterations() { return m_a_trous_filter_iterations; }
     inline void     set_filter_iterations(uint32_t n) { m_a_trous_filter_iterations = glm::clamp(n, 1u, 5u); }
@@ -56,6 +57,7 @@ private:
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
     bool                           m_use_spatial_for_feedback = false;
+    bool                           m_use_moments_filtering    = false;
     uint32_t                       m_input_width;
     uint32_t                       m_input_height;
     float                          m_scale                      = 1.0f;
@@ -81,6 +83,7 @@ private:
     dw::vk::ImageView::Ptr           m_history_length_view[2];
     dw::vk::DescriptorSet::Ptr       m_reprojection_write_ds[2];
     dw::vk::DescriptorSet::Ptr       m_reprojection_read_ds[2];
+    dw::vk::DescriptorSet::Ptr       m_reprojection_color_read_ds[2];
     dw::vk::Image::Ptr               m_prev_reprojection_image;
     dw::vk::ImageView::Ptr           m_prev_reprojection_view;
     dw::vk::DescriptorSet::Ptr       m_prev_reprojection_read_ds;

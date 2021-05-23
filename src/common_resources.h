@@ -27,7 +27,7 @@ struct CommonResources
     bool        first_frame  = true;
     bool        ping_pong    = false;
     int32_t     num_frames   = 0;
-    SamplerType sampler_type = SAMPLER_WHITE_NOISE;
+    SamplerType sampler_type = SAMPLER_BLUE_NOISE_DISTRIBUTION;
     size_t      ubo_size     = 0;
     glm::vec4   z_buffer_params;
 

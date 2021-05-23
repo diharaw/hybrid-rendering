@@ -32,8 +32,20 @@ void SVGFDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Descripto
 {
     clear_images(cmd_buf);
     reprojection(cmd_buf, input);
-    filter_moments(cmd_buf);
+    if (m_use_moments_filtering)
+        filter_moments(cmd_buf);
     a_trous_filter(cmd_buf);
+}
+
+void SVGFDenoiser::gui()
+{
+    ImGui::SliderInt("A-Trous Filter Radius", &m_a_trous_radius, 1, 2);
+    ImGui::SliderInt("A-Trous Filter Iterations", &m_a_trous_filter_iterations, 1, 5);
+    ImGui::SliderInt("A-Trous Filter Feedback Tap", &m_a_trous_feedback_iteration, 0, 4);
+    ImGui::SliderFloat("Alpha", &m_alpha, 0.0f, 1.0f);
+    ImGui::SliderFloat("Moments Alpha", &m_moments_alpha, 0.0f, 1.0f);
+    ImGui::Checkbox("Use filter output for reprojection", &m_use_spatial_for_feedback);
+    ImGui::Checkbox("Filter Moments", &m_use_moments_filtering);
 }
 
 void SVGFDenoiser::create_reprojection_resources()
@@ -64,6 +76,7 @@ void SVGFDenoiser::create_reprojection_resources()
     {
         m_reprojection_write_ds[i] = vk_backend->allocate_descriptor_set(m_reprojection_write_ds_layout);
         m_reprojection_read_ds[i]  = vk_backend->allocate_descriptor_set(m_reprojection_read_ds_layout);
+        m_reprojection_color_read_ds[i] = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     }
 
     m_prev_reprojection_read_ds = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
@@ -100,7 +113,7 @@ void SVGFDenoiser::create_reprojection_resources()
         m_reprojection_view[i] = dw::vk::ImageView::create(vk_backend, m_reprojection_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_reprojection_view[i]->set_name(m_name + " Reprojection Color");
 
-        m_moments_image[i] = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_moments_image[i] = dw::vk::Image::create(vk_backend, VK_IMAGE_TYPE_2D, m_input_width, m_input_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_moments_image[i]->set_name(m_name + " Reprojection Moments");
 
         m_moments_view[i] = dw::vk::ImageView::create(vk_backend, m_moments_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -270,6 +283,40 @@ void SVGFDenoiser::create_reprojection_resources()
 
                 write_datas.push_back(write_data);
             }
+        }
+
+        vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Reprojection Color Read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
+        for (int i = 0; i < 2; i++)
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = vk_backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_reprojection_view[i]->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_reprojection_color_read_ds[i]->handle();
+
+            write_datas.push_back(write_data);
         }
 
         vkUpdateDescriptorSets(vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
@@ -806,7 +853,7 @@ void SVGFDenoiser::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VkDescriptorSet descriptor_sets[] = {
             m_a_trous_write_ds[write_idx]->handle(),
-            i == 0 ? m_filter_moments_read_ds->handle() : m_a_trous_read_ds[read_idx]->handle(),
+            i == 0 ? (m_use_moments_filtering ? m_filter_moments_read_ds->handle() : m_reprojection_color_read_ds[m_common_resources->ping_pong]->handle()) : m_a_trous_read_ds[read_idx]->handle(),
             m_g_buffer->history_ds()->handle(),
             m_reprojection_read_ds[m_common_resources->ping_pong]->handle()
         };
