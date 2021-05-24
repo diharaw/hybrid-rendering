@@ -64,7 +64,7 @@ private:
     float                          m_alpha                      = 0.01f;
     float                          m_moments_alpha              = 0.2f;
     float                          m_phi_color                  = 10.0f;
-    float                          m_phi_normal                 = 128.0f;
+    float                          m_phi_normal                 = 32.0f;
     int32_t                        m_a_trous_radius             = 1;
     int32_t                        m_a_trous_filter_iterations  = 4;
     int32_t                        m_a_trous_feedback_iteration = 1;

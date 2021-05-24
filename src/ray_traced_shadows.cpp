@@ -31,7 +31,7 @@ RayTracedShadows::~RayTracedShadows()
 
 void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("Ray Traced Shadows", cmd_buf);
+    DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
 
     auto backend = m_backend.lock();
 

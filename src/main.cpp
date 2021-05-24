@@ -365,21 +365,36 @@ protected:
 
             // Render.
             m_g_buffer->render(cmd_buf);
-            m_ray_traced_shadows->render(cmd_buf);
+            
+            {
+                DW_SCOPED_SAMPLE("RT Shadows", cmd_buf);
+
+                m_ray_traced_shadows->render(cmd_buf);
+
+                if (m_svgf_shadow_denoise)
+                    m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
+            }
+            
             m_ray_traced_ao->render(cmd_buf);
+            
+            {
+                DW_SCOPED_SAMPLE("RT Reflections", cmd_buf);
 
-            if (m_svgf_shadow_denoise)
-                m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
+                ray_trace_reflection(cmd_buf);
 
-            ray_trace_reflection(cmd_buf);
+                if (m_ray_traced_reflections_denoise)
+                    m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
+                else
+                    m_common_resources->svgf_reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
+            }
+            
+            {
+                DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
 
-            if (m_ray_traced_reflections_denoise)
-                m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
-            else
-                m_common_resources->svgf_reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
-
-            ray_trace_gi(cmd_buf);
-            m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
+                ray_trace_gi(cmd_buf);
+                m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
+            }
+            
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
             temporal_aa(cmd_buf);
@@ -1883,7 +1898,7 @@ private:
 
     void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("Stochastic Reflections", cmd_buf);
+        DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -1948,7 +1963,7 @@ private:
 
     void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("Ray Traced Global Illumination", cmd_buf);
+        DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 

@@ -30,6 +30,8 @@ dw::vk::DescriptorSet::Ptr SVGFDenoiser::output_ds()
 
 void SVGFDenoiser::denoise(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::DescriptorSet::Ptr input)
 {
+    DW_SCOPED_SAMPLE("SVGF Denoiser", cmd_buf);
+
     clear_images(cmd_buf);
     reprojection(cmd_buf, input);
     if (m_use_moments_filtering)

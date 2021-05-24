@@ -95,8 +95,8 @@ float compute_variance_center(ivec2 ipos)
 float normal_distance_cos(vec3 n1, vec3 n2, float power)
 {
     //return pow(max(0.0, dot(n1, n2)), 128.0);
-    //return pow( saturate(dot(n1,n2)), power);
-    return 1.0f;
+    return pow(clamp(dot(n1,n2), 0.0f, 1.0f), power);
+    //return 1.0f;
 }
 
 // ------------------------------------------------------------------

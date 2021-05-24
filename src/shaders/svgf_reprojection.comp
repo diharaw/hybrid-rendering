@@ -281,7 +281,6 @@ void main()
 //        vec3 radiance_max = color.xyz + color_std;
 //
 //        prev_color.xyz = clamp(prev_color.xyz, radiance_min, radiance_max);
-//        vec3 spatial_variance = mean;
 
         vec3 mean = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
         vec3 spatial_variance = mean;
