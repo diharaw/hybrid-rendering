@@ -207,6 +207,7 @@ protected:
 
         m_common_resources->svgf_shadow_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_ray_traced_shadows->width(), m_ray_traced_shadows->height(), 4));
         m_common_resources->svgf_gi_denoiser     = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
+        m_common_resources->svgf_reflection_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Denoiser", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height(), 4));
         m_common_resources->reflection_denoiser  = std::unique_ptr<ReflectionDenoiser>(new ReflectionDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Reflections", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
         m_common_resources->shadow_denoiser      = std::unique_ptr<DiffuseDenoiser>(new DiffuseDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Shadow", m_ray_traced_shadows->width(), m_ray_traced_shadows->height()));
 
@@ -374,6 +375,8 @@ protected:
 
             if (m_ray_traced_reflections_denoise)
                 m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
+            else
+                m_common_resources->svgf_reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
 
             ray_trace_gi(cmd_buf);
             m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
@@ -2193,7 +2196,7 @@ private:
             m_g_buffer->output_ds()->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_ray_traced_shadows->output_ds()->handle(),
-            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
+            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->svgf_reflection_denoiser->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()
@@ -2341,7 +2344,7 @@ private:
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_ray_traced_shadows->output_ds()->handle(),
-            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->reflection_rt_read_ds->handle(),
+            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->svgf_reflection_denoiser->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
         };
 

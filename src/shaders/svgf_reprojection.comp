@@ -87,6 +87,55 @@ float luminance(vec3 rgb)
 
 // ------------------------------------------------------------------
 
+vec3 neighborhood_mean(ivec2 coord)
+{
+    vec3 color_sum         = vec3(0.0f);
+
+    int   radius = 4;
+    float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
+
+    for (int dx = -radius; dx <= radius; dx++)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            ivec2 sample_coord = coord + ivec2(dx, dy);
+            vec3  sample_color = texelFetch(s_Input, sample_coord, 0).rgb;
+
+            color_sum += sample_color;
+        }
+    }
+
+    return color_sum / weight;
+}
+
+// ------------------------------------------------------------------
+
+vec3 neighborhood_standard_deviation(ivec2 coord)
+{
+    vec3 color_sum         = vec3(0.0f);
+    vec3 color_sum_squared = vec3(0.0f);
+
+    int   radius = 8;
+    float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
+
+    for (int dx = -radius; dx <= radius; dx++)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            ivec2 sample_coord = coord + ivec2(dx, dy);
+            vec3  sample_color = texelFetch(s_Input, sample_coord, 0).rgb;
+
+            color_sum += sample_color;
+            color_sum_squared += sample_color * sample_color;
+        }
+    }
+
+    vec3 color_std = (color_sum_squared - color_sum * color_sum / weight) / (weight - 1.0f);
+    return sqrt(max(color_std, 0.0f));
+}
+
+// ------------------------------------------------------------------
+
 bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, out float historyLength)
 {
     const ivec2 ipos     = fragCoord;
@@ -134,6 +183,11 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, o
                        (1 - x) * y,
                        x * y };
 
+//                       float w[4] = { 1.0f,
+//                       x * (1 - y),
+//                       (1 - x) * y,
+//                       x * y };
+
         prevColor   = vec4(0, 0, 0, 0);
         prevMoments = vec4(0, 0, 0, 0);
 
@@ -155,35 +209,35 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, o
         prevColor   = valid ? prevColor / sumw : vec4(0, 0, 0, 0);
         prevMoments = valid ? prevMoments / sumw : vec4(0, 0, 0, 0);
     }
-    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
-    {
-        float cnt = 0.0;
-
-        // this code performs a binary descision for each tap of the cross-bilateral filter
-        const int radius = 1;
-        for (int yy = -radius; yy <= radius; yy++)
-        {
-            for (int xx = -radius; xx <= radius; xx++)
-            {
-                ivec2 p            = iposPrev + ivec2(xx, yy);
-                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
-                vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
-
-                if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
-                {
-                    prevColor += texelFetch(s_PrevColor, p, 0);
-                    prevMoments += texelFetch(s_PrevMoments, p, 0);
-                    cnt += 1.0;
-                }
-            }
-        }
-        if (cnt > 0)
-        {
-            valid = true;
-            prevColor /= cnt;
-            prevMoments /= cnt;
-        }
-    }
+//    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
+//    {
+//        float cnt = 0.0;
+//
+//        // this code performs a binary descision for each tap of the cross-bilateral filter
+//        const int radius = 1;
+//        for (int yy = -radius; yy <= radius; yy++)
+//        {
+//            for (int xx = -radius; xx <= radius; xx++)
+//            {
+//                ivec2 p            = iposPrev + ivec2(xx, yy);
+//                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
+//                vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
+//
+//                if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
+//                {
+//                    prevColor += texelFetch(s_PrevColor, p, 0);
+//                    prevMoments += texelFetch(s_PrevMoments, p, 0);
+//                    cnt += 1.0;
+//                }
+//            }
+//        }
+//        if (cnt > 0)
+//        {
+//            valid = true;
+//            prevColor /= cnt;
+//            prevMoments /= cnt;
+//        }
+//    }
 
     if (valid)
     {
@@ -218,6 +272,28 @@ void main()
                                   prev_moments,
                                   history_length);
     history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
+
+    if (success)
+    {
+//        vec3 color_std = neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy));
+//
+//        vec3 radiance_min = color.xyz - color_std;
+//        vec3 radiance_max = color.xyz + color_std;
+//
+//        prev_color.xyz = clamp(prev_color.xyz, radiance_min, radiance_max);
+//        vec3 spatial_variance = mean;
+
+        vec3 mean = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
+        vec3 spatial_variance = mean;
+        spatial_variance = max(spatial_variance - mean * mean, 0.0f);
+
+        // Compute the clamping bounding box
+        const vec3 std_deviation = sqrt(spatial_variance);
+        const vec3 nmin = mean - 0.5f * std_deviation;
+        const vec3 nmax = mean + 0.5f * std_deviation;
+
+        prev_color.xyz = clamp(prev_color.xyz, nmin, nmax);
+    }
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in

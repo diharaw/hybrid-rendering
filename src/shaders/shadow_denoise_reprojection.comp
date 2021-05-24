@@ -52,9 +52,6 @@ u_PushConstants;
 // ------------------------------------------------------------------
 
 shared float g_shadow_cache[NUM_THREADS * 2][NUM_THREADS * 2];
-shared float g_depth_cache[NUM_THREADS][NUM_THREADS];
-shared uint  g_normal_xy_cache[NUM_THREADS][NUM_THREADS];
-shared uint  g_normal_zw_cache[NUM_THREADS][NUM_THREADS];
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -89,6 +86,31 @@ vec3 octohedral_to_direction(uint octo)
 float luminance(vec3 rgb)
 {
     return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+// ------------------------------------------------------------------
+
+void populate_shared_cache()
+{
+    ivec2 local_coord = gl_LocalInvocationID.xy * 2;
+    ivec2 global_start_coord = (gl_WorkGroupID.xy * ivec2(NUM_THREADS)) - ivec2(NUM_THREADS/2);
+
+    ivec2 tl_local_coord = local_coord + ivec2(0, 0);
+    ivec2 tr_local_coord = local_coord + ivec2(1, 0);
+    ivec2 bl_local_coord = local_coord + ivec2(0, 1);
+    ivec2 br_local_coord = local_coord + ivec2(1, 1);
+
+    ivec2 tl_global_coord = global_start_coord + tl_local_coord;
+    ivec2 tr_global_coord = global_start_coord + tr_local_coord;
+    ivec2 bl_global_coord = global_start_coord + bl_local_coord;
+    ivec2 br_global_coord = global_start_coord + br_local_coord;
+
+    g_shadow_cache[tl_local_coord.x][tl_local_coord.y] = texelFetch(s_Input, tl_global_coord, 0).r;
+    g_shadow_cache[tr_local_coord.x][tr_local_coord.y] = texelFetch(s_Input, tr_global_coord, 0).r;
+    g_shadow_cache[bl_local_coord.x][bl_local_coord.y] = texelFetch(s_Input, bl_global_coord, 0).r;
+    g_shadow_cache[br_local_coord.x][br_local_coord.y] = texelFetch(s_Input, br_global_coord, 0).r;
+
+    barrier();
 }
 
 // ------------------------------------------------------------------
