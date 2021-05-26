@@ -6,9 +6,6 @@
 #include <macros.h>
 #include <imgui.h>
 
-#define NUM_THREADS_X 32
-#define NUM_THREADS_Y 32
-
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct RayTracePushConstants
@@ -1042,6 +1039,9 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 
     dw::vk::utilities::set_image_layout(
@@ -1098,6 +1098,9 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_upsample.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_upsample.image->height()) / float(NUM_THREADS_Y))), 1);
 
     dw::vk::utilities::set_image_layout(
@@ -1147,6 +1150,9 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_reprojection.pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 
@@ -1216,6 +1222,9 @@ void RayTracedAO::downsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 void RayTracedAO::gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Gaussian Blur", cmd_buf);
+
+    const int NUM_THREADS_X = 8;
+    const int NUM_THREADS_Y = 8;
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -1334,6 +1343,9 @@ void RayTracedAO::recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_recurrent_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_recurrent_blur.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_recurrent_blur.image->height()) / float(NUM_THREADS_Y))), 1);
 
