@@ -51,9 +51,11 @@ u_PushConstants;
 // SHARED MEMORY ----------------------------------------------------
 // ------------------------------------------------------------------
 
+#if defined(USE_SHARED_MEMORY_CACHE)
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
 shared uint g_cached_normal_xy[NUM_THREADS_X][NUM_THREADS_Y];
 shared uint g_cached_normal_z_ao[NUM_THREADS_X][NUM_THREADS_Y];
+#endif
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -66,6 +68,7 @@ float linear_eye_depth(float z)
 
 // ------------------------------------------------------------------------
 
+#if defined(USE_SHARED_MEMORY_CACHE)
 void populate_cache(ivec2 coord)
 {
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
@@ -81,6 +84,7 @@ void populate_cache(ivec2 coord)
 
     barrier();
 }
+#endif
 
 // ------------------------------------------------------------------
 
@@ -88,13 +92,16 @@ void load_ao_and_normal(ivec2 coord, out float ao, out vec3 normal)
 {
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
     ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(1, 1);
-
+    
+#if defined(USE_SHARED_MEMORY_CACHE)
     // If requested coord is outside of cache range, sample texture.
     if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
+#endif    
     {
         ao = texelFetch(s_Input, coord, 0).r;
         normal = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
     }
+#if defined(USE_SHARED_MEMORY_CACHE)
     else // Otherwise read from cache.
     {
         ivec2 cache_coord = coord - min_cached_coord;
@@ -108,6 +115,7 @@ void load_ao_and_normal(ivec2 coord, out float ao, out vec3 normal)
         ao = unpacked_normal_z_ao.y;
         normal = vec3(unpacked_normal_xy, unpacked_normal_z_ao.x);
     }
+#endif
 }
 
 // ------------------------------------------------------------------
@@ -117,14 +125,20 @@ float load_depth(ivec2 coord)
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
     ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(1, 1);
 
+#if defined(USE_SHARED_MEMORY_CACHE)
     // If requested coord is outside of cache range, sample texture.
     if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
+#endif    
+    {
         return texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
+    }
+#if defined(USE_SHARED_MEMORY_CACHE)
     else // Otherwise read from cache.
     {
         ivec2 cache_coord = coord - min_cached_coord;
         return g_cached_depth[cache_coord.x][cache_coord.y];
     }
+#endif
 }
 
 // ------------------------------------------------------------------
@@ -158,7 +172,6 @@ float bilateral_blur(ivec2 current_coord)
 {
     const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
 
-    
     vec3 center_normal;
     float total_ao     = 0.0f;
     float total_weight = 1.0f; 
@@ -203,8 +216,10 @@ void main()
     // Compute current pixel coord
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
+#if defined(USE_SHARED_MEMORY_CACHE)
     // Populate LDS cache
     populate_cache(current_coord);
+#endif
 
     // Skip pixel if it belongs to the background
     float depth = load_depth(current_coord);
