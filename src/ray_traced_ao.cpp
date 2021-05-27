@@ -100,24 +100,12 @@ void RayTracedAO::gui()
     ImGui::PushID("RTAO");
     ImGui::Checkbox("Enabled", &m_enabled);
     ImGui::Checkbox("Denoise", &m_denoise);
-    ImGui::Checkbox("Recurrent Blur", &m_use_recurrent_blur);
-
-    if (m_use_recurrent_blur)
-    {
-        ImGui::Checkbox("Self-Stabilize", &m_recurrent_blur.self_stabilize);
-        ImGui::Checkbox("Feedback", &m_recurrent_blur.feedback);
-    }
-
     ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
     ImGui::SliderFloat("Power", &m_ray_trace.power, 1.0f, 5.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Temporal Alpha", &m_temporal_reprojection.alpha, 0.0f, 0.5f);
-
-    if (m_use_recurrent_blur)
-        ImGui::SliderInt("Blur Radius", &m_recurrent_blur.blur_radius, 1, 30);
-    else
-        ImGui::SliderInt("Blur Radius", &m_gaussian_blur.blur_radius, 1, 20);
+    ImGui::SliderInt("Blur Radius", &m_gaussian_blur.blur_radius, 1, 20);
 
     ImGui::PopID();
 }
@@ -140,11 +128,19 @@ void RayTracedAO::create_images()
         m_ray_trace.all_mips_view->set_name("AO Max Mips Ray Trace");
     }
 
+    // Downsample
+    {
+        m_downsample.image_view_mip1 = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+        m_downsample.image_view_mip2 = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 2);
+        m_downsample.image_view_mip3 = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 3);
+        m_downsample.image_view_mip4 = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 4);
+    }
+
     // Temporal Reprojection
     {
         for (int i = 0; i < 2; i++)
         {
-            m_temporal_reprojection.color_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 5, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_temporal_reprojection.color_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
             m_temporal_reprojection.color_image[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
 
             m_temporal_reprojection.color_view[i] = dw::vk::ImageView::create(backend, m_temporal_reprojection.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -158,15 +154,13 @@ void RayTracedAO::create_images()
         }
     }
 
-    // Downsample
+    // History Fix
     {
-        for (int i = 0; i < 2; i++)
-        {
-            m_downsample.image_view_mip1[i] = dw::vk::ImageView::create(backend, m_temporal_reprojection.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
-            m_downsample.image_view_mip2[i] = dw::vk::ImageView::create(backend, m_temporal_reprojection.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 2);
-            m_downsample.image_view_mip3[i] = dw::vk::ImageView::create(backend, m_temporal_reprojection.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 3);
-            m_downsample.image_view_mip4[i] = dw::vk::ImageView::create(backend, m_temporal_reprojection.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 4);
-        }
+        m_history_fix.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_history_fix.image->set_name("AO History Fix");
+
+        m_history_fix.image_view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_history_fix.image_view->set_name("AO History Fix");
     }
 
     // Gaussian Blur
@@ -179,15 +173,6 @@ void RayTracedAO::create_images()
             m_gaussian_blur.image_view[i] = dw::vk::ImageView::create(backend, m_gaussian_blur.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
             m_gaussian_blur.image_view[i]->set_name("AO Denoise Blur " + std::to_string(i));
         }
-    }
-
-    // Recurrent Blur
-    {
-        m_recurrent_blur.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_recurrent_blur.image->set_name("AO Denoise Recurrent Blur");
-
-        m_recurrent_blur.image_view = dw::vk::ImageView::create(backend, m_recurrent_blur.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_recurrent_blur.image_view->set_name("AO Denoise Recurrent Blur");
     }
 
     // Upsample
@@ -213,6 +198,9 @@ void RayTracedAO::create_descriptor_sets()
 
         m_ray_trace.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_ray_trace.read_ds->set_name("AO Ray Trace Read");
+
+        m_ray_trace.bilinear_read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_ray_trace.bilinear_read_ds->set_name("AO Ray Trace Bilinear Output Read");
     }
 
     // Temporal Reprojection
@@ -247,10 +235,16 @@ void RayTracedAO::create_descriptor_sets()
 
             m_temporal_reprojection.output_read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
             m_temporal_reprojection.output_read_ds[i]->set_name("AO Reprojection Output Read " + std::to_string(i));
-
-            m_temporal_reprojection.output_bilinear_read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-            m_temporal_reprojection.output_bilinear_read_ds[i]->set_name("AO Reprojection Bilinear Output Read " + std::to_string(i));
         }
+    }
+
+    // Ray Trace
+    {
+        m_ray_trace.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        m_ray_trace.write_ds->set_name("AO Ray Trace Write");
+
+        m_ray_trace.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_ray_trace.read_ds->set_name("AO Ray Trace Read");
     }
 
     // Downsample
@@ -267,11 +261,8 @@ void RayTracedAO::create_descriptor_sets()
             m_downsample.write_ds_layout->set_name("Downsample Write DS Layout");
         }
 
-        for (int i = 0; i < 2; i++)
-        {
-            m_downsample.write_ds[i] = backend->allocate_descriptor_set(m_downsample.write_ds_layout);
-            m_downsample.write_ds[i]->set_name("Downsample Write " + std::to_string(i));
-        }
+        m_downsample.write_ds = backend->allocate_descriptor_set(m_downsample.write_ds_layout);
+        m_downsample.write_ds->set_name("Downsample Write");
     }
 
     // Gaussian Blur
@@ -284,15 +275,6 @@ void RayTracedAO::create_descriptor_sets()
             m_gaussian_blur.read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
             m_gaussian_blur.read_ds[i]->set_name("AO Blur Read " + std::to_string(i));
         }
-    }
-
-    // Recurrent Blur
-    {
-        m_recurrent_blur.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_recurrent_blur.write_ds->set_name("AO Recurrent Blur Write");
-
-        m_recurrent_blur.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        m_recurrent_blur.read_ds->set_name("AO Recurrent Blur Read");
     }
 
     // Upsample
@@ -368,6 +350,39 @@ void RayTracedAO::write_descriptor_sets()
         write_data.dstSet          = m_ray_trace.read_ds->handle();
 
         write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
+            sampler_image_info.imageView   = m_ray_trace.view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_ray_trace.bilinear_read_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
@@ -520,135 +535,97 @@ void RayTracedAO::write_descriptor_sets()
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
-    {
-        std::vector<VkDescriptorImageInfo> image_infos;
-        std::vector<VkWriteDescriptorSet>  write_datas;
-        VkWriteDescriptorSet               write_data;
-
-        image_infos.reserve(2);
-        write_datas.reserve(2);
-
-        for (int i = 0; i < 2; i++)
-        {
-            {
-                VkDescriptorImageInfo sampler_image_info;
-
-                sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
-                sampler_image_info.imageView   = m_temporal_reprojection.color_view[i]->handle();
-                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(sampler_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_temporal_reprojection.output_bilinear_read_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-        }
-
-        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-    }
-
     // Downsample
     {
         std::vector<VkDescriptorImageInfo> image_infos;
         std::vector<VkWriteDescriptorSet>  write_datas;
         VkWriteDescriptorSet               write_data;
 
-        image_infos.reserve(8);
-        write_datas.reserve(8);
+        image_infos.reserve(4);
+        write_datas.reserve(4);
 
-        for (int i = 0; i < 2; i++)
         {
-            {
-                VkDescriptorImageInfo storage_image_info;
+            VkDescriptorImageInfo storage_image_info;
 
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_downsample.image_view_mip1[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_downsample.image_view_mip1->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                image_infos.push_back(storage_image_info);
+            image_infos.push_back(storage_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_downsample.write_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_downsample.write_ds->handle();
 
-                write_datas.push_back(write_data);
-            }
+            write_datas.push_back(write_data);
+        }
 
-            {
-                VkDescriptorImageInfo storage_image_info;
+        {
+            VkDescriptorImageInfo storage_image_info;
 
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_downsample.image_view_mip2[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_downsample.image_view_mip2->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                image_infos.push_back(storage_image_info);
+            image_infos.push_back(storage_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 1;
-                write_data.dstSet          = m_downsample.write_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_downsample.write_ds->handle();
 
-                write_datas.push_back(write_data);
-            }
+            write_datas.push_back(write_data);
+        }
 
-            {
-                VkDescriptorImageInfo storage_image_info;
+        {
+            VkDescriptorImageInfo storage_image_info;
 
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_downsample.image_view_mip3[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_downsample.image_view_mip3->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                image_infos.push_back(storage_image_info);
+            image_infos.push_back(storage_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 2;
-                write_data.dstSet          = m_downsample.write_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 2;
+            write_data.dstSet          = m_downsample.write_ds->handle();
 
-                write_datas.push_back(write_data);
-            }
+            write_datas.push_back(write_data);
+        }
 
-            {
-                VkDescriptorImageInfo storage_image_info;
+        {
+            VkDescriptorImageInfo storage_image_info;
 
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_downsample.image_view_mip4[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_downsample.image_view_mip4->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-                image_infos.push_back(storage_image_info);
+            image_infos.push_back(storage_image_info);
 
-                DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 3;
-                write_data.dstSet          = m_downsample.write_ds[i]->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 3;
+            write_data.dstSet          = m_downsample.write_ds->handle();
 
-                write_datas.push_back(write_data);
-            }
+            write_datas.push_back(write_data);
         }
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
@@ -702,49 +679,6 @@ void RayTracedAO::write_descriptor_sets()
                 vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
             }
         }
-    }
-
-    // Recurrent Blur
-    {
-        VkDescriptorImageInfo storage_image_info;
-
-        storage_image_info.sampler     = VK_NULL_HANDLE;
-        storage_image_info.imageView   = m_recurrent_blur.image_view->handle();
-        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write_data;
-
-        DW_ZERO_MEMORY(write_data);
-
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write_data.pImageInfo      = &storage_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_recurrent_blur.write_ds->handle();
-
-        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
-    }
-
-    {
-        VkDescriptorImageInfo sampler_image_info;
-
-        sampler_image_info.sampler     = backend->nearest_sampler()->handle();
-        sampler_image_info.imageView   = m_recurrent_blur.image_view->handle();
-        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write_data;
-
-        DW_ZERO_MEMORY(write_data);
-
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_data.pImageInfo      = &sampler_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_recurrent_blur.read_ds->handle();
-
-        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
     }
 
     // Upsample
@@ -896,30 +830,6 @@ void RayTracedAO::create_pipeline()
         m_gaussian_blur.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
-    // Recurrent Blur
-    {
-        dw::vk::PipelineLayout::Desc desc;
-
-        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
-        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-
-        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RecurrentBlurPushConstants));
-
-        m_recurrent_blur.layout = dw::vk::PipelineLayout::create(backend, desc);
-        m_recurrent_blur.layout->set_name("AO Recurrent Blur Pipeline Layout");
-
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/ao_denoise_recurrent_blur.comp.spv");
-
-        dw::vk::ComputePipeline::Desc comp_desc;
-
-        comp_desc.set_pipeline_layout(m_recurrent_blur.layout);
-        comp_desc.set_shader_stage(module, "main");
-
-        m_recurrent_blur.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
-    }
-
     // Upsample
     {
         dw::vk::PipelineLayout::Desc desc;
@@ -989,13 +899,6 @@ void RayTracedAO::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_recurrent_blur.image->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
     }
 }
 
@@ -1049,7 +952,12 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 
-    m_ray_trace.image->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_LINEAR);
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_ray_trace.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1058,13 +966,9 @@ void RayTracedAO::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Denoise", cmd_buf);
 
-    temporal_reprojection(cmd_buf);
     downsample(cmd_buf);
-
-    if (m_use_recurrent_blur)
-        recurrent_blur(cmd_buf);
-    else
-        gaussian_blur(cmd_buf);
+    temporal_reprojection(cmd_buf);
+    gaussian_blur(cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1092,7 +996,7 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkDescriptorSet descriptor_sets[] = {
         m_upsample.write_ds->handle(),
-        m_use_recurrent_blur ? m_recurrent_blur.read_ds->handle() : m_gaussian_blur.read_ds[1]->handle(),
+        m_gaussian_blur.read_ds[1]->handle(),
         m_g_buffer->output_ds()->handle()
     };
 
@@ -1145,7 +1049,7 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->output_ds()->handle(),
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
-        (m_use_recurrent_blur && m_recurrent_blur.feedback) ? m_recurrent_blur.read_ds->handle() : m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
+        m_temporal_reprojection.output_read_ds[!m_common_resources->ping_pong]->handle(),
         m_temporal_reprojection.read_ds[!m_common_resources->ping_pong]->handle()
     };
 
@@ -1184,7 +1088,7 @@ void RayTracedAO::downsample(dw::vk::CommandBuffer::Ptr cmd_buf)
         };
 
         std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_temporal_reprojection.color_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+            image_memory_barrier(m_ray_trace.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
         };
 
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -1193,14 +1097,14 @@ void RayTracedAO::downsample(dw::vk::CommandBuffer::Ptr cmd_buf)
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_downsample.pipeline->handle());
 
     VkDescriptorSet descriptor_sets[] = {
-        m_downsample.write_ds[m_common_resources->ping_pong]->handle(),
-        m_temporal_reprojection.output_bilinear_read_ds[m_common_resources->ping_pong]->handle()
+        m_downsample.write_ds->handle(),
+        m_ray_trace.bilinear_read_ds->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_downsample.pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
 
-    int w = m_recurrent_blur.image->width() / 2;
-    int h = m_recurrent_blur.image->height() / 2;
+    int w = m_ray_trace.image->width() / 2;
+    int h = m_ray_trace.image->height() / 2;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(w) / float(8))), static_cast<uint32_t>(ceil(float(h) / float(8))), 1);
 
@@ -1210,7 +1114,7 @@ void RayTracedAO::downsample(dw::vk::CommandBuffer::Ptr cmd_buf)
         };
 
         std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_temporal_reprojection.color_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            image_memory_barrier(m_ray_trace.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
         };
 
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -1307,54 +1211,6 @@ void RayTracedAO::gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
     }
-}
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
-void RayTracedAO::recurrent_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
-{
-    DW_SCOPED_SAMPLE("Recurrent Blur", cmd_buf);
-
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_recurrent_blur.image->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
-
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_recurrent_blur.pipeline->handle());
-
-    RecurrentBlurPushConstants push_constants;
-
-    push_constants.z_buffer_params = m_common_resources->z_buffer_params;
-    push_constants.radius          = (float)m_recurrent_blur.blur_radius;
-    push_constants.num_frames      = m_common_resources->num_frames;
-    push_constants.self_stabilize  = (uint32_t)m_recurrent_blur.self_stabilize;
-
-    vkCmdPushConstants(cmd_buf->handle(), m_recurrent_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-    VkDescriptorSet descriptor_sets[] = {
-        m_recurrent_blur.write_ds->handle(),
-        m_temporal_reprojection.output_read_ds[m_common_resources->ping_pong]->handle(),
-        m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
-        m_g_buffer->output_ds()->handle()
-    };
-
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_recurrent_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
-
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_recurrent_blur.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_recurrent_blur.image->height()) / float(NUM_THREADS_Y))), 1);
-
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_recurrent_blur.image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
