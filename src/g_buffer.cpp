@@ -189,103 +189,15 @@ dw::vk::ImageView::Ptr GBuffer::depth_fbo_image_view()
     return m_depth_fbo_view;
 }
 
-void GBuffer::generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter, VkImageAspectFlags aspect_flags)
-{
-    VkImageSubresourceRange initial_subresource_range;
-    DW_ZERO_MEMORY(initial_subresource_range);
-
-    initial_subresource_range.aspectMask     = aspect_flags;
-    initial_subresource_range.levelCount     = img->mip_levels() - 1;
-    initial_subresource_range.layerCount     = 1;
-    initial_subresource_range.baseArrayLayer = 0;
-    initial_subresource_range.baseMipLevel   = 1;
-
-    dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                        img->handle(),
-                                        VK_IMAGE_LAYOUT_UNDEFINED,
-                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                        initial_subresource_range);
-
-    VkImageSubresourceRange subresource_range;
-    DW_ZERO_MEMORY(subresource_range);
-
-    subresource_range.aspectMask = aspect_flags;
-    subresource_range.levelCount = 1;
-    subresource_range.layerCount = 1;
-
-    int32_t mip_width  = m_input_width;
-    int32_t mip_height = m_input_height;
-
-    for (int mip_idx = 1; mip_idx < img->mip_levels(); mip_idx++)
-    {
-        subresource_range.baseMipLevel   = mip_idx - 1;
-        subresource_range.baseArrayLayer = 0;
-
-        VkImageLayout layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-
-        if (mip_idx == 1)
-            layout = src_layout;
-
-        if (layout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-        {
-            dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                                img->handle(),
-                                                layout,
-                                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                subresource_range);
-        }
-
-        VkImageBlit blit                   = {};
-        blit.srcOffsets[0]                 = { 0, 0, 0 };
-        blit.srcOffsets[1]                 = { mip_width, mip_height, 1 };
-        blit.srcSubresource.aspectMask     = aspect_flags;
-        blit.srcSubresource.mipLevel       = mip_idx - 1;
-        blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount     = 1;
-        blit.dstOffsets[0]                 = { 0, 0, 0 };
-        blit.dstOffsets[1]                 = { mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1, 1 };
-        blit.dstSubresource.aspectMask     = aspect_flags;
-        blit.dstSubresource.mipLevel       = mip_idx;
-        blit.dstSubresource.baseArrayLayer = 0;
-        blit.dstSubresource.layerCount     = 1;
-
-        vkCmdBlitImage(cmd_buf->handle(),
-                       img->handle(),
-                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       img->handle(),
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1,
-                       &blit,
-                       filter);
-
-        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                            img->handle(),
-                                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                            dst_layout,
-                                            subresource_range);
-
-        if (mip_width > 1) mip_width /= 2;
-        if (mip_height > 1) mip_height /= 2;
-    }
-
-    subresource_range.baseMipLevel = img->mip_levels() - 1;
-
-    dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                        img->handle(),
-                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                        dst_layout,
-                                        subresource_range);
-}
-
 void GBuffer::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
-{
+{ 
     DW_SCOPED_SAMPLE("Downsample", cmd_buf);
 
-    generate_mipmaps(cmd_buf, m_image_1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
-    generate_mipmaps(cmd_buf, m_image_2, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
-    generate_mipmaps(cmd_buf, m_image_3, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
-    generate_mipmaps(cmd_buf, m_image_linear_z[static_cast<uint32_t>(m_common_resources->ping_pong)], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_COLOR_BIT);
-    generate_mipmaps(cmd_buf, m_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_FILTER_NEAREST, VK_IMAGE_ASPECT_DEPTH_BIT);
+    m_image_1->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_image_2->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_image_3->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_image_linear_z[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_depth->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, VK_FILTER_NEAREST);
 }
 
 void GBuffer::create_images()

@@ -26,7 +26,6 @@ private:
     void create_framebuffer();
     void create_pipeline();
     void downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void generate_mipmaps(dw::vk::CommandBuffer::Ptr cmd_buf, dw::vk::Image::Ptr img, VkImageLayout src_layout, VkImageLayout dst_layout, VkFilter filter, VkImageAspectFlags aspect_flags);
 
 private:
     std::weak_ptr<dw::vk::Backend>   m_backend;

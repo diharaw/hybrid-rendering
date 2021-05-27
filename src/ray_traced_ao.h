@@ -44,6 +44,7 @@ private:
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::Image::Ptr           image;
         dw::vk::ImageView::Ptr       view;
+        dw::vk::ImageView::Ptr       all_mips_view;
         dw::vk::DescriptorSet::Ptr   write_ds;
         dw::vk::DescriptorSet::Ptr   read_ds;
     };

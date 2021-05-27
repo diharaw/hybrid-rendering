@@ -6,6 +6,8 @@
 #include <macros.h>
 #include <imgui.h>
 
+#define MAX_RAY_TRACE_IMAGE_MIP_MAPS 5
+
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct RayTracePushConstants
@@ -128,11 +130,14 @@ void RayTracedAO::create_images()
 
     // Ray Trace
     {
-        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, MAX_RAY_TRACE_IMAGE_MIP_MAPS, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_ray_trace.image->set_name("AO Ray Trace");
 
         m_ray_trace.view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_ray_trace.view->set_name("AO Ray Trace");
+
+        m_ray_trace.all_mips_view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, MAX_RAY_TRACE_IMAGE_MIP_MAPS);
+        m_ray_trace.all_mips_view->set_name("AO Max Mips Ray Trace");
     }
 
     // Temporal Reprojection
@@ -1044,12 +1049,7 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_ray_trace.image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+    m_ray_trace.image->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_LINEAR);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
