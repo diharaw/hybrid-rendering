@@ -29,6 +29,7 @@ private:
     void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void history_fix(dw::vk::CommandBuffer::Ptr cmd_buf);
     void downsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
@@ -47,6 +48,7 @@ private:
         dw::vk::DescriptorSet::Ptr   write_ds;
         dw::vk::DescriptorSet::Ptr   read_ds;
         dw::vk::DescriptorSet::Ptr   bilinear_read_ds;
+        dw::vk::DescriptorSet::Ptr   all_mips_read_ds;
     };
 
     struct Downsample
@@ -79,6 +81,7 @@ private:
 
     struct HistoryFix
     {
+        bool                         enabled = true;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image;

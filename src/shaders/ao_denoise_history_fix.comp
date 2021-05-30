@@ -11,7 +11,9 @@
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
 #define G_BUFFER_MIP 1
-#define DEPTH_FACTOR 0.5
+#define MAX_HISTORY_FIX_LENGTH 8.0f
+#define MAX_HISTORY_LENGTH 16.0f
+#define MAX_NOISY_MIP_MAPS 4.0f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -25,8 +27,9 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 
 layout(set = 0, binding = 0, r16f) uniform image2D i_Output;
 
-layout(set = 1, binding = 0) uniform sampler2D s_Input;
+layout(set = 1, binding = 0) uniform sampler2D s_NoisyInput;
 
+layout(set = 2, binding = 0) uniform sampler2D s_AccumulatedInput;
 layout(set = 2, binding = 1) uniform sampler2D s_HistoryLength;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
@@ -34,43 +37,14 @@ layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Me
 layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
-// ------------------------------------------------------------------------
-// PUSH CONSTANTS ---------------------------------------------------------
-// ------------------------------------------------------------------------
+// ------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------
+// ------------------------------------------------------------------
 
 layout(push_constant) uniform PushConstants
 {
-    vec4  z_buffer_params;
-    int radius;
-    uint num_frames;
-    uint self_stabilize;
-}
-u_PushConstants;
-
-// ------------------------------------------------------------------
-// FUNCTIONS --------------------------------------------------------
-// ------------------------------------------------------------------
-
-float linear_eye_depth(float z)
-{
-    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
-}
-
-// ------------------------------------------------------------------------
-
-float normal_edge_stopping_weight(vec3 center_normal, vec3 sample_normal)
-{
-    return pow(abs(dot(center_normal, sample_normal)), 32);
-}
-
-// ------------------------------------------------------------------------
-
-float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
-{
-    float depth_diff = abs(center_lin_depth - sample_lin_depth);
-    float d_factor   = depth_diff * DEPTH_FACTOR;
-    return exp(-(d_factor * d_factor));
-}
+    uint enabled;
+} u_PushConstants;
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -79,13 +53,15 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 void main()
 {
     // Query the G-Buffer image size
-    ivec2 size = textureSize(s_GBuffer1, G_BUFFER_MIP);
+    ivec2 size = textureSize(s_NoisyInput, 0);
 
     // Compute current pixel coord
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(size);
 
     // Skip pixel if it belongs to the background
-    float depth = texelFetch(s_GBufferDepth, current_coord, 0).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
 
     if (depth == 1.0f)
     {
@@ -93,11 +69,17 @@ void main()
         return;
     }
 
-    // Blur
-    float ao = recurrent_blur(current_coord);
+    float ao_value = texelFetch(s_AccumulatedInput, current_coord, 0).r;
+    float history_length = texelFetch(s_HistoryLength, current_coord, 0).r;
+
+    if (history_length < MAX_HISTORY_FIX_LENGTH && u_PushConstants.enabled == 1)
+    {
+        float norm_length = 1.0f - (history_length / MAX_HISTORY_FIX_LENGTH);
+        ao_value = textureLod(s_NoisyInput, tex_coord, MAX_NOISY_MIP_MAPS * norm_length).r;
+    }
 
     // Store blurred ao
-    imageStore(i_Output, current_coord, vec4(ao));
+    imageStore(i_Output, current_coord, vec4(ao_value));
 }
 
 // ------------------------------------------------------------------

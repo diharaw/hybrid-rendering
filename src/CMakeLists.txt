@@ -92,6 +92,7 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_downsample.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_gaussian_blur.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ao_denoise_history_fix.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao_upsample.comp)
 
 if(APPLE)

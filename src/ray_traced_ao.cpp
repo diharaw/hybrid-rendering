@@ -29,21 +29,18 @@ struct TemporalReprojectionPushConstants
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+struct HistoryFixPushConstants
+{
+    uint32_t enabled;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct GaussianBlurPushConstants
 {
     glm::vec4  z_buffer_params;
     glm::ivec2 direction;
     int32_t    radius;
-};
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
-struct RecurrentBlurPushConstants
-{
-    glm::vec4 z_buffer_params;
-    float     radius;
-    uint32_t  num_frames;
-    uint32_t  self_stabilize;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -100,6 +97,7 @@ void RayTracedAO::gui()
     ImGui::PushID("RTAO");
     ImGui::Checkbox("Enabled", &m_enabled);
     ImGui::Checkbox("Denoise", &m_denoise);
+    ImGui::Checkbox("History Fix", &m_history_fix.enabled);
     ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
     ImGui::SliderFloat("Power", &m_ray_trace.power, 1.0f, 5.0f);
@@ -159,7 +157,7 @@ void RayTracedAO::create_images()
         m_history_fix.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_history_fix.image->set_name("AO History Fix");
 
-        m_history_fix.image_view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_history_fix.image_view = dw::vk::ImageView::create(backend, m_history_fix.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_history_fix.image_view->set_name("AO History Fix");
     }
 
@@ -201,6 +199,27 @@ void RayTracedAO::create_descriptor_sets()
 
         m_ray_trace.bilinear_read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_ray_trace.bilinear_read_ds->set_name("AO Ray Trace Bilinear Output Read");
+
+        m_ray_trace.all_mips_read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_ray_trace.all_mips_read_ds->set_name("AO Ray Trace All Mips Output Read");
+    }
+
+    // Downsample
+    {
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+            m_downsample.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
+            m_downsample.write_ds_layout->set_name("Downsample Write DS Layout");
+        }
+
+        m_downsample.write_ds = backend->allocate_descriptor_set(m_downsample.write_ds_layout);
+        m_downsample.write_ds->set_name("Downsample Write");
     }
 
     // Temporal Reprojection
@@ -238,31 +257,13 @@ void RayTracedAO::create_descriptor_sets()
         }
     }
 
-    // Ray Trace
+    // History Fix
     {
-        m_ray_trace.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_ray_trace.write_ds->set_name("AO Ray Trace Write");
+        m_history_fix.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        m_history_fix.write_ds->set_name("AO History Fix Write");
 
-        m_ray_trace.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        m_ray_trace.read_ds->set_name("AO Ray Trace Read");
-    }
-
-    // Downsample
-    {
-        {
-            dw::vk::DescriptorSetLayout::Desc desc;
-
-            desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-            desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
-            m_downsample.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
-            m_downsample.write_ds_layout->set_name("Downsample Write DS Layout");
-        }
-
-        m_downsample.write_ds = backend->allocate_descriptor_set(m_downsample.write_ds_layout);
-        m_downsample.write_ds->set_name("Downsample Write");
+        m_history_fix.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_history_fix.read_ds->set_name("AO History Fix Read");
     }
 
     // Gaussian Blur
@@ -380,6 +381,38 @@ void RayTracedAO::write_descriptor_sets()
             write_data.pImageInfo      = &image_infos.back();
             write_data.dstBinding      = 0;
             write_data.dstSet          = m_ray_trace.bilinear_read_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = backend->trilinear_sampler()->handle();
+            sampler_image_info.imageView   = m_ray_trace.all_mips_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_ray_trace.all_mips_read_ds->handle();
 
             write_datas.push_back(write_data);
         }
@@ -631,6 +664,53 @@ void RayTracedAO::write_descriptor_sets()
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
+    // History Fix
+    {
+        // write
+        {
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_history_fix.image_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkWriteDescriptorSet write_data;
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &storage_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_history_fix.write_ds->handle();
+
+            vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+        }
+
+        // read
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_history_fix.image_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet write_data;
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &sampler_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_history_fix.read_ds->handle();
+
+            vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+        }
+    }
+
     // Gaussian Blur
     {
         for (int i = 0; i < 2; i++)
@@ -784,6 +864,30 @@ void RayTracedAO::create_pipeline()
         comp_desc.set_shader_stage(module, "main");
 
         m_temporal_reprojection.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+    }
+
+    // History Fix
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_reprojection.read_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HistoryFixPushConstants));
+
+        m_history_fix.layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_history_fix.layout->set_name("AO History Fix Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/ao_denoise_history_fix.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_history_fix.layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_history_fix.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
     // Downsample
@@ -968,6 +1072,7 @@ void RayTracedAO::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     downsample(cmd_buf);
     temporal_reprojection(cmd_buf);
+    history_fix(cmd_buf);
     gaussian_blur(cmd_buf);
 }
 
@@ -1076,6 +1181,51 @@ void RayTracedAO::temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+void RayTracedAO::history_fix(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("History Fix", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_history_fix.image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_history_fix.pipeline->handle());
+
+    HistoryFixPushConstants push_constants;
+
+    push_constants.enabled = (uint32_t)m_history_fix.enabled;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_history_fix.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_history_fix.write_ds->handle(),
+        m_ray_trace.all_mips_read_ds->handle(),
+        m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
+        m_g_buffer->output_ds()->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_history_fix.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_history_fix.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_history_fix.image->height()) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_history_fix.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedAO::downsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Downsample", cmd_buf);
@@ -1155,7 +1305,7 @@ void RayTracedAO::gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VkDescriptorSet descriptor_sets[] = {
             m_gaussian_blur.write_ds[0]->handle(),
-            m_temporal_reprojection.output_read_ds[m_common_resources->ping_pong]->handle(),
+            m_history_fix.read_ds->handle(),
             m_temporal_reprojection.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle()
         };
