@@ -29,7 +29,7 @@ private:
     void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void history_fix(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
     void downsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
@@ -79,9 +79,11 @@ private:
         dw::vk::DescriptorSet::Ptr       output_read_ds[2];
     };
 
-    struct HistoryFix
+    struct DisocclusionBlur
     {
         bool                         enabled = true;
+        int32_t                      blur_radius = 2;
+        int32_t                      max_frames = 15;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image;
@@ -121,7 +123,7 @@ private:
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
     Downsample                     m_downsample;
-    HistoryFix                     m_history_fix;
+    DisocclusionBlur               m_disocclusion_blur;
     GaussianBlur                   m_gaussian_blur;
     Upsample                       m_upsample;
 };

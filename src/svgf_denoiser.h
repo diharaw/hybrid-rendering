@@ -40,7 +40,9 @@ public:
     void                       gui();
 
     inline uint32_t filter_iterations() { return m_a_trous_filter_iterations; }
+    inline bool     use_spatial_for_feedback() { return m_use_spatial_for_feedback; }
     inline void     set_filter_iterations(uint32_t n) { m_a_trous_filter_iterations = glm::clamp(n, 1u, 5u); }
+    inline void     set_use_spatial_for_feedback(bool value) { m_use_spatial_for_feedback = value; }
 
 protected:
     void create_reprojection_resources();

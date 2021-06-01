@@ -87,6 +87,28 @@ float luminance(vec3 rgb)
 
 // ------------------------------------------------------------------
 
+vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
+{
+    // Note: only clips towards aabb center
+    vec3 aabb_center = 0.5f * (aabb_max + aabb_min);
+    vec3 extent_clip = 0.5f * (aabb_max - aabb_min) + 0.001f;
+
+    // Find color vector
+    vec3 color_vector = history_sample - aabb_center;
+    // Transform into clip space
+    vec3 color_vector_clip = color_vector / extent_clip;
+    // Find max absolute component
+    color_vector_clip  = abs(color_vector_clip);
+    float max_abs_unit = max(max(color_vector_clip.x, color_vector_clip.y), color_vector_clip.z);
+
+    if (max_abs_unit > 1.0)
+        return aabb_center + color_vector / max_abs_unit; // clip towards color vector
+    else
+        return history_sample; // point is inside aabb
+}
+
+// ------------------------------------------------------------------
+
 vec3 neighborhood_mean(ivec2 coord)
 {
     vec3 color_sum         = vec3(0.0f);
@@ -209,35 +231,35 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, o
         prevColor   = valid ? prevColor / sumw : vec4(0, 0, 0, 0);
         prevMoments = valid ? prevMoments / sumw : vec4(0, 0, 0, 0);
     }
-//    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
-//    {
-//        float cnt = 0.0;
-//
-//        // this code performs a binary descision for each tap of the cross-bilateral filter
-//        const int radius = 1;
-//        for (int yy = -radius; yy <= radius; yy++)
-//        {
-//            for (int xx = -radius; xx <= radius; xx++)
-//            {
-//                ivec2 p            = iposPrev + ivec2(xx, yy);
-//                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
-//                vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
-//
-//                if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
-//                {
-//                    prevColor += texelFetch(s_PrevColor, p, 0);
-//                    prevMoments += texelFetch(s_PrevMoments, p, 0);
-//                    cnt += 1.0;
-//                }
-//            }
-//        }
-//        if (cnt > 0)
-//        {
-//            valid = true;
-//            prevColor /= cnt;
-//            prevMoments /= cnt;
-//        }
-//    }
+    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
+    {
+        float cnt = 0.0;
+
+        // this code performs a binary descision for each tap of the cross-bilateral filter
+        const int radius = 1;
+        for (int yy = -radius; yy <= radius; yy++)
+        {
+            for (int xx = -radius; xx <= radius; xx++)
+            {
+                ivec2 p            = iposPrev + ivec2(xx, yy);
+                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
+                vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
+
+                if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
+                {
+                    prevColor += texelFetch(s_PrevColor, p, 0);
+                    prevMoments += texelFetch(s_PrevMoments, p, 0);
+                    cnt += 1.0;
+                }
+            }
+        }
+        if (cnt > 0)
+        {
+            valid = true;
+            prevColor /= cnt;
+            prevMoments /= cnt;
+        }
+    }
 
     if (valid)
     {
@@ -275,23 +297,26 @@ void main()
 
     if (success)
     {
-//        vec3 color_std = neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy));
+        // For reflections
+        vec3 color_std = neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy));
+
+        vec3 radiance_min = color.xyz - color_std;
+        vec3 radiance_max = color.xyz + color_std;
+
+        //prev_color.xyz = clamp(prev_color.xyz, radiance_min, radiance_max);
+        prev_color.xyz = clip_aabb(radiance_min, radiance_max, prev_color.xyz);
+
+        // For shadows
+//        vec3 mean = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
+//        vec3 spatial_variance = mean;
+//        spatial_variance = max(spatial_variance - mean * mean, 0.0f);
 //
-//        vec3 radiance_min = color.xyz - color_std;
-//        vec3 radiance_max = color.xyz + color_std;
+//        // Compute the clamping bounding box
+//        const vec3 std_deviation = sqrt(spatial_variance);
+//        const vec3 nmin = mean - 0.5f * std_deviation;
+//        const vec3 nmax = mean + 0.5f * std_deviation;
 //
-//        prev_color.xyz = clamp(prev_color.xyz, radiance_min, radiance_max);
-
-        vec3 mean = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
-        vec3 spatial_variance = mean;
-        spatial_variance = max(spatial_variance - mean * mean, 0.0f);
-
-        // Compute the clamping bounding box
-        const vec3 std_deviation = sqrt(spatial_variance);
-        const vec3 nmin = mean - 0.5f * std_deviation;
-        const vec3 nmax = mean + 0.5f * std_deviation;
-
-        prev_color.xyz = clamp(prev_color.xyz, nmin, nmax);
+//        prev_color.xyz = clamp(prev_color.xyz, nmin, nmax);
     }
 
     // this adjusts the alpha for the case where insufficient history is available.

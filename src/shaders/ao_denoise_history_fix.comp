@@ -10,10 +10,8 @@
 
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
-#define G_BUFFER_MIP 1
-#define MAX_HISTORY_FIX_LENGTH 8.0f
-#define MAX_HISTORY_LENGTH 16.0f
-#define MAX_NOISY_MIP_MAPS 4.0f
+#define G_BUFFER_MIP_OFFSET 1
+#define MAX_RECONSTRUCTED_MIPS 4.0f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -27,9 +25,8 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 
 layout(set = 0, binding = 0, r16f) uniform image2D i_Output;
 
-layout(set = 1, binding = 0) uniform sampler2D s_NoisyInput;
+layout(set = 1, binding = 0) uniform sampler2D s_Input;
 
-layout(set = 2, binding = 0) uniform sampler2D s_AccumulatedInput;
 layout(set = 2, binding = 1) uniform sampler2D s_HistoryLength;
 
 layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
@@ -43,8 +40,74 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(push_constant) uniform PushConstants
 {
+    vec4 z_buffer_params;
+    float max_frames;
+    int blur_radius;
     uint enabled;
 } u_PushConstants;
+
+// ------------------------------------------------------------------
+// CONSTANTS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+const float FLT_EPS = 0.00000001;
+
+const vec2 g_kernel[4] = vec2[](
+    vec2(0.0f, 1.0f),
+    vec2(1.0f, 0.0f),
+    vec2(-1.0f, 0.0f),
+    vec2(0.0, -1.0f));
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+float linear_eye_depth(float z)
+{
+    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
+}
+
+// ------------------------------------------------------------------------
+
+float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
+{
+    float depth_diff = abs(hi_res_depth - coarse_depth);
+    return 1.0f / (FLT_EPS + depth_diff);
+}
+
+// ------------------------------------------------------------------------
+
+float normal_edge_stopping_weight(vec3 a, vec3 b)
+{
+    return pow(max(dot(a, b), 0.0f), 32);
+}
+
+// ------------------------------------------------------------------------
+
+float disocclusion_blur(ivec2 current_coord, float norm_accumulated_frames, float center_depth, vec3 center_normal)
+{
+    int radius = u_PushConstants.blur_radius;
+    float total_ao  = 0.0f;
+    float total_weight = 0.0f;
+
+    for (int dx = -radius; dx <= radius; dx++)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            ivec2 sample_coord = current_coord + ivec2(dx, dy);
+            float  sample_ao = texelFetch(s_Input, sample_coord, 0).r;
+            float sample_depth = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, G_BUFFER_MIP_OFFSET).r);
+            vec3 sample_normal = texelFetch(s_GBuffer2, sample_coord, G_BUFFER_MIP_OFFSET).rgb;
+
+            float weight = depth_edge_stopping_weight(center_depth, sample_depth);// * normal_edge_stopping_weight(center_normal, sample_normal);
+
+            total_ao += weight * sample_ao;
+            total_weight += weight;
+        }
+    }
+
+    return total_ao / max(total_weight, FLT_EPS);
+}
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -53,32 +116,35 @@ layout(push_constant) uniform PushConstants
 void main()
 {
     // Query the G-Buffer image size
-    ivec2 size = textureSize(s_NoisyInput, 0);
+    const ivec2 size = textureSize(s_Input, 0);
 
     // Compute current pixel coord
-    ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
     // Skip pixel if it belongs to the background
-    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
+    const float center_depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP_OFFSET).r;
+    const vec3 center_normal = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP_OFFSET).rgb;
 
-    if (depth == 1.0f)
+    if (center_depth == 1.0f)
     {
         imageStore(i_Output, current_coord, vec4(0.0f));
         return;
     }
 
-    float ao_value = texelFetch(s_AccumulatedInput, current_coord, 0).r;
-    float history_length = texelFetch(s_HistoryLength, current_coord, 0).r;
+    float ao_value = texelFetch(s_Input, current_coord, 0).r;
+    const float accumulated_frames = max(texelFetch(s_HistoryLength, current_coord, 0).r - 1.0f, 0.0f);
+    const float norm_accumulated_frames = clamp(accumulated_frames / u_PushConstants.max_frames, 0.0f, 1.0f);
 
-    if (history_length < MAX_HISTORY_FIX_LENGTH && u_PushConstants.enabled == 1)
+    if (norm_accumulated_frames < 1.0f && u_PushConstants.enabled == 1)
     {
-        float norm_length = 1.0f - (history_length / MAX_HISTORY_FIX_LENGTH);
-        ao_value = textureLod(s_NoisyInput, tex_coord, MAX_NOISY_MIP_MAPS * norm_length).r;
+        float blur_strength = 1.0f - norm_accumulated_frames;
+        float blurred_ao = disocclusion_blur(current_coord, norm_accumulated_frames, linear_eye_depth(center_depth), center_normal);
+        ao_value = mix(ao_value, blurred_ao, blur_strength);
     }
 
-    // Store blurred ao
+    // Store ao
     imageStore(i_Output, current_coord, vec4(ao_value));
 }
 

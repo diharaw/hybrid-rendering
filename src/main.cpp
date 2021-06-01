@@ -211,6 +211,8 @@ protected:
         m_common_resources->reflection_denoiser  = std::unique_ptr<ReflectionDenoiser>(new ReflectionDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Reflections", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
         m_common_resources->shadow_denoiser      = std::unique_ptr<DiffuseDenoiser>(new DiffuseDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Shadow", m_ray_traced_shadows->width(), m_ray_traced_shadows->height()));
 
+        //m_common_resources->svgf_reflection_denoiser->set_use_spatial_for_feedback(true);
+
         // Create camera.
         create_camera();
 
