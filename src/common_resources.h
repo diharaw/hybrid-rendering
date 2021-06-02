@@ -11,6 +11,7 @@
 #include <cubemap_prefilter.h>
 #include <stdexcept>
 #include "blue_noise.h"
+#include "spatial_reconstruction.h"
 
 class SVGFDenoiser;
 class ReflectionDenoiser;
@@ -58,6 +59,7 @@ struct CommonResources
     // Denoisers
     std::unique_ptr<SVGFDenoiser>       svgf_shadow_denoiser;
     std::unique_ptr<SVGFDenoiser>       svgf_gi_denoiser;
+    std::unique_ptr<SpatialReconstruction> spatial_reconstruction;
     std::unique_ptr<SVGFDenoiser>       svgf_reflection_denoiser;
     std::unique_ptr<ReflectionDenoiser> reflection_denoiser;
     std::unique_ptr<DiffuseDenoiser>    shadow_denoiser;

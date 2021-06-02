@@ -30,8 +30,7 @@ private:
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
     void disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void downsample(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void gaussian_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     struct RayTrace
@@ -44,23 +43,9 @@ private:
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::Image::Ptr           image;
         dw::vk::ImageView::Ptr       view;
-        dw::vk::ImageView::Ptr       all_mips_view;
         dw::vk::DescriptorSet::Ptr   write_ds;
         dw::vk::DescriptorSet::Ptr   read_ds;
         dw::vk::DescriptorSet::Ptr   bilinear_read_ds;
-        dw::vk::DescriptorSet::Ptr   all_mips_read_ds;
-    };
-
-    struct Downsample
-    {
-        dw::vk::PipelineLayout::Ptr      pipeline_layout;
-        dw::vk::ComputePipeline::Ptr     pipeline;
-        dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
-        dw::vk::ImageView::Ptr           image_view_mip1;
-        dw::vk::ImageView::Ptr           image_view_mip2;
-        dw::vk::ImageView::Ptr           image_view_mip3;
-        dw::vk::ImageView::Ptr           image_view_mip4;
-        dw::vk::DescriptorSet::Ptr       write_ds;
     };
 
     struct TemporalReprojection
@@ -83,7 +68,7 @@ private:
     {
         bool                         enabled = true;
         int32_t                      blur_radius = 2;
-        int32_t                      max_frames = 15;
+        int32_t                      threshold   = 15;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image;
@@ -92,7 +77,7 @@ private:
         dw::vk::DescriptorSet::Ptr   write_ds;
     };
 
-    struct GaussianBlur
+    struct BilateralBlur
     {
         int32_t                      blur_radius = 5;
         dw::vk::PipelineLayout::Ptr  layout;
@@ -122,8 +107,7 @@ private:
     bool                           m_denoise            = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
-    Downsample                     m_downsample;
     DisocclusionBlur               m_disocclusion_blur;
-    GaussianBlur                   m_gaussian_blur;
+    BilateralBlur                  m_bilateral_blur;
     Upsample                       m_upsample;
 };

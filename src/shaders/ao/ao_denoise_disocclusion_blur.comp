@@ -1,9 +1,5 @@
 #version 450
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "random.glsl"
-
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
@@ -41,7 +37,7 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(push_constant) uniform PushConstants
 {
     vec4 z_buffer_params;
-    float max_frames;
+    float threshold;
     int blur_radius;
     uint enabled;
 } u_PushConstants;
@@ -135,7 +131,7 @@ void main()
 
     float ao_value = texelFetch(s_Input, current_coord, 0).r;
     const float accumulated_frames = max(texelFetch(s_HistoryLength, current_coord, 0).r - 1.0f, 0.0f);
-    const float norm_accumulated_frames = clamp(accumulated_frames / u_PushConstants.max_frames, 0.0f, 1.0f);
+    const float norm_accumulated_frames = clamp(accumulated_frames / u_PushConstants.threshold, 0.0f, 1.0f);
 
     if (norm_accumulated_frames < 1.0f && u_PushConstants.enabled == 1)
     {
