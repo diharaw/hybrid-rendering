@@ -76,8 +76,8 @@ void SVGFDenoiser::create_reprojection_resources()
 
     for (int i = 0; i < 2; i++)
     {
-        m_reprojection_write_ds[i] = vk_backend->allocate_descriptor_set(m_reprojection_write_ds_layout);
-        m_reprojection_read_ds[i]  = vk_backend->allocate_descriptor_set(m_reprojection_read_ds_layout);
+        m_reprojection_write_ds[i]      = vk_backend->allocate_descriptor_set(m_reprojection_write_ds_layout);
+        m_reprojection_read_ds[i]       = vk_backend->allocate_descriptor_set(m_reprojection_read_ds_layout);
         m_reprojection_color_read_ds[i] = vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     }
 

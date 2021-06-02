@@ -66,7 +66,7 @@ private:
 
     struct DisocclusionBlur
     {
-        bool                         enabled = true;
+        bool                         enabled     = true;
         int32_t                      blur_radius = 2;
         int32_t                      threshold   = 15;
         dw::vk::PipelineLayout::Ptr  layout;
@@ -103,8 +103,8 @@ private:
     GBuffer*                       m_g_buffer;
     uint32_t                       m_width;
     uint32_t                       m_height;
-    bool                           m_enabled            = true;
-    bool                           m_denoise            = true;
+    bool                           m_enabled = true;
+    bool                           m_denoise = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
     DisocclusionBlur               m_disocclusion_blur;

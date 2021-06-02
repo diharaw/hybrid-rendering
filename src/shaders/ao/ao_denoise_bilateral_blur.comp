@@ -53,8 +53,8 @@ u_PushConstants;
 
 #if defined(USE_SHARED_MEMORY_CACHE)
 shared float g_cached_depth[NUM_THREADS_X][NUM_THREADS_Y];
-shared uint g_cached_normal_xy[NUM_THREADS_X][NUM_THREADS_Y];
-shared uint g_cached_normal_z_ao[NUM_THREADS_X][NUM_THREADS_Y];
+shared uint  g_cached_normal_xy[NUM_THREADS_X][NUM_THREADS_Y];
+shared uint  g_cached_normal_z_ao[NUM_THREADS_X][NUM_THREADS_Y];
 #endif
 
 // ------------------------------------------------------------------
@@ -76,10 +76,10 @@ void populate_cache(ivec2 coord)
 
     g_cached_depth[cache_coord.x][cache_coord.y] = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
 
-    float ao = texelFetch(s_Input, coord, 0).r;
-    vec3 normal = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
+    float ao     = texelFetch(s_Input, coord, 0).r;
+    vec3  normal = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
 
-    g_cached_normal_xy[cache_coord.x][cache_coord.y] = packSnorm2x16(normal.xy);
+    g_cached_normal_xy[cache_coord.x][cache_coord.y]   = packSnorm2x16(normal.xy);
     g_cached_normal_z_ao[cache_coord.x][cache_coord.y] = packSnorm2x16(vec2(normal.z, ao));
 
     barrier();
@@ -92,27 +92,27 @@ void load_ao_and_normal(ivec2 coord, out float ao, out vec3 normal)
 {
     ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
     ivec2 max_cached_coord = ivec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(1, 1);
-    
+
 #if defined(USE_SHARED_MEMORY_CACHE)
     // If requested coord is outside of cache range, sample texture.
     if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
-#endif    
+#endif
     {
-        ao = texelFetch(s_Input, coord, 0).r;
+        ao     = texelFetch(s_Input, coord, 0).r;
         normal = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
     }
 #if defined(USE_SHARED_MEMORY_CACHE)
     else // Otherwise read from cache.
     {
         ivec2 cache_coord = coord - min_cached_coord;
-        
-        uint packed_normal_xy = g_cached_normal_xy[cache_coord.x][cache_coord.y];
+
+        uint packed_normal_xy   = g_cached_normal_xy[cache_coord.x][cache_coord.y];
         uint packed_normal_z_ao = g_cached_normal_z_ao[cache_coord.x][cache_coord.y];
 
-        vec2 unpacked_normal_xy = unpackSnorm2x16(packed_normal_xy);
+        vec2 unpacked_normal_xy   = unpackSnorm2x16(packed_normal_xy);
         vec2 unpacked_normal_z_ao = unpackSnorm2x16(packed_normal_z_ao);
 
-        ao = unpacked_normal_z_ao.y;
+        ao     = unpacked_normal_z_ao.y;
         normal = vec3(unpacked_normal_xy, unpacked_normal_z_ao.x);
     }
 #endif
@@ -128,7 +128,7 @@ float load_depth(ivec2 coord)
 #if defined(USE_SHARED_MEMORY_CACHE)
     // If requested coord is outside of cache range, sample texture.
     if (any(lessThan(coord, min_cached_coord)) || any(greaterThan(coord, max_cached_coord)))
-#endif    
+#endif
     {
         return texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
     }
@@ -172,9 +172,9 @@ float bilateral_blur(ivec2 current_coord)
 {
     const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
 
-    vec3 center_normal;
+    vec3  center_normal;
     float total_ao     = 0.0f;
-    float total_weight = 1.0f; 
+    float total_weight = 1.0f;
 
     float center_depth = linear_eye_depth(load_depth(current_coord));
     load_ao_and_normal(current_coord, total_ao, center_normal);
@@ -189,7 +189,7 @@ float bilateral_blur(ivec2 current_coord)
         ivec2 sample_coord = current_coord + u_PushConstants.direction * ivec2(i);
         float sample_depth = linear_eye_depth(load_depth(sample_coord));
         float sample_ao;
-        vec3 sample_normal;
+        vec3  sample_normal;
 
         load_ao_and_normal(sample_coord, sample_ao, sample_normal);
 

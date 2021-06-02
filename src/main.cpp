@@ -211,16 +211,17 @@ protected:
         m_common_resources->shadow_denoiser      = std::unique_ptr<DiffuseDenoiser>(new DiffuseDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Shadow", m_ray_traced_shadows->width(), m_ray_traced_shadows->height()));
 
 #if defined(SVGF_REFLECTION_RECONSTRUCTION)
-        m_common_resources->spatial_reconstruction   = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Spatial Reconstruction", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
+        m_common_resources->spatial_reconstruction = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Spatial Reconstruction", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
 #endif
-        m_common_resources->svgf_reflection_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Denoiser", 
-            #if defined(SVGF_REFLECTION_RECONSTRUCTION)
-            m_width, m_height, 
-            #else
+        m_common_resources->svgf_reflection_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Denoiser",
+#if defined(SVGF_REFLECTION_RECONSTRUCTION)
+                                                                                                      m_width,
+                                                                                                      m_height,
+#else
                                                                                                       m_width / 2,
-                                                                                                      m_height / 2, 
-            #endif
-            4));
+                                                                                                      m_height / 2,
+#endif
+                                                                                                      4));
 
         //m_common_resources->svgf_reflection_denoiser->set_use_spatial_for_feedback(true);
 
@@ -378,7 +379,7 @@ protected:
 
             // Render.
             m_g_buffer->render(cmd_buf);
-            
+
             {
                 DW_SCOPED_SAMPLE("RT Shadows", cmd_buf);
 
@@ -387,9 +388,9 @@ protected:
                 if (m_svgf_shadow_denoise)
                     m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
             }
-            
+
             m_ray_traced_ao->render(cmd_buf);
-            
+
             {
                 DW_SCOPED_SAMPLE("RT Reflections", cmd_buf);
 
@@ -402,23 +403,23 @@ protected:
 #if defined(SVGF_REFLECTION_RECONSTRUCTION)
                     m_common_resources->spatial_reconstruction->reconstruct(cmd_buf, m_common_resources->reflection_rt_read_ds);
 #endif
-                    m_common_resources->svgf_reflection_denoiser->denoise(cmd_buf, 
-                        #if defined(SVGF_REFLECTION_RECONSTRUCTION)
-                        m_common_resources->spatial_reconstruction->output_ds()
-                    #else
+                    m_common_resources->svgf_reflection_denoiser->denoise(cmd_buf,
+#if defined(SVGF_REFLECTION_RECONSTRUCTION)
+                                                                          m_common_resources->spatial_reconstruction->output_ds()
+#else
                                                                           m_common_resources->reflection_rt_read_ds
-                        #endif
+#endif
                     );
                 }
             }
-            
+
             {
                 DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
 
                 ray_trace_gi(cmd_buf);
                 m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
             }
-            
+
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
             temporal_aa(cmd_buf);
@@ -2563,8 +2564,8 @@ private:
     bool m_downscaled_rt      = true;
 
     // Ray Traced Shadows
-    bool    m_svgf_shadow_denoise                  = true;
-    bool    m_rt_shadows_enabled                   = true;
+    bool m_svgf_shadow_denoise = true;
+    bool m_rt_shadows_enabled  = true;
 
     // Ray Traced Reflections
     float m_ray_traced_reflections_bias                        = 0.5f;

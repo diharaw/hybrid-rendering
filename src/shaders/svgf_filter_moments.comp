@@ -96,80 +96,80 @@ void main()
 
     float h = texelFetch(s_HistoryLength, ipos, 0).r;
 
-//    if (h < 4.0) // not enough temporal history available
-//    {
-//        float sumWColor  = 0.0;
-//        vec3  sumColor   = vec3(0.0f);
-//        vec2  sumMoments = vec2(0.0f);
-//
-//        const vec4  colorCenter  = texelFetch(s_Input, ipos, 0);
-//        const float lColorCenter = luminance(colorCenter.rgb);
-//
-//        vec3 normalCenter = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
-//        vec2 zCenter      = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
-//
-//        if (zCenter.x < 0)
-//        {
-//            // current pixel does not a valid depth => must be envmap => do nothing
-//            return;
-//        }
-//
-//        const float phiLColor = u_PushConstants.phi_Output;
-//        const float phiDepth  = max(zCenter.y, 1e-8) * 3.0;
-//
-//        // compute first and second moment spatially. This code also applies cross-bilateral
-//        // filtering on the input color samples
-//        const int radius = 3;
-//
-//        for (int yy = -radius; yy <= radius; yy++)
-//        {
-//            for (int xx = -radius; xx <= radius; xx++)
-//            {
-//                const ivec2 p         = ipos + ivec2(xx, yy);
-//                const bool  inside    = all(greaterThanEqual(p, ivec2(0, 0))) && all(lessThan(p, size));
-//                const bool  samePixel = (xx == 0) && (yy == 0);
-//                const float kernel    = 1.0;
-//
-//                if (inside)
-//                {
-//                    const vec3 colorP   = texelFetch(s_Input, p, 0).rgb;
-//                    const vec2 momentsP = texelFetch(s_Moments, p, 0).rg;
-//
-//                    const float lColorP = luminance(colorP.rgb);
-//
-//                    vec3 normalP = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
-//                    vec2 zP      = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
-//
-//                    const float w = compute_weight(
-//                        zCenter.x, zP.x, phiDepth * length(vec2(xx, yy)), normalCenter, normalP, u_PushConstants.phi_normal, lColorCenter, lColorP, phiLColor);
-//
-//                    const float wColor = w;
-//
-//                    sumWColor += wColor;
-//                    sumColor += colorP * wColor;
-//
-//                    sumMoments += momentsP * vec2(wColor.xx);
-//                }
-//            }
-//        }
-//
-//        // Clamp sums to >0 to avoid NaNs.
-//        sumWColor = max(sumWColor, 1e-6f);
-//
-//        sumColor /= sumWColor;
-//        sumMoments /= vec2(sumWColor.xx);
-//
-//        // compute variance for direct and indirect illumination using first and second moments
-//        float variance = sumMoments.g - sumMoments.r * sumMoments.r;
-//
-//        // give the variance a boost for the first frames
-//        variance *= 4.0 / h;
-//
-//        out_color = vec4(sumColor, variance);
-//        imageStore(i_Output, ipos, out_color);
-//    }
-//    else
-        imageStore(i_Output, ipos, texelFetch(s_Input, ipos, 0));
+    //    if (h < 4.0) // not enough temporal history available
+    //    {
+    //        float sumWColor  = 0.0;
+    //        vec3  sumColor   = vec3(0.0f);
+    //        vec2  sumMoments = vec2(0.0f);
+    //
+    //        const vec4  colorCenter  = texelFetch(s_Input, ipos, 0);
+    //        const float lColorCenter = luminance(colorCenter.rgb);
+    //
+    //        vec3 normalCenter = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
+    //        vec2 zCenter      = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
+    //
+    //        if (zCenter.x < 0)
+    //        {
+    //            // current pixel does not a valid depth => must be envmap => do nothing
+    //            return;
+    //        }
+    //
+    //        const float phiLColor = u_PushConstants.phi_Output;
+    //        const float phiDepth  = max(zCenter.y, 1e-8) * 3.0;
+    //
+    //        // compute first and second moment spatially. This code also applies cross-bilateral
+    //        // filtering on the input color samples
+    //        const int radius = 3;
+    //
+    //        for (int yy = -radius; yy <= radius; yy++)
+    //        {
+    //            for (int xx = -radius; xx <= radius; xx++)
+    //            {
+    //                const ivec2 p         = ipos + ivec2(xx, yy);
+    //                const bool  inside    = all(greaterThanEqual(p, ivec2(0, 0))) && all(lessThan(p, size));
+    //                const bool  samePixel = (xx == 0) && (yy == 0);
+    //                const float kernel    = 1.0;
+    //
+    //                if (inside)
+    //                {
+    //                    const vec3 colorP   = texelFetch(s_Input, p, 0).rgb;
+    //                    const vec2 momentsP = texelFetch(s_Moments, p, 0).rg;
+    //
+    //                    const float lColorP = luminance(colorP.rgb);
+    //
+    //                    vec3 normalP = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
+    //                    vec2 zP      = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
+    //
+    //                    const float w = compute_weight(
+    //                        zCenter.x, zP.x, phiDepth * length(vec2(xx, yy)), normalCenter, normalP, u_PushConstants.phi_normal, lColorCenter, lColorP, phiLColor);
+    //
+    //                    const float wColor = w;
+    //
+    //                    sumWColor += wColor;
+    //                    sumColor += colorP * wColor;
+    //
+    //                    sumMoments += momentsP * vec2(wColor.xx);
+    //                }
+    //            }
+    //        }
+    //
+    //        // Clamp sums to >0 to avoid NaNs.
+    //        sumWColor = max(sumWColor, 1e-6f);
+    //
+    //        sumColor /= sumWColor;
+    //        sumMoments /= vec2(sumWColor.xx);
+    //
+    //        // compute variance for direct and indirect illumination using first and second moments
+    //        float variance = sumMoments.g - sumMoments.r * sumMoments.r;
+    //
+    //        // give the variance a boost for the first frames
+    //        variance *= 4.0 / h;
+    //
+    //        out_color = vec4(sumColor, variance);
+    //        imageStore(i_Output, ipos, out_color);
+    //    }
+    //    else
+    imageStore(i_Output, ipos, texelFetch(s_Input, ipos, 0));
 }
 
 // ------------------------------------------------------------------

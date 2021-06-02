@@ -190,7 +190,7 @@ dw::vk::ImageView::Ptr GBuffer::depth_fbo_image_view()
 }
 
 void GBuffer::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
-{ 
+{
     DW_SCOPED_SAMPLE("Downsample", cmd_buf);
 
     m_image_1->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);

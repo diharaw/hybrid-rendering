@@ -165,14 +165,14 @@ void main()
 
     vec3  sum_color  = center_radiance.xyz;
     float sum_weight = 1.0f;
-    vec2 rotation = random_rotation(full_res_center_coord);
+    vec2  rotation   = random_rotation(full_res_center_coord);
 
     const int sample_count = 15;
 
     for (int i = 0; i < sample_count; i++)
     {
         // Rotate it
-        vec2 offset = rotate_sample(reuse_offsets[i], rotation); 
+        vec2 offset = rotate_sample(reuse_offsets[i], rotation);
 
         ivec2 full_res_sample_coord = full_res_center_coord + ivec2(offset);
         ivec2 half_res_sample_coord = half_res_center_coord + ivec2(offset);
