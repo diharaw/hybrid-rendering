@@ -22,6 +22,7 @@ ReflectionDenoiser::ReflectionDenoiser(std::weak_ptr<dw::vk::Backend> backend, C
     m_temporal_pre_pass->set_neighborhood_scale(1.0f);
     m_temporal_pre_pass->set_alpha(0.05f);
     m_temporal_main_pass->set_variance_clipping(true);
+    m_temporal_main_pass->set_neighborhood_scale(7.0f);
     m_bilateral_blur->set_blur_radius(1);
 }
 
