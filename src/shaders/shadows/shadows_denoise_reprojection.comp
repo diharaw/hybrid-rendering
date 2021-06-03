@@ -18,8 +18,6 @@ layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1)
 
 // Current Reprojection Write DS
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D i_Output;
-layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D i_Moments;
-layout(set = 0, binding = 2, r16f) uniform writeonly image2D i_HistoryLength;
 
 // Current G-buffer DS
 layout(set = 1, binding = 2) uniform sampler2D s_MotionVectors;
@@ -28,14 +26,14 @@ layout(set = 1, binding = 4) uniform sampler2D s_LinearZ;
 // Previous G-Buffer DS
 layout(set = 2, binding = 4) uniform sampler2D s_PrevLinearZ;
 
+// Input DS
 layout(set = 3, binding = 0) uniform sampler2D s_Input;
 
-// Current A-Trous Output
+// Prev Output
 layout(set = 4, binding = 0) uniform sampler2D s_PrevColor;
 
 // Previous Reprojection Read DS
 layout(set = 5, binding = 1) uniform sampler2D s_PrevMoments;
-
 layout(set = 5, binding = 2) uniform sampler2D s_PrevHistoryLength;
 
 // ------------------------------------------------------------------
