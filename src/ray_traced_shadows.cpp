@@ -53,62 +53,56 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    // Transition ray tracing output image back to general layout
-    {
-        std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-        };
+    std::vector<VkMemoryBarrier> memory_barriers = {
+        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
 
-        pipeline_barrier(cmd_buf, {}, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-    }
+    std::vector<VkImageMemoryBarrier> image_barriers = {
+        image_memory_barrier(m_ray_trace.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+    };
 
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_pipeline->handle());
+    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    ShadowPushConstants push_constants;
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline->handle());
 
-    push_constants.bias         = m_bias;
+    RayTracePushConstants push_constants;
+
+    push_constants.bias         = m_ray_trace.bias;
     push_constants.num_frames   = m_common_resources->num_frames;
-    push_constants.g_buffer_mip = m_g_buffer_mip;
+    push_constants.g_buffer_mip = 0;
 
-    vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
+    vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
     const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
 
     VkDescriptorSet descriptor_sets[] = {
         m_common_resources->current_scene->descriptor_set()->handle(),
-        m_write_ds->handle(),
+        m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
-        m_g_buffer->output_ds()->handle()
+        m_g_buffer->output_ds()->handle(),
+        m_common_resources->blue_noise_ds[BLUE_NOISE_2SPP]->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_pipeline_layout->handle(), 0, 4, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
-    auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
 
-    VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-    VkDeviceSize group_stride = group_size;
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 
-    const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-    const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_pipeline->shader_binding_table_buffer()->device_address() + m_sbt->miss_group_offset(), group_stride, group_size * 2 };
-    const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_pipeline->shader_binding_table_buffer()->device_address() + m_sbt->hit_group_offset(), group_stride, group_size * 2 };
-    const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
-
-    vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_width, m_height, 1);
-
-    {
-        std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-
-        pipeline_barrier(cmd_buf, {}, image_barriers, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    }
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_ray_trace.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
 }
 
 void RayTracedShadows::gui()
 {
     ImGui::PushID("RTSS");
     ImGui::Checkbox("Enabled", &m_enabled);
-    ImGui::InputFloat("Bias", &m_bias);
+    ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::PopID();
 }
 

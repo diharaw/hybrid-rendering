@@ -28,6 +28,7 @@ private:
 private:
     struct RayTrace
     {
+        float                           bias = 0.5f;
         dw::vk::ComputePipeline::Ptr    pipeline;
         dw::vk::PipelineLayout::Ptr     pipeline_layout;
         dw::vk::Image::Ptr              image;
@@ -70,7 +71,6 @@ private:
     uint32_t                        m_width;
     uint32_t                        m_height;
     bool                            m_enabled = true;
-    float                           m_bias    = 0.1f;
     float   m_scale                      = 1.0f;
     float   m_alpha                      = 0.01f;
     float   m_moments_alpha              = 0.2f;
