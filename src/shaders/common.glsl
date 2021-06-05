@@ -20,6 +20,9 @@
 
 #define MAX_RAY_BOUNCES 5
 
+#define LIGHT_TYPE_DIRECTIONAL 0
+#define LIGHT_TYPE_POINT 1
+
 struct RayPayload
 {
     vec3 color;
@@ -46,6 +49,7 @@ struct Light
 {
     vec4 data0;
     vec4 data1;
+    ivec4 data2;
 };
 
 vec3 light_direction(in Light light)
@@ -68,5 +72,14 @@ float light_radius(in Light light)
     return light.data1.w;
 }
 
+vec3 light_position(in Light light)
+{
+    return light.data0.xyz;
+}
+
+int light_type(in Light light)
+{
+    return light.data2.w;
+}
 
 #endif

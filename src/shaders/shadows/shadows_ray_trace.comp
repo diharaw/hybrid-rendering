@@ -6,9 +6,9 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #define RAY_TRACING
-#include "common.glsl"
-#include "scene_descriptor_set.glsl"
-#include "bnd_sampler.glsl"
+#include "../common.glsl"
+#include "../scene_descriptor_set.glsl"
+#include "../bnd_sampler.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -16,9 +16,6 @@
 
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
-#define G_BUFFER_MIP 1
-#define SAMPLER_WHITE_NOISE 0
-#define SAMPLER_BLUE_NOISE_DISTRIBUTION 1
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -58,12 +55,9 @@ layout(set = 4, binding = 1) uniform sampler2D s_ScramblingRankingTile;
 
 layout(push_constant) uniform PushConstants
 {
-    uint  num_rays;
+    int g_buffer_mip;
     uint  num_frames;
-    float ray_length;
-    float power;
     float bias;
-    uint  sampler_type;
 }
 u_PushConstants;
 
@@ -90,38 +84,10 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 // ------------------------------------------------------------------------
 
-mat3 make_rotation_matrix(vec3 z)
-{
-    const vec3 ref = abs(dot(z, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
-
-    const vec3 x = normalize(cross(ref, z));
-    const vec3 y = cross(z, x);
-
-    return mat3(x, y, z);
-}
-
-// ------------------------------------------------------------------------
-
-vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
-{
-    vec2 rand_sample = max(vec2(0.00001f), r);
-
-    const float phi = 2.0f * M_PI * rand_sample.y;
-
-    const float cos_theta = sqrt(rand_sample.x);
-    const float sin_theta = sqrt(1 - rand_sample.x);
-
-    vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
-
-    return normalize(make_rotation_matrix(n) * t);
-}
-
-// ------------------------------------------------------------------------
-
 float query_visibility(vec3 world_pos, vec3 direction)
 {
     float t_min     = 0.01f;
-    float t_max     = u_PushConstants.ray_length;
+    float t_max     = 100000.0f;
     uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
 
     // Initializes a ray query object but does not start traversal
@@ -148,15 +114,10 @@ float query_visibility(vec3 world_pos, vec3 direction)
 
 // ------------------------------------------------------------------------
 
-vec2 next_sample(ivec2 coord, int index, RNG rng)
+vec2 next_sample(ivec2 coord)
 {
-    if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
-        return next_vec2(rng);
-    else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
-        return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile),
-                    sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
-    else
-        return vec2(0.0f);
+    return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), 0, s_SobolSequence, s_ScramblingRankingTile),
+                sample_blue_noise(coord, int(u_PushConstants.num_frames), 1, s_SobolSequence, s_ScramblingRankingTile));
 }
 
 // ------------------------------------------------------------------
@@ -165,12 +126,12 @@ vec2 next_sample(ivec2 coord, int index, RNG rng)
 
 void main()
 {
-    const ivec2 size          = textureSize(s_GBuffer1, G_BUFFER_MIP);
+    const ivec2 size          = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
-    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
     if (depth == 1.0f)
     {
@@ -179,26 +140,49 @@ void main()
     }
 
     vec3 world_pos  = world_position_from_depth(tex_coord, depth);
-    vec3 normal     = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rgb;
+    vec3 normal     = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
     vec3 ray_origin = world_pos + normal * u_PushConstants.bias;
 
-    RNG rng = rng_init(current_coord, u_PushConstants.num_frames);
+    // Trace ray 
+    vec2 rnd_sample = next_sample(current_coord);
 
-    float ao = 0.0f;
+    vec3 shadow_ray_dir;
 
-    for (int i = 0; i < u_PushConstants.num_rays; i++)
+    const Light light = ubo.light;
+
+    if (light_type(light) == LIGHT_TYPE_DIRECTIONAL)
     {
-        vec2 rnd_sample = next_sample(current_coord, i, rng);
+        vec3 light_tangent   = normalize(cross(light_direction(light), vec3(0.0f, 1.0f, 0.0f)));
+        vec3 light_bitangent = normalize(cross(light_tangent, light_direction(light)));
 
-        vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
+        // calculate disk point
+        float point_radius = light_radius(light) * sqrt(rnd_sample.x);
+        float point_angle  = rnd_sample.y * 2.0f * M_PI;
+        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+        shadow_ray_dir     = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+    }
+    else 
+    {
+        vec3 to_light = light_position(light) - world_pos;
+        vec3 light_dir = normalize(to_light);
+        float light_distance = length(to_light);
+        float light_radius = light_radius(light) / light_distance;
 
-        ao += query_visibility(ray_origin, sample_direction);
+        vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+        vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
+
+        // calculate disk point
+        float point_radius = light_radius * sqrt(rng.x);
+        float point_angle = rng.y * 2.0f * M_PI;
+        vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+
+        shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
     }
 
-    ao = pow(ao / float(u_PushConstants.num_rays), u_PushConstants.power);
+    float visibility = query_visibility(ray_origin, shadow_ray_dir);
 
     // Store blended sample into the storage image
-    imageStore(i_Output, current_coord, vec4(ao));
+    imageStore(i_Output, current_coord, vec4(visibility));
 }
 
 // ------------------------------------------------------------------

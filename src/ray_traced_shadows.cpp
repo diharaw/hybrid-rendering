@@ -47,55 +47,11 @@ RayTracedShadows::~RayTracedShadows()
 
 void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
-
-    auto backend = m_backend.lock();
-
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    std::vector<VkMemoryBarrier> memory_barriers = {
-        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-    };
-
-    std::vector<VkImageMemoryBarrier> image_barriers = {
-        image_memory_barrier(m_ray_trace.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-    };
-
-    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline->handle());
-
-    RayTracePushConstants push_constants;
-
-    push_constants.bias         = m_ray_trace.bias;
-    push_constants.num_frames   = m_common_resources->num_frames;
-    push_constants.g_buffer_mip = 0;
-
-    vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
-
-    VkDescriptorSet descriptor_sets[] = {
-        m_common_resources->current_scene->descriptor_set()->handle(),
-        m_ray_trace.write_ds->handle(),
-        m_common_resources->per_frame_ds->handle(),
-        m_g_buffer->output_ds()->handle(),
-        m_common_resources->blue_noise_ds[BLUE_NOISE_2SPP]->handle()
-    };
-
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
-
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
-
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_ray_trace.image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+    clear_images(cmd_buf);
+    ray_trace(cmd_buf);
+    reprojection(cmd_buf);
+    filter_moments(cmd_buf);
+    a_trous_filter(cmd_buf);
 }
 
 void RayTracedShadows::gui()
@@ -134,7 +90,7 @@ void RayTracedShadows::create_images()
 
         for (int i = 0; i < 2; i++)
         {
-            m_reprojection.current_moments_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_reprojection.current_moments_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
             m_reprojection.current_moments_image[i]->set_name("Shadows Reprojection Moments " + std::to_string(i));
 
             m_reprojection.current_moments_view[i] = dw::vk::ImageView::create(backend, m_reprojection.current_moments_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -561,4 +517,170 @@ void RayTracedShadows::create_pipelines()
 
         m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
+}
+
+void RayTracedShadows::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    if (m_common_resources->first_frame)
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        VkClearColorValue color;
+
+        color.float32[0] = 0.0f;
+        color.float32[1] = 0.0f;
+        color.float32[2] = 0.0f;
+        color.float32[3] = 0.0f;
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection.prev_image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection.current_moments_image[!m_common_resources->ping_pong]-> handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        vkCmdClearColorImage(cmd_buf->handle(), m_reprojection.prev_image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        vkCmdClearColorImage(cmd_buf->handle(), m_reprojection.current_moments_image[!m_common_resources->ping_pong]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection.prev_image->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_reprojection.current_moments_image[!m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+}
+
+void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
+
+    auto backend = m_backend.lock();
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    std::vector<VkMemoryBarrier> memory_barriers = {
+        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+
+    std::vector<VkImageMemoryBarrier> image_barriers = {
+        image_memory_barrier(m_ray_trace.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+    };
+
+    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline->handle());
+
+    RayTracePushConstants push_constants;
+
+    push_constants.bias         = m_ray_trace.bias;
+    push_constants.num_frames   = m_common_resources->num_frames;
+    push_constants.g_buffer_mip = m_g_buffer_mip;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_common_resources->current_scene->descriptor_set()->handle(),
+        m_ray_trace.write_ds->handle(),
+        m_common_resources->per_frame_ds->handle(),
+        m_g_buffer->output_ds()->handle(),
+        m_common_resources->blue_noise_ds[BLUE_NOISE_2SPP]->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_ray_trace.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+void RayTracedShadows::reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_reprojection_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_history_length_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
+    const uint32_t NUM_THREADS = 32;
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline->handle());
+
+    ReprojectionPushConstants push_constants;
+
+    push_constants.alpha         = m_alpha;
+    push_constants.moments_alpha = m_moments_alpha;
+    push_constants.g_buffer_mip  = m_scale == 1.0f ? 0 : 1;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_reprojection.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_reprojection.current_write_ds[m_common_resources->ping_pong]->handle(),
+        m_g_buffer->output_ds()->handle(),
+        m_g_buffer->history_ds()->handle(),
+        m_ray_trace.read_ds->handle(),
+        m_reprojection.prev_read_ds[!m_common_resources->ping_pong]->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_reprojection_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_history_length_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+}
+
+void RayTracedShadows::filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+}
+
+void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
 }

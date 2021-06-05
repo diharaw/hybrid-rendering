@@ -24,6 +24,11 @@ private:
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipelines();
+    void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     struct RayTrace

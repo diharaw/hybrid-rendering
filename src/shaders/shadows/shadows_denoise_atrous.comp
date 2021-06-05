@@ -16,16 +16,13 @@ layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1)
 // DESCRIPTOR SETS --------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D i_Output;
+layout(set = 0, binding = 0, rg16f) uniform writeonly image2D i_Output;
 
 layout(set = 1, binding = 0) uniform sampler2D s_Input;
 
 // Current G-buffer DS
 layout(set = 2, binding = 1) uniform sampler2D s_Normals;
 layout(set = 2, binding = 4) uniform sampler2D s_LinearZ;
-
-// Current SVGF Read DS
-layout(set = 3, binding = 2) uniform sampler2D s_HistoryLength;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -35,7 +32,7 @@ layout(push_constant) uniform PushConstants
 {
     int   radius;
     int   step_size;
-    float phi_color;
+    float phi_visibility;
     float phi_normal;
     int   g_buffer_mip;
 }
@@ -52,13 +49,6 @@ vec3 octohedral_to_direction(uint octo)
     if (v.z < 0.0)
         v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
     return normalize(v);
-}
-
-// ------------------------------------------------------------------
-
-float luminance(vec3 rgb)
-{
-    return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
 }
 
 // ------------------------------------------------------------------
@@ -83,7 +73,7 @@ float compute_variance_center(ivec2 ipos)
 
             float k = kernel[abs(xx)][abs(yy)];
 
-            sum += texelFetch(s_Input, p, 0).a * k;
+            sum += texelFetch(s_Input, p, 0).g * k;
         }
     }
 
@@ -101,12 +91,19 @@ float normal_distance_cos(vec3 n1, vec3 n2, float power)
 
 // ------------------------------------------------------------------
 
-float compute_weight(
-    float depthCenter, float depthP, float phiDepth, vec3 normalCenter, vec3 normalP, float normPower, float luminanceCenter, float luminanceP, float phi)
+float compute_weight(float depth_center, 
+                     float depth_p, 
+                     float phi_depth, 
+                     vec3 normal_center, 
+                     vec3 normal_p, 
+                     float norm_power, 
+                     float visibility_center, 
+                     float visibility_p, 
+                     float phi)
 {
-    const float wNormal = normal_distance_cos(normalCenter, normalP, normPower);
-    const float wZ      = (phiDepth == 0) ? 0.0f : abs(depthCenter - depthP) / phiDepth;
-    const float wL      = abs(luminanceCenter - luminanceP) / phi;
+    const float wNormal = normal_distance_cos(normal_center, normal_p, norm_power);
+    const float wZ      = (phi_depth == 0) ? 0.0f : abs(depth_center - depth_p) / phi_depth;
+    const float wL      = abs(visibility_center - visibility_p) / phi;
 
     const float w = exp(0.0 - max(wL, 0.0) - max(wZ, 0.0)) * wNormal;
 
@@ -122,21 +119,17 @@ void main()
     ivec2       size = textureSize(s_Normals, u_PushConstants.g_buffer_mip);
     const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
 
-    const float epsVariance      = 1e-10;
-    const float kernelWeights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };
+    const float eps_variance      = 1e-10;
+    const float kernel_weights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };
 
     // constant samplers to prevent the compiler from generating code which
     // fetches the sampler descriptor from memory for each texture access
-    const vec4  colorCenter  = texelFetch(s_Input, ipos, 0);
-    const float lColorCenter = luminance(colorCenter.rgb);
+    const vec2 visibility_center = texelFetch(s_Input, ipos, 0).rg;
 
     // variance for direct and indirect, filtered using 3x3 gaussin blur
     const float var = compute_variance_center(ipos);
 
-    // number of temporally integrated pixels
-    const float historyLength = texelFetch(s_HistoryLength, ipos, 0).r;
-
-    vec3 normalCenter = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
+    vec3 normal_center = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
     vec2 zCenter      = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
 
     if (zCenter.x < 0)
@@ -145,13 +138,13 @@ void main()
         return;
     }
 
-    const float phiLColor = u_PushConstants.phi_color * sqrt(max(0.0, epsVariance + var.r));
-    const float phiDepth  = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
+    const float phi_visibility = u_PushConstants.phi_visibility * sqrt(max(0.0, eps_variance + var.r));
+    const float phi_depth  = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
 
     // explicitly store/accumulate center pixel with weight 1 to prevent issues
     // with the edge-stopping functions
-    float sumWColor = 1.0;
-    vec4  sumColor  = colorCenter;
+    float sum_w_visibility = 1.0;
+    vec2  sum_visibility  = visibility_center;
 
     for (int yy = -u_PushConstants.radius; yy <= u_PushConstants.radius; yy++)
     {
@@ -160,35 +153,39 @@ void main()
             const ivec2 p      = ipos + ivec2(xx, yy) * u_PushConstants.step_size;
             const bool  inside = all(greaterThanEqual(p, ivec2(0, 0))) && all(lessThan(p, size));
 
-            const float kernel = kernelWeights[abs(xx)] * kernelWeights[abs(yy)];
+            const float kernel = kernel_weights[abs(xx)] * kernel_weights[abs(yy)];
 
             if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
             {
-                const vec4 colorP = texelFetch(s_Input, p, 0);
+                const vec2 visibility_p = texelFetch(s_Input, p, 0).rg;
 
-                vec3 normalP = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
+                vec3 normal_p = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
                 vec2 zP      = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
 
-                const float lColorP = luminance(colorP.rgb);
-
                 // compute the edge-stopping functions
-                const float w = compute_weight(
-                    zCenter.x, zP.x, phiDepth * length(vec2(xx, yy)), normalCenter, normalP, u_PushConstants.phi_normal, lColorCenter, lColorP, phiLColor);
+                const float w = compute_weight(zCenter.x, 
+                                               zP.x, phi_depth * length(vec2(xx, yy)), 
+                                               normal_center, 
+                                               normal_p, 
+                                               u_PushConstants.phi_normal, 
+                                               visibility_center.r, 
+                                               visibility_p.r, 
+                                               phi_visibility);
 
-                const float wColor = w * kernel;
+                const float w_visibility = w * kernel;
 
                 // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
-                sumWColor += wColor;
-                sumColor += vec4(vec3(wColor), wColor * wColor) * colorP;
+                sum_w_visibility += w_visibility;
+                sum_visibility += vec2(w_visibility, w_visibility * w_visibility) * visibility_p;
             }
         }
     }
 
     // renormalization is different for variance, check paper for the formula
-    vec4 out_color = vec4(sumColor / vec4(vec3(sumWColor), sumWColor * sumWColor));
+    vec2 out_visibility = sum_visibility / vec2(sum_w_visibility, sum_w_visibility * sum_w_visibility);
 
     // temporal integration
-    imageStore(i_Output, ipos, out_color);
+    imageStore(i_Output, ipos, vec4(out_visibility, 0.0f, 0.0f));
 }
 
 // ------------------------------------------------------------------
