@@ -78,7 +78,7 @@ void RayTracedShadows::create_images()
 
     // Ray Trace
     {
-        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_ray_trace.image->set_name("Shadows Ray Trace");
 
         m_ray_trace.view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -113,7 +113,7 @@ void RayTracedShadows::create_images()
     // A-Trous Filter
     for (int i = 0; i < 2; i++)
     {
-        m_a_trous.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_a_trous.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_a_trous.image[i]->set_name("A-Trous Filter " + std::to_string(i));
 
         m_a_trous.view[i] = dw::vk::ImageView::create(backend, m_a_trous.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -132,12 +132,32 @@ void RayTracedShadows::create_descriptor_sets()
     }
 
     // Reprojection
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_reprojection.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
+    }
+
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_reprojection.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
+    }
+
     for (int i = 0; i< 2; i++)
     {
         m_reprojection.current_write_ds[i] = backend->allocate_descriptor_set(m_reprojection.write_ds_layout);
         m_reprojection.current_read_ds[i]  = backend->allocate_descriptor_set(m_reprojection.read_ds_layout);
         m_reprojection.prev_read_ds[i]     = backend->allocate_descriptor_set(m_reprojection.read_ds_layout);
     }
+
+    m_reprojection.output_only_read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
 
     // A-Trous
     for (int i = 0; i < 2; i++)
@@ -207,6 +227,37 @@ void RayTracedShadows::write_descriptor_sets()
         write_data.pImageInfo      = &image_infos.back();
         write_data.dstBinding      = 0;
         write_data.dstSet          = m_ray_trace.read_ds->handle();
+
+        write_datas.push_back(write_data);
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Reprojection Output Only Read
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(1);
+        write_datas.reserve(1);
+
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+        sampler_image_info.imageView   = m_reprojection.current_output_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        image_infos.push_back(sampler_image_info);
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &image_infos.back();
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_reprojection.output_only_read_ds->handle();
 
         write_datas.push_back(write_data);
 
@@ -452,7 +503,7 @@ void RayTracedShadows::create_pipelines()
 
     // Ray Trace
     {
-        dw::vk::ShaderModule::Ptr shader_module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows/shadows_ray_trace.comp.spv");
+        dw::vk::ShaderModule::Ptr shader_module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_ray_trace.comp.spv");
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
@@ -483,14 +534,13 @@ void RayTracedShadows::create_pipelines()
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_reprojection.read_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReprojectionPushConstants));
 
         m_reprojection.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
 
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows/shadows_denoise_reprojection.comp.spv");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_denoise_reprojection.comp.spv");
 
         dw::vk::ComputePipeline::Desc comp_desc;
 
@@ -507,13 +557,12 @@ void RayTracedShadows::create_pipelines()
         desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-        desc.add_descriptor_set_layout(m_reprojection.read_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ATrousFilterPushConstants));
 
         m_a_trous.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
 
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows/shadows_denoise_atrous.comp.spv");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_denoise_atrous.comp.spv");
 
         dw::vk::ComputePipeline::Desc comp_desc;
 
@@ -737,12 +786,11 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VkDescriptorSet descriptor_sets[] = {
             m_a_trous.write_ds[write_idx]->handle(),
-            i == 0 ? m_reprojection.current_read_ds[m_common_resources->ping_pong]->handle() : m_a_trous.read_ds[read_idx]->handle(),
-            m_g_buffer->history_ds()->handle(),
-            m_reprojection.current_read_ds[m_common_resources->ping_pong]->handle()
+            i == 0 ? m_reprojection.output_only_read_ds->handle() : m_a_trous.read_ds[read_idx]->handle(),
+            m_g_buffer->history_ds()->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
         vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 

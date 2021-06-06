@@ -18,6 +18,12 @@ enum SceneType
     SCENE_PICA_PICA
 };
 
+enum LightType
+{
+    LIGHT_TYPE_DIRECTIONAL,
+    LIGHT_TYPE_POINT
+};
+
 enum VisualizationType
 {
     VISUALIZATION_FINAL,
@@ -43,9 +49,17 @@ struct Light
 {
     glm::vec4 data0;
     glm::vec4 data1;
+    glm::ivec4 data2;
 };
 
 void set_light_direction(Light& light, glm::vec3 value)
+{
+    light.data0.x = value.x;
+    light.data0.y = value.y;
+    light.data0.z = value.z;
+}
+
+void set_light_position(Light& light, glm::vec3 value)
 {
     light.data0.x = value.x;
     light.data0.y = value.y;
@@ -67,6 +81,11 @@ void set_light_intensity(Light& light, float value)
 void set_light_radius(Light& light, float value)
 {
     light.data1.w = value;
+}
+
+void set_light_type(Light& light, LightType value)
+{
+    light.data2.r = value;
 }
 
 struct ReflectionsPushConstants
@@ -205,11 +224,9 @@ protected:
         create_taa_pipeline();
         create_cube();
 
-        m_common_resources->svgf_shadow_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_ray_traced_shadows->width(), m_ray_traced_shadows->height(), 4));
         m_common_resources->svgf_gi_denoiser     = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
         m_common_resources->reflection_denoiser  = std::unique_ptr<ReflectionDenoiser>(new ReflectionDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Reflections", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
-        m_common_resources->shadow_denoiser      = std::unique_ptr<DiffuseDenoiser>(new DiffuseDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Shadow", m_ray_traced_shadows->width(), m_ray_traced_shadows->height()));
-
+ 
 #if defined(SVGF_REFLECTION_RECONSTRUCTION)
         m_common_resources->spatial_reconstruction = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Spatial Reconstruction", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
 #endif
@@ -320,8 +337,7 @@ protected:
                     if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("RTSS");
-                        ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
-                        m_common_resources->svgf_shadow_denoiser->gui();
+                        m_ray_traced_shadows->gui();
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
@@ -384,9 +400,6 @@ protected:
                 DW_SCOPED_SAMPLE("RT Shadows", cmd_buf);
 
                 m_ray_traced_shadows->render(cmd_buf);
-
-                if (m_svgf_shadow_denoise)
-                    m_common_resources->svgf_shadow_denoiser->denoise(cmd_buf, m_ray_traced_shadows->output_ds());
             }
 
             m_ray_traced_ao->render(cmd_buf);
@@ -2235,7 +2248,7 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
             m_ray_traced_ao->output_ds()->handle(),
-            m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_ray_traced_shadows->output_ds()->handle(),
+            m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->svgf_reflection_denoiser->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
             m_common_resources->per_frame_ds->handle(),
@@ -2383,7 +2396,7 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             m_ray_traced_ao->output_ds()->handle(),
-            m_svgf_shadow_denoise ? m_common_resources->svgf_shadow_denoiser->output_ds()->handle() : m_ray_traced_shadows->output_ds()->handle(),
+            m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->svgf_reflection_denoiser->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
         };
@@ -2424,6 +2437,7 @@ private:
         set_light_direction(m_ubo_data.light, m_light_direction);
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
+        set_light_type(m_ubo_data.light, LIGHT_TYPE_DIRECTIONAL);
 
         m_prev_view_proj = m_ubo_data.view_proj;
 
@@ -2564,7 +2578,6 @@ private:
     bool m_downscaled_rt      = true;
 
     // Ray Traced Shadows
-    bool m_svgf_shadow_denoise = true;
     bool m_rt_shadows_enabled  = true;
 
     // Ray Traced Reflections

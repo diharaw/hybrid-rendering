@@ -57,12 +57,10 @@ struct CommonResources
     std::unique_ptr<BlueNoise>       blue_noise;
 
     // Denoisers
-    std::unique_ptr<SVGFDenoiser>          svgf_shadow_denoiser;
     std::unique_ptr<SVGFDenoiser>          svgf_gi_denoiser;
     std::unique_ptr<SpatialReconstruction> spatial_reconstruction;
     std::unique_ptr<SVGFDenoiser>          svgf_reflection_denoiser;
     std::unique_ptr<ReflectionDenoiser>    reflection_denoiser;
-    std::unique_ptr<DiffuseDenoiser>       shadow_denoiser;
 
     // Reflection RT pass
     dw::vk::DescriptorSet::Ptr      reflection_rt_write_ds;

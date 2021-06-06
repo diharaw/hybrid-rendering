@@ -57,6 +57,7 @@ private:
         dw::vk::ImageView::Ptr           prev_view;
         dw::vk::DescriptorSet::Ptr       current_write_ds[2];
         dw::vk::DescriptorSet::Ptr       current_read_ds[2];
+        dw::vk::DescriptorSet::Ptr       output_only_read_ds;
         dw::vk::DescriptorSet::Ptr       prev_read_ds[2];
     };
 
