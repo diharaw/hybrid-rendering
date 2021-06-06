@@ -79,7 +79,7 @@ vec3 light_position(in Light light)
 
 int light_type(in Light light)
 {
-    return light.data2.w;
+    return light.data2.r;
 }
 
 #endif

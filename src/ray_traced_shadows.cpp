@@ -69,7 +69,10 @@ void RayTracedShadows::gui()
 
 dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
 {
-    return m_a_trous.read_ds[m_a_trous.read_idx];
+    if (m_enabled)
+        return m_a_trous.read_ds[m_a_trous.read_idx];
+    else
+        return m_ray_trace.read_ds;
 }
 
 void RayTracedShadows::create_images()
