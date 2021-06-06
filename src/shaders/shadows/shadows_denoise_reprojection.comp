@@ -90,7 +90,7 @@ float neighborhood_mean(ivec2 coord)
             ivec2 sample_coord = coord + ivec2(dx, dy);
             float sample_visibility = texelFetch(s_Input, sample_coord, 0).r;
 
-            visibility_sum += sample_color;
+            visibility_sum += sample_visibility;
         }
     }
 
@@ -250,7 +250,7 @@ void main()
     const float alpha_moments = success ? max(u_PushConstants.moments_alpha, 1.0 / history_length) : 1.0;
 
     // compute first two moments of luminance
-    vec2 moments = vec4(0.0f);
+    vec2 moments = vec2(0.0f);
     moments.r    = visibility;
     moments.g    = moments.r * moments.r;
 

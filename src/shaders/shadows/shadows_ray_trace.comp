@@ -148,7 +148,7 @@ void main()
 
     vec3 shadow_ray_dir;
 
-    const Light light = ubo.light;
+    const Light light = u_GlobalUBO.light;
 
     if (light_type(light) == LIGHT_TYPE_DIRECTIONAL)
     {
@@ -172,8 +172,8 @@ void main()
         vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
 
         // calculate disk point
-        float point_radius = light_radius * sqrt(rng.x);
-        float point_angle = rng.y * 2.0f * M_PI;
+        float point_radius = light_radius * sqrt(rnd_sample.x);
+        float point_angle = rnd_sample.y * 2.0f * M_PI;
         vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
 
         shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
