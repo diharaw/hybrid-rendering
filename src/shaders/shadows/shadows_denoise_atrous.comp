@@ -130,7 +130,7 @@ void main()
     const float var = compute_variance_center(ipos);
 
     vec3 normal_center = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
-    vec2 zCenter      = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
+    vec2 zCenter       = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
 
     if (zCenter.x < 0)
     {
@@ -139,12 +139,12 @@ void main()
     }
 
     const float phi_visibility = u_PushConstants.phi_visibility * sqrt(max(0.0, eps_variance + var.r));
-    const float phi_depth  = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
+    const float phi_depth      = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
 
     // explicitly store/accumulate center pixel with weight 1 to prevent issues
     // with the edge-stopping functions
     float sum_w_visibility = 1.0;
-    vec2  sum_visibility  = visibility_center;
+    vec2  sum_visibility   = visibility_center;
 
     for (int yy = -u_PushConstants.radius; yy <= u_PushConstants.radius; yy++)
     {
@@ -152,7 +152,6 @@ void main()
         {
             const ivec2 p      = ipos + ivec2(xx, yy) * u_PushConstants.step_size;
             const bool  inside = all(greaterThanEqual(p, ivec2(0, 0))) && all(lessThan(p, size));
-
             const float kernel = kernel_weights[abs(xx)] * kernel_weights[abs(yy)];
 
             if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
@@ -160,7 +159,7 @@ void main()
                 const vec2 visibility_p = texelFetch(s_Input, p, 0).rg;
 
                 vec3 normal_p = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
-                vec2 zP      = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
+                vec2 zP       = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
 
                 // compute the edge-stopping functions
                 const float w = compute_weight(zCenter.x, 
@@ -176,7 +175,7 @@ void main()
 
                 // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
                 sum_w_visibility += w_visibility;
-                sum_visibility += vec2(w_visibility, w_visibility * w_visibility) * visibility_p;
+                sum_visibility   += vec2(w_visibility, w_visibility * w_visibility) * visibility_p;
             }
         }
     }

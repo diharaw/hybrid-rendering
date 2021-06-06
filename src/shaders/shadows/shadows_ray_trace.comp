@@ -54,10 +54,10 @@ layout(set = 4, binding = 1) uniform sampler2D s_ScramblingRankingTile;
 // ------------------------------------------------------------------------
 
 layout(push_constant) uniform PushConstants
-{
-    int g_buffer_mip;
-    uint  num_frames;
+{    
     float bias;
+    uint  num_frames;
+    int   g_buffer_mip;
 }
 u_PushConstants;
 

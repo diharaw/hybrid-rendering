@@ -15,9 +15,9 @@ public:
     void gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
-    inline uint32_t                   width() { return m_width; }
-    inline uint32_t                   height() { return m_height; }
-    inline bool                       enabled() { return m_enabled; }
+    inline uint32_t width()   { return m_width;   }
+    inline uint32_t height()  { return m_height;  }
+    inline bool     enabled() { return m_enabled; }
 
 private:
     void create_images();
@@ -27,7 +27,6 @@ private:
     void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf);
     void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
@@ -44,6 +43,8 @@ private:
 
     struct Reprojection
     {
+        float                            alpha         = 0.01f;
+        float                            moments_alpha = 0.2f;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
@@ -61,6 +62,12 @@ private:
 
     struct ATrous
     {
+        float                        phi_visibility = 10.0f;
+        float                        phi_normal = 32.0f;
+        int32_t                      radius             = 1;
+        int32_t                      filter_iterations  = 4;
+        int32_t                      feedback_iteration = 1;
+        int32_t                      read_idx                   = 0;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::Image::Ptr           image[2];
@@ -76,15 +83,6 @@ private:
     uint32_t                        m_width;
     uint32_t                        m_height;
     bool                            m_enabled = true;
-    float   m_scale                      = 1.0f;
-    float   m_alpha                      = 0.01f;
-    float   m_moments_alpha              = 0.2f;
-    float   m_phi_color                  = 10.0f;
-    float   m_phi_normal                 = 32.0f;
-    int32_t m_a_trous_radius             = 1;
-    int32_t m_a_trous_filter_iterations  = 4;
-    int32_t m_a_trous_feedback_iteration = 1;
-    int32_t m_read_idx                   = 0;
     RayTrace                        m_ray_trace;
     Reprojection                    m_reprojection;
     ATrous                          m_a_trous;

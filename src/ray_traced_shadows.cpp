@@ -10,23 +10,23 @@ struct RayTracePushConstants
 {
     float    bias;
     uint32_t num_frames;
-    uint32_t g_buffer_mip;
+    int32_t  g_buffer_mip;
 };
 
 struct ReprojectionPushConstants
 {
-    float    alpha;
-    float    moments_alpha;
-    uint32_t g_buffer_mip;
+    float   alpha;
+    float   moments_alpha;
+    int32_t g_buffer_mip;
 };
 
 struct ATrousFilterPushConstants
 {
-    int      radius;
-    int      step_size;
-    float    phi_color;
-    float    phi_normal;
-    uint32_t g_buffer_mip;
+    int     radius;
+    int     step_size;
+    float   phi_visibility;
+    float   phi_normal;
+    int32_t g_buffer_mip;
 };
 
 RayTracedShadows::RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height) :
@@ -47,10 +47,11 @@ RayTracedShadows::~RayTracedShadows()
 
 void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
+    DW_SCOPED_SAMPLE("Ray Traced Shadows", cmd_buf);
+
     clear_images(cmd_buf);
     ray_trace(cmd_buf);
     reprojection(cmd_buf);
-    filter_moments(cmd_buf);
     a_trous_filter(cmd_buf);
 }
 
@@ -59,12 +60,16 @@ void RayTracedShadows::gui()
     ImGui::PushID("RTSS");
     ImGui::Checkbox("Enabled", &m_enabled);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
+    ImGui::InputFloat("Alpha", &m_reprojection.alpha);
+    ImGui::InputFloat("Alpha Moments", &m_reprojection.moments_alpha);
+    ImGui::InputFloat("Phi Visibility", &m_a_trous.phi_visibility);
+    ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
     ImGui::PopID();
 }
 
 dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
 {
-    return m_a_trous.read_ds[m_read_idx];
+    return m_a_trous.read_ds[m_a_trous.read_idx];
 }
 
 void RayTracedShadows::create_images()
@@ -630,9 +635,8 @@ void RayTracedShadows::reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
         };
 
         std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_reprojection_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
-            image_memory_barrier(m_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
-            image_memory_barrier(m_history_length_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+            image_memory_barrier(m_reprojection.current_output_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_reprojection.current_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
         };
 
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -644,9 +648,9 @@ void RayTracedShadows::reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     ReprojectionPushConstants push_constants;
 
-    push_constants.alpha         = m_alpha;
-    push_constants.moments_alpha = m_moments_alpha;
-    push_constants.g_buffer_mip  = m_scale == 1.0f ? 0 : 1;
+    push_constants.alpha         = m_reprojection.alpha;
+    push_constants.moments_alpha = m_reprojection.moments_alpha;
+    push_constants.g_buffer_mip  = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_reprojection.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -668,19 +672,142 @@ void RayTracedShadows::reprojection(dw::vk::CommandBuffer::Ptr cmd_buf)
         };
 
         std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_reprojection_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
-            image_memory_barrier(m_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
-            image_memory_barrier(m_history_length_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            image_memory_barrier(m_reprojection.current_output_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_reprojection.current_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
         };
 
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 }
 
-void RayTracedShadows::filter_moments(dw::vk::CommandBuffer::Ptr cmd_buf)
-{
-}
-
 void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
+    DW_SCOPED_SAMPLE("SVGF A-Trous Filter", cmd_buf);
+
+    const uint32_t NUM_THREADS = 32;
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline->handle());
+
+    bool    ping_pong = false;
+    int32_t read_idx  = 0;
+    int32_t write_idx = 1;
+
+    for (int i = 0; i < m_a_trous.filter_iterations; i++)
+    {
+        read_idx  = (int32_t)ping_pong;
+        write_idx = (int32_t)!ping_pong;
+
+        if (i == 0)
+        {
+            std::vector<VkMemoryBarrier> memory_barriers = {
+                memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_a_trous.image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
+        else
+        {
+            std::vector<VkMemoryBarrier> memory_barriers = {
+                memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+            };
+
+            std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_a_trous.image[read_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+                image_memory_barrier(m_a_trous.image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+            };
+
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
+
+        ATrousFilterPushConstants push_constants;
+
+        push_constants.radius       = m_a_trous.radius;
+        push_constants.step_size    = 1 << i;
+        push_constants.phi_visibility = m_a_trous.phi_visibility;
+        push_constants.phi_normal     = m_a_trous.phi_normal;
+        push_constants.g_buffer_mip   = m_g_buffer_mip;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_a_trous.write_ds[write_idx]->handle(),
+            i == 0 ? m_reprojection.current_read_ds[m_common_resources->ping_pong]->handle() : m_a_trous.read_ds[read_idx]->handle(),
+            m_g_buffer->history_ds()->handle(),
+            m_reprojection.current_read_ds[m_common_resources->ping_pong]->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+
+        ping_pong = !ping_pong;
+
+        if (m_a_trous.feedback_iteration == i)
+        {
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_a_trous.image[write_idx]->handle(),
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_reprojection.prev_image->handle(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                subresource_range);
+
+            VkImageCopy image_copy_region {};
+            image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            image_copy_region.srcSubresource.layerCount = 1;
+            image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            image_copy_region.dstSubresource.layerCount = 1;
+            image_copy_region.extent.width              = m_width;
+            image_copy_region.extent.height             = m_height;
+            image_copy_region.extent.depth              = 1;
+
+            // Issue the copy command
+            vkCmdCopyImage(
+                cmd_buf->handle(),
+                m_a_trous.image[write_idx]->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                m_reprojection.prev_image->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &image_copy_region);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_a_trous.image[write_idx]->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_GENERAL,
+                subresource_range);
+
+            dw::vk::utilities::set_image_layout(
+                cmd_buf->handle(),
+                m_reprojection.prev_image->handle(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                subresource_range);
+        }
+    }
+
+    m_a_trous.read_idx = write_idx;
+
+    std::vector<VkMemoryBarrier> memory_barriers = {
+        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+
+    std::vector<VkImageMemoryBarrier> image_barriers = {
+        image_memory_barrier(m_a_trous.image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+
+    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }

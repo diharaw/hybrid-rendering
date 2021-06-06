@@ -92,7 +92,10 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_bilateral_blur.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_disocclusion_blur.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_upsample.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_upsample.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_atrous.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_reprojection.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_ray_trace.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})
