@@ -30,8 +30,7 @@ enum VisualizationType
     VISUALIZATION_SHADOWS,
     VISUALIZATION_AMBIENT_OCCLUSION,
     VISUALIZATION_REFLECTIONS,
-    VISUALIZATION_GLOBAL_ILLUIMINATION,
-    VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE
+    VISUALIZATION_GLOBAL_ILLUIMINATION
 };
 
 #define NUM_PILLARS 6
@@ -41,7 +40,7 @@ enum VisualizationType
 #define CAMERA_FAR_PLANE 1000.0f
 
 const std::vector<std::string> sampler_types       = { "White Noise", "Blue Noise Distribution" };
-const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Reflections Temporal Variance" };
+const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
 const std::vector<std::string> reflections_types   = { "Stochasitc", "SSa" };
 

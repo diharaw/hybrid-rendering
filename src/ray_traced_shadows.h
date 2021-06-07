@@ -8,16 +8,27 @@ class GBuffer;
 class RayTracedShadows
 {
 public:
+    enum Output
+    {
+        OUTPUT_RAY_TRACE,
+        OUTPUT_TEMPORAL_ACCUMULATION,
+        OUTPUT_ATROUS
+    };
+
+    const static int         kNumOutputTypes = 3;
+    const static Output      kOutputTypeEnums[];
+    const static std::string kOutputTypeNames[];
+
+public:
     RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height);
     ~RayTracedShadows();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gui();
-    dw::vk::DescriptorSet::Ptr output_ds();
+    dw::vk::DescriptorSet::Ptr output_ds(Output output_type = OUTPUT_ATROUS);
 
     inline uint32_t width()   { return m_width;   }
     inline uint32_t height()  { return m_height;  }
-    inline bool     enabled() { return m_enabled; }
 
 private:
     void create_images();
@@ -26,7 +37,7 @@ private:
     void create_pipelines();
     void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void reprojection(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
     void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
@@ -41,7 +52,7 @@ private:
         dw::vk::DescriptorSet::Ptr      read_ds;
     };
 
-    struct Reprojection
+    struct TemporalAccumulation
     {
         float                            alpha         = 0.01f;
         float                            moments_alpha = 0.2f;
@@ -83,8 +94,8 @@ private:
     uint32_t                        m_g_buffer_mip = 0;
     uint32_t                        m_width;
     uint32_t                        m_height;
-    bool                            m_enabled = true;
+    bool                            m_denoise = true;
     RayTrace                        m_ray_trace;
-    Reprojection                    m_reprojection;
+    TemporalAccumulation            m_temporal_accumulation;
     ATrous                          m_a_trous;
 };
