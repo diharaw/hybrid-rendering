@@ -1,0 +1,172 @@
+#version 460
+
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#define RAY_TRACING
+#include "common.glsl"
+#include "scene_descriptor_set.glsl"
+#include "bnd_sampler.glsl"
+
+// ------------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(set = 1, binding = 0, rgba16f) uniform image2D i_Color;
+
+layout(set = 2, binding = 0) uniform PerFrameUBO
+{
+    mat4  view_inverse;
+    mat4  proj_inverse;
+    mat4  view_proj_inverse;
+    mat4  prev_view_proj;
+    mat4  view_proj;
+    vec4  cam_pos;
+    Light light;
+}
+ubo;
+
+layout(set = 2, binding = 1) uniform sampler2D s_BlueNoise1;
+
+layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
+layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
+
+layout(set = 6, binding = 0) uniform sampler2D s_SobolSequence;
+layout(set = 6, binding = 1) uniform sampler2D s_ScramblingRankingTile;
+
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    float bias;
+    float trim;
+    uint  num_frames;
+    int   g_buffer_mip;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------------
+// PAYLOADS ---------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(location = 0) rayPayloadEXT ReflectionPayload p_ReflectionPayload;
+
+// ------------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
+{
+    float a  = Roughness * Roughness;
+    float m2 = a * a;
+
+    float phi      = 2.0f * M_PI * E.x;
+    float cosTheta = sqrt((1.0f - E.y) / (1.0f + (m2 - 1.0f) * E.y));
+    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
+
+    // from spherical coordinates to cartesian coordinates - halfway vector
+    vec3 H;
+    H.x = cos(phi) * sinTheta;
+    H.y = sin(phi) * sinTheta;
+    H.z = cosTheta;
+
+    float d = (cosTheta * m2 - cosTheta) * cosTheta + 1;
+    float D = m2 / (M_PI * d * d);
+
+    float PDF = D * cosTheta;
+
+    // from tangent-space H vector to world-space sample vector
+    vec3 up        = abs(N.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
+    vec3 tangent   = normalize(cross(up, N));
+    vec3 bitangent = cross(N, tangent);
+
+    vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
+    return vec4(normalize(sampleVec), PDF);
+}
+
+// ------------------------------------------------------------------------
+
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = ubo.view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
+
+// ------------------------------------------------------------------------
+
+vec2 next_sample(ivec2 coord)
+{
+    return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), 0, s_SobolSequence, s_ScramblingRankingTile),
+                sample_blue_noise(coord, int(u_PushConstants.num_frames), 1, s_SobolSequence, s_ScramblingRankingTile));
+}
+
+// ------------------------------------------------------------------------
+// MAIN -------------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+void main()
+{
+    const ivec2 size          = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
+    const ivec2 current_coord = ivec2(gl_LaunchIDEXT.xy);
+    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(size);
+
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
+
+    if (depth == 1.0f)
+    {
+        imageStore(i_Color, current_coord, vec4(0.0f, 0.0f, 0.0f, -1.0f));
+        return;
+    }
+
+    float roughness = texelFetch(s_GBuffer1, current_coord, u_PushConstants.g_buffer_mip).a;
+    vec3  P         = world_position_from_depth(tex_coord, depth);
+    vec3  N         = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
+    vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
+
+    uint  ray_flags  = gl_RayFlagsOpaqueEXT;
+    uint  cull_mask  = 0xff;
+    float tmin       = 0.001;
+    float tmax       = 10000.0;
+    vec3  ray_origin = P + N * u_PushConstants.bias;
+
+    p_ReflectionPayload.ray_length = 0.0f;
+
+    if (roughness < 0.05f)
+    {
+        vec3 R = reflect(-Wo, N.xyz);
+        traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, R, tmax, 0);
+    }
+    else
+    {
+        vec2 Xi = next_sample(current_coord) * u_PushConstants.trim;
+
+        vec4 Wh_pdf = importance_sample_ggx(Xi, N, roughness);
+
+        float pdf = Wh_pdf.w;
+        vec3 Wi = reflect(-Wo, Wh_pdf.xyz);
+        traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
+    }
+
+    vec3 clamped_color = min(p_ReflectionPayload.color, vec3(0.7f));
+
+    imageStore(i_Color, current_coord, vec4(clamped_color, p_ReflectionPayload.ray_length));
+}
+
+// ------------------------------------------------------------------------
