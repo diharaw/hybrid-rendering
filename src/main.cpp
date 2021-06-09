@@ -6,6 +6,7 @@
 #include "g_buffer.h"
 #include "ray_traced_shadows.h"
 #include "ray_traced_ao.h"
+#include "ray_traced_reflections.h"
 #include "diffuse_denoiser.h"
 #include "reflection_denoiser.h"
 #include "svgf_denoiser.h"
@@ -177,8 +178,6 @@ public:
     friend class BilateralBlur;
     friend class SVGFDenoiser;
     friend class DiffuseDenoiser;
-    friend class ReflectionDenoiser;
-    friend class SSaReflections;
 
 protected:
     bool init(int argc, const char* argv[]) override
@@ -212,11 +211,11 @@ protected:
         m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width, m_height));
         m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
 
         create_render_passes();
         create_framebuffers();
         create_deferred_pipeline();
-        create_reflection_ray_tracing_pipeline();
         create_gi_ray_tracing_pipeline();
         create_skybox_pipeline();
         create_tone_map_pipeline();
@@ -224,23 +223,7 @@ protected:
         create_cube();
 
         m_common_resources->svgf_gi_denoiser     = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
-        m_common_resources->reflection_denoiser  = std::unique_ptr<ReflectionDenoiser>(new ReflectionDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "Reflections", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
- 
-#if defined(SVGF_REFLECTION_RECONSTRUCTION)
-        m_common_resources->spatial_reconstruction = std::unique_ptr<SpatialReconstruction>(new SpatialReconstruction(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Spatial Reconstruction", m_common_resources->reflection_rt_color_image->width(), m_common_resources->reflection_rt_color_image->height()));
-#endif
-        m_common_resources->svgf_reflection_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Reflection Denoiser",
-#if defined(SVGF_REFLECTION_RECONSTRUCTION)
-                                                                                                      m_width,
-                                                                                                      m_height,
-#else
-                                                                                                      m_width / 2,
-                                                                                                      m_height / 2,
-#endif
-                                                                                                      4));
-
-        //m_common_resources->svgf_reflection_denoiser->set_use_spatial_for_feedback(true);
-
+     
         // Create camera.
         create_camera();
 
@@ -343,12 +326,13 @@ protected:
                     {
                         ImGui::PushID("RTR");
 
-                        ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
+                        /*ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                         ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
                         ImGui::Checkbox("VNDF", &m_ray_traced_reflections_vndf);
                         ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
                         ImGui::SliderFloat("Lobe Trim", &m_ray_traced_reflections_trim, 0.0f, 1.0f);
-                        m_common_resources->reflection_denoiser->gui();
+                        m_common_resources->reflection_denoiser->gui();*/
+
 
                         ImGui::PopID();
                     }
@@ -394,36 +378,9 @@ protected:
 
             // Render.
             m_g_buffer->render(cmd_buf);
-
-            {
-                DW_SCOPED_SAMPLE("RT Shadows", cmd_buf);
-
-                m_ray_traced_shadows->render(cmd_buf);
-            }
-
+            m_ray_traced_shadows->render(cmd_buf);
             m_ray_traced_ao->render(cmd_buf);
-
-            {
-                DW_SCOPED_SAMPLE("RT Reflections", cmd_buf);
-
-                ray_trace_reflection(cmd_buf);
-
-                if (m_ray_traced_reflections_denoise)
-                    m_common_resources->reflection_denoiser->denoise(cmd_buf, m_common_resources->reflection_rt_read_ds);
-                else
-                {
-#if defined(SVGF_REFLECTION_RECONSTRUCTION)
-                    m_common_resources->spatial_reconstruction->reconstruct(cmd_buf, m_common_resources->reflection_rt_read_ds);
-#endif
-                    m_common_resources->svgf_reflection_denoiser->denoise(cmd_buf,
-#if defined(SVGF_REFLECTION_RECONSTRUCTION)
-                                                                          m_common_resources->spatial_reconstruction->output_ds()
-#else
-                                                                          m_common_resources->reflection_rt_read_ds
-#endif
-                    );
-                }
-            }
+            m_ray_traced_reflections->render(cmd_buf);
 
             {
                 DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
@@ -562,12 +519,6 @@ private:
 
         m_common_resources->deferred_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->deferred_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_common_resources->deferred_view->set_name("Deferred Image View");
-
-        m_common_resources->reflection_rt_color_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rt_image_width, rt_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_common_resources->reflection_rt_color_image->set_name("Reflection RT Color Image");
-
-        m_common_resources->reflection_rt_color_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->reflection_rt_color_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->reflection_rt_color_view->set_name("Reflection RT Color Image View");
 
         m_common_resources->rtgi_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rtgi_image_width, rtgi_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_common_resources->rtgi_image->set_name("RTGI Image");
@@ -796,8 +747,6 @@ private:
         m_common_resources->per_frame_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
         m_common_resources->skybox_ds              = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->pbr_ds                 = m_vk_backend->allocate_descriptor_set(m_common_resources->pbr_ds_layout);
-        m_common_resources->reflection_rt_write_ds = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_common_resources->reflection_rt_read_ds  = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->rtgi_write_ds          = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
         m_common_resources->rtgi_read_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->deferred_read_ds       = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
@@ -1074,50 +1023,6 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
-        // Reflection RT write
-        {
-            VkDescriptorImageInfo storage_image_info;
-
-            storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_common_resources->reflection_rt_color_view->handle();
-            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkWriteDescriptorSet write_data;
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write_data.pImageInfo      = &storage_image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->reflection_rt_write_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
-        }
-
-        // Reflection RT read
-        {
-            VkDescriptorImageInfo sampler_image_info;
-
-            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
-            sampler_image_info.imageView   = m_common_resources->reflection_rt_color_view->handle();
-            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet write_data;
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &sampler_image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->reflection_rt_read_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
-        }
-
         // RTGI write
         {
             VkDescriptorImageInfo storage_image_info;
@@ -1197,57 +1102,6 @@ private:
 
         m_common_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_common_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_common_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_reflection_ray_tracing_pipeline()
-    {
-        // ---------------------------------------------------------------------------
-        // Create shader modules
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ShaderModule::Ptr rgen             = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/reflection.rmiss.spv");
-        dw::vk::ShaderModule::Ptr rchit_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
-
-        dw::vk::ShaderBindingTable::Desc sbt_desc;
-
-        sbt_desc.add_ray_gen_group(rgen, "main");
-        sbt_desc.add_hit_group(rchit, "main");
-        sbt_desc.add_hit_group(rchit_visibility, "main");
-        sbt_desc.add_miss_group(rmiss, "main");
-        sbt_desc.add_miss_group(rmiss_visibility, "main");
-
-        m_common_resources->reflection_rt_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
-
-        dw::vk::RayTracingPipeline::Desc desc;
-
-        desc.set_max_pipeline_ray_recursion_depth(1);
-        desc.set_shader_binding_table(m_common_resources->reflection_rt_sbt);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline layout
-        // ---------------------------------------------------------------------------
-
-        dw::vk::PipelineLayout::Desc pl_desc;
-
-        pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
-        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(ReflectionsPushConstants));
-
-        m_common_resources->reflection_rt_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
-
-        desc.set_pipeline_layout(m_common_resources->reflection_rt_pipeline_layout);
-
-        m_common_resources->reflection_rt_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1933,71 +1787,6 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void ray_trace_reflection(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
-
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        // Transition ray tracing output image back to general layout
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->reflection_rt_color_image->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->reflection_rt_pipeline->handle());
-
-        ReflectionsPushConstants push_constants;
-
-        push_constants.bias         = m_ray_traced_reflections_bias;
-        push_constants.num_frames   = m_common_resources->num_frames;
-        push_constants.sampler_type = m_common_resources->sampler_type;
-        push_constants.vndf         = (uint32_t)m_ray_traced_reflections_vndf;
-        push_constants.trim         = m_ray_traced_reflections_trim;
-
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->reflection_rt_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(push_constants), &push_constants);
-
-        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
-
-        VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->current_scene->descriptor_set()->handle(),
-            m_common_resources->reflection_rt_write_ds->handle(),
-            m_common_resources->per_frame_ds->handle(),
-            m_g_buffer->output_ds()->handle(),
-            m_common_resources->pbr_ds->handle(),
-            m_common_resources->skybox_ds->handle(),
-            m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle()
-        };
-
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->reflection_rt_pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
-
-        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
-
-        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-        VkDeviceSize group_stride = group_size;
-
-        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->reflection_rt_sbt->miss_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->reflection_rt_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->reflection_rt_sbt->hit_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
-
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->reflection_rt_color_image->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
@@ -2248,7 +2037,7 @@ private:
             m_g_buffer->output_ds()->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_ray_traced_shadows->output_ds()->handle(),
-            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->svgf_reflection_denoiser->output_ds()->handle(),
+            m_ray_traced_reflections->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()
@@ -2396,7 +2185,7 @@ private:
             m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
             m_ray_traced_ao->output_ds()->handle(),
             m_ray_traced_shadows->output_ds()->handle(),
-            m_ray_traced_reflections_denoise ? m_common_resources->reflection_denoiser->output_ds()->handle() : m_common_resources->svgf_reflection_denoiser->output_ds()->handle(),
+            m_ray_traced_reflections->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle()
         };
 
@@ -2537,6 +2326,7 @@ private:
     std::unique_ptr<GBuffer>          m_g_buffer;
     std::unique_ptr<RayTracedShadows> m_ray_traced_shadows;
     std::unique_ptr<RayTracedAO>      m_ray_traced_ao;
+    std::unique_ptr<RayTracedReflections> m_ray_traced_reflections;
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;

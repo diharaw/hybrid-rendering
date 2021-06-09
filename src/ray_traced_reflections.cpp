@@ -534,9 +534,9 @@ void RayTracedReflections::create_pipelines()
         // Create shader modules
         // ---------------------------------------------------------------------------
 
-        dw::vk::ShaderModule::Ptr rgen             = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflection.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit            = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflection.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss            = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflection.rmiss.spv");
+        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_ray_trace.rgen.spv");
+        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_ray_trace.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_ray_trace.rmiss.spv");
         
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
@@ -595,7 +595,7 @@ void RayTracedReflections::create_pipelines()
         comp_desc.set_pipeline_layout(m_temporal_accumulation.pipeline_layout);
         comp_desc.set_shader_stage(module, "main");
 
-        m_temporal_accumulation.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        //m_temporal_accumulation.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
     // A-Trous Filter
@@ -618,7 +618,7 @@ void RayTracedReflections::create_pipelines()
         comp_desc.set_pipeline_layout(m_a_trous.pipeline_layout);
         comp_desc.set_shader_stage(module, "main");
 
-        m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        //m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 }
 

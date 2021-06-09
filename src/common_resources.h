@@ -59,17 +59,17 @@ struct CommonResources
     // Denoisers
     std::unique_ptr<SVGFDenoiser>          svgf_gi_denoiser;
     std::unique_ptr<SpatialReconstruction> spatial_reconstruction;
-    std::unique_ptr<SVGFDenoiser>          svgf_reflection_denoiser;
-    std::unique_ptr<ReflectionDenoiser>    reflection_denoiser;
+    //std::unique_ptr<SVGFDenoiser>          svgf_reflection_denoiser;
+    //std::unique_ptr<ReflectionDenoiser>    reflection_denoiser;
 
     // Reflection RT pass
-    dw::vk::DescriptorSet::Ptr      reflection_rt_write_ds;
-    dw::vk::DescriptorSet::Ptr      reflection_rt_read_ds;
-    dw::vk::RayTracingPipeline::Ptr reflection_rt_pipeline;
-    dw::vk::PipelineLayout::Ptr     reflection_rt_pipeline_layout;
-    dw::vk::Image::Ptr              reflection_rt_color_image;
-    dw::vk::ImageView::Ptr          reflection_rt_color_view;
-    dw::vk::ShaderBindingTable::Ptr reflection_rt_sbt;
+    //dw::vk::DescriptorSet::Ptr      reflection_rt_write_ds;
+    //dw::vk::DescriptorSet::Ptr      reflection_rt_read_ds;
+    //dw::vk::RayTracingPipeline::Ptr reflection_rt_pipeline;
+    //dw::vk::PipelineLayout::Ptr     reflection_rt_pipeline_layout;
+    //dw::vk::Image::Ptr              reflection_rt_color_image;
+    //dw::vk::ImageView::Ptr          reflection_rt_color_view;
+    //dw::vk::ShaderBindingTable::Ptr reflection_rt_sbt;
 
     // Global Illumination Ray Tracing pass
     dw::vk::DescriptorSet::Ptr      rtgi_write_ds;
