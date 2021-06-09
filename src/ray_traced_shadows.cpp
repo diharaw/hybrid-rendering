@@ -1,5 +1,4 @@
 #include "ray_traced_shadows.h"
-#include "common_resources.h"
 #include "g_buffer.h"
 #include "utilities.h"
 #include <profiler.h>
@@ -41,11 +40,17 @@ const std::string RayTracedShadows::kOutputTypeNames[] = {
     "A-Trous"
 };
 
-RayTracedShadows::RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height) :
-    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_width(width), m_height(height)
+RayTracedShadows::RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
+    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
 {
     auto vk_backend = m_backend.lock();
-    m_g_buffer_mip  = static_cast<uint32_t>(log2f(float(vk_backend->swap_chain_extents().width) / float(m_width)));
+
+    float scale_divisor = powf(2.0f, float(scale));
+
+    m_width  = vk_backend->swap_chain_extents().width / scale_divisor;
+    m_height = vk_backend->swap_chain_extents().height / scale_divisor;
+
+    m_g_buffer_mip = static_cast<uint32_t>(scale);
 
     create_images();
     create_descriptor_sets();
@@ -73,14 +78,12 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void RayTracedShadows::gui()
 {
-    ImGui::PushID("RTSS");
     ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::InputFloat("Alpha", &m_temporal_accumulation.alpha);
     ImGui::InputFloat("Alpha Moments", &m_temporal_accumulation.moments_alpha);
     ImGui::InputFloat("Phi Visibility", &m_a_trous.phi_visibility);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
-    ImGui::PopID();
 }
 
 dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds(Output output_type)
@@ -603,7 +606,7 @@ void RayTracedShadows::create_pipelines()
 
 void RayTracedShadows::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    if (m_common_resources->first_frame)
+    if (m_first_frame)
     {
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -644,6 +647,8 @@ void RayTracedShadows::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
+
+        m_first_frame = false;
     }
 }
 

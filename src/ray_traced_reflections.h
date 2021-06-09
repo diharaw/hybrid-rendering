@@ -1,8 +1,7 @@
 #pragma once
 
-#include <vk.h>
+#include "common_resources.h"
 
-struct CommonResources;
 class GBuffer;
 
 class RayTracedReflections
@@ -20,7 +19,7 @@ public:
     const static std::string kOutputTypeNames[];
 
 public:
-    RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height);
+    RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
     ~RayTracedReflections();
 
     void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -29,6 +28,7 @@ public:
 
     inline uint32_t width() { return m_width; }
     inline uint32_t height() { return m_height; }
+    inline RayTraceScale scale() { return m_scale; }
 
 private:
     void create_images();
@@ -93,10 +93,12 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
+    RayTraceScale                  m_scale;
     uint32_t                       m_g_buffer_mip = 0;
     uint32_t                       m_width;
     uint32_t                       m_height;
     bool                           m_denoise = true;
+    bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
     TemporalAccumulation           m_temporal_accumulation;
     ATrous                         m_a_trous;

@@ -2,7 +2,6 @@
 #include <camera.h>
 #include <profiler.h>
 #include <assimp/scene.h>
-#include "common_resources.h"
 #include "g_buffer.h"
 #include "ray_traced_shadows.h"
 #include "ray_traced_ao.h"
@@ -43,7 +42,7 @@ enum VisualizationType
 const std::vector<std::string> sampler_types       = { "White Noise", "Blue Noise Distribution" };
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
-const std::vector<std::string> reflections_types   = { "Stochasitc", "SSa" };
+const std::vector<std::string> ray_trace_scales   = { "Full-Res", "Half-Res", "Quarter-Res" };
 
 struct Light
 {
@@ -87,15 +86,6 @@ void set_light_type(Light& light, LightType value)
 {
     light.data2.r = value;
 }
-
-struct ReflectionsPushConstants
-{
-    float    bias;
-    uint32_t num_frames;
-    uint32_t sampler_type;
-    uint32_t vndf;
-    float    trim;
-};
 
 struct GIPushConstants
 {
@@ -177,7 +167,6 @@ public:
     friend class SpatialReconstruction;
     friend class BilateralBlur;
     friend class SVGFDenoiser;
-    friend class DiffuseDenoiser;
 
 protected:
     bool init(int argc, const char* argv[]) override
@@ -208,10 +197,11 @@ protected:
         create_descriptor_set_layouts();
         create_descriptor_sets();
         write_descriptor_sets();
+
         m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
-        m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width, m_height));
+        m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_width / 2, m_height / 2));
+        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
         create_render_passes();
         create_framebuffers();
@@ -318,13 +308,57 @@ protected:
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        ImGui::PushID("RTSS");
+                        ImGui::PushID("Ray Traced Shadows");
+
+                        RayTraceScale scale = m_ray_traced_shadows->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ray_traced_shadows.reset();
+                                    m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
                         m_ray_traced_shadows->gui();
+
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        ImGui::PushID("RTR");
+                        ImGui::PushID("Ray Traced Reflections");
+
+                        RayTraceScale scale = m_ray_traced_reflections->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ray_traced_reflections.reset();
+                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }  
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
 
                         /*ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                         ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
@@ -332,13 +366,13 @@ protected:
                         ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
                         ImGui::SliderFloat("Lobe Trim", &m_ray_traced_reflections_trim, 0.0f, 1.0f);
                         m_common_resources->reflection_denoiser->gui();*/
-
+                        m_ray_traced_reflections->gui();
 
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        ImGui::PushID("RTR");
+                        ImGui::PushID("Ray Traced Global Illumination");
                         ImGui::Checkbox("Enabled", &m_rtgi_enabled);
                         ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
                         ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
@@ -346,7 +380,12 @@ protected:
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::PushID("Ray Traced Ambient Occlusion");
+                        ImGui::Checkbox("Enabled", &m_rtao_enabled);
                         m_ray_traced_ao->gui();
+                        ImGui::PopID();
+                    }
                     if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("TAA");
@@ -412,6 +451,7 @@ protected:
         m_g_buffer.reset();
         m_ray_traced_shadows.reset();
         m_ray_traced_ao.reset();
+        m_ray_traced_reflections.reset();
         m_common_resources.reset();
     }
 
@@ -1783,6 +1823,7 @@ private:
     void create_camera()
     {
         m_main_camera = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+        m_prev_camera_pos = m_main_camera->m_position;
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2025,7 +2066,7 @@ private:
         DeferredShadingPushConstants push_constants;
 
         push_constants.shadows     = (float)m_rt_shadows_enabled;
-        push_constants.ao          = (float)m_ray_traced_ao->enabled();
+        push_constants.ao          = (float)m_rtao_enabled;
         push_constants.reflections = (float)m_rt_reflections_enabled;
         push_constants.gi          = (float)m_rtgi_enabled;
 
@@ -2291,7 +2332,7 @@ private:
 
         m_camera_x = m_mouse_delta_x * m_camera_sensitivity;
         m_camera_y = m_mouse_delta_y * m_camera_sensitivity;
-
+        
         if (m_mouse_look)
         {
             // Activate Mouse Look
@@ -2307,6 +2348,10 @@ private:
         }
 
         current->update();
+
+        m_common_resources->frame_time   = m_delta_seconds;
+        m_common_resources->camera_delta = m_main_camera->m_position - m_prev_camera_pos;
+        m_prev_camera_pos                = m_main_camera->m_position;
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2333,6 +2378,7 @@ private:
     glm::mat4                   m_projection;
     glm::mat4                   m_prev_view_proj;
     std::vector<glm::vec2>      m_jitter_samples;
+    glm::vec3                   m_prev_camera_pos = glm::vec3(0.0f);
     glm::vec2                   m_prev_jitter    = glm::vec2(0.0f);
     glm::vec2                   m_current_jitter = glm::vec2(0.0f);
 

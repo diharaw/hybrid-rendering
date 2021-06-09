@@ -2,7 +2,7 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : require
 
-#include "common.glsl"
+#include "../common.glsl"
 
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------

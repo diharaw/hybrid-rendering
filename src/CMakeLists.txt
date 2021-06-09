@@ -21,7 +21,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/path_traced_gi.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.cpp
-                             ${PROJECT_SOURCE_DIR}/src/stochastic_reflections.cpp
+                             ${PROJECT_SOURCE_DIR}/src/ray_traced_reflections.cpp
                              ${PROJECT_SOURCE_DIR}/src/g_buffer.cpp
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.cpp
@@ -40,7 +40,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/path_traced_gi.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.h
-                             ${PROJECT_SOURCE_DIR}/src/stochastic_reflections.h
+                             ${PROJECT_SOURCE_DIR}/src/ray_traced_reflections.h
                              ${PROJECT_SOURCE_DIR}/src/g_buffer.h
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.h
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.h
@@ -95,7 +95,12 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_upsample.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_atrous.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_ray_trace.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_ray_trace.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_ray_trace.rgen
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_ray_trace.rchit
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_ray_trace.rmiss
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_atrous.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_reprojection.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})

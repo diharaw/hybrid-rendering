@@ -5,9 +5,9 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #define RAY_TRACING
-#include "common.glsl"
-#include "scene_descriptor_set.glsl"
-#include "bnd_sampler.glsl"
+#include "../common.glsl"
+#include "../scene_descriptor_set.glsl"
+#include "../bnd_sampler.glsl"
 
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------

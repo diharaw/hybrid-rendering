@@ -1,5 +1,4 @@
 #include "ray_traced_reflections.h"
-#include "common_resources.h"
 #include "g_buffer.h"
 #include "utilities.h"
 #include <profiler.h>
@@ -16,6 +15,8 @@ struct RayTracePushConstants
 
 struct TemporalAccumulationPushConstants
 {
+    glm::vec3 camera_delta;
+    float     frame_time;
     float   alpha;
     float   moments_alpha;
     int32_t g_buffer_mip;
@@ -42,11 +43,17 @@ const std::string RayTracedReflections::kOutputTypeNames[] = {
     "A-Trous"
 };
 
-RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, uint32_t width, uint32_t height) :
-    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_width(width), m_height(height)
+RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
+    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
 {
     auto vk_backend = m_backend.lock();
-    m_g_buffer_mip  = static_cast<uint32_t>(log2f(float(vk_backend->swap_chain_extents().width) / float(m_width)));
+
+    float scale_divisor = powf(2.0f, float(scale));
+
+    m_width  = vk_backend->swap_chain_extents().width / scale_divisor;
+    m_height = vk_backend->swap_chain_extents().height / scale_divisor;
+
+    m_g_buffer_mip = static_cast<uint32_t>(scale);
 
     create_images();
     create_descriptor_sets();
@@ -74,7 +81,6 @@ void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void RayTracedReflections::gui()
 {
-    ImGui::PushID("RayTracedReflections");
     ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Lobe Trim", &m_ray_trace.trim, 0.0f, 1.0f);
@@ -82,7 +88,6 @@ void RayTracedReflections::gui()
     ImGui::InputFloat("Alpha Moments", &m_temporal_accumulation.moments_alpha);
     ImGui::InputFloat("Phi Color", &m_a_trous.phi_color);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
-    ImGui::PopID();
 }
 
 dw::vk::DescriptorSet::Ptr RayTracedReflections::output_ds(Output output_type)
@@ -564,7 +569,7 @@ void RayTracedReflections::create_pipelines()
         pl_desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
-        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(RayTracePushConstants));
+        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
         m_ray_trace.pipeline_layout = dw::vk::PipelineLayout::create(backend, pl_desc);
 
@@ -582,20 +587,21 @@ void RayTracedReflections::create_pipelines()
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalAccumulationPushConstants));
 
         m_temporal_accumulation.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
         m_temporal_accumulation.pipeline_layout->set_name("Reprojection Pipeline Layout");
 
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_denoise_reprojection.comp.spv");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_denoise_reprojection.comp.spv");
 
         dw::vk::ComputePipeline::Desc comp_desc;
 
         comp_desc.set_pipeline_layout(m_temporal_accumulation.pipeline_layout);
         comp_desc.set_shader_stage(module, "main");
 
-        //m_temporal_accumulation.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        m_temporal_accumulation.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
     // A-Trous Filter
@@ -611,20 +617,20 @@ void RayTracedReflections::create_pipelines()
         m_a_trous.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
         m_a_trous.pipeline_layout->set_name("A-Trous Pipeline Layout");
 
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_denoise_atrous.comp.spv");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_denoise_atrous.comp.spv");
 
         dw::vk::ComputePipeline::Desc comp_desc;
 
         comp_desc.set_pipeline_layout(m_a_trous.pipeline_layout);
         comp_desc.set_shader_stage(module, "main");
 
-        //m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 }
 
 void RayTracedReflections::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    if (m_common_resources->first_frame)
+    if (m_first_frame)
     {
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -665,6 +671,8 @@ void RayTracedReflections::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
+
+        m_first_frame = false;
     }
 }
 
@@ -695,7 +703,7 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     push_constants.num_frames   = m_common_resources->num_frames;
     push_constants.g_buffer_mip = m_g_buffer_mip;
 
-    vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+    vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
     const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
 
@@ -738,6 +746,8 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
 
+    auto                    backend           = m_backend.lock();
+
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
     {
@@ -759,21 +769,26 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
 
     TemporalAccumulationPushConstants push_constants;
 
+    push_constants.camera_delta  = m_common_resources->camera_delta;
+    push_constants.frame_time    = m_common_resources->frame_time;
     push_constants.alpha         = m_temporal_accumulation.alpha;
     push_constants.moments_alpha = m_temporal_accumulation.moments_alpha;
     push_constants.g_buffer_mip  = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+    
+    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
 
     VkDescriptorSet descriptor_sets[] = {
         m_temporal_accumulation.current_write_ds[m_common_resources->ping_pong]->handle(),
         m_g_buffer->output_ds()->handle(),
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
-        m_temporal_accumulation.prev_read_ds[!m_common_resources->ping_pong]->handle()
+        m_temporal_accumulation.prev_read_ds[!m_common_resources->ping_pong]->handle(),
+        m_common_resources->per_frame_ds->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 

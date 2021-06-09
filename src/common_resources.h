@@ -23,6 +23,13 @@ enum SamplerType
     SAMPLER_BLUE_NOISE_DISTRIBUTION
 };
 
+enum RayTraceScale
+{
+    RAY_TRACE_SCALE_FULL_RES,
+    RAY_TRACE_SCALE_HALF_RES,
+    RAY_TRACE_SCALE_QUARTER_RES
+};
+
 struct CommonResources
 {
     bool        first_frame  = true;
@@ -31,6 +38,8 @@ struct CommonResources
     SamplerType sampler_type = SAMPLER_BLUE_NOISE_DISTRIBUTION;
     size_t      ubo_size     = 0;
     glm::vec4   z_buffer_params;
+    glm::vec3   camera_delta = glm::vec3(0.0f);
+    float       frame_time   = 0.0f;
 
     // Assets.
     std::vector<dw::Mesh::Ptr> meshes;

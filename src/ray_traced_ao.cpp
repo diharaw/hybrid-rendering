@@ -1,5 +1,4 @@
 #include "ray_traced_ao.h"
-#include "common_resources.h"
 #include "g_buffer.h"
 #include "utilities.h"
 #include <profiler.h>
@@ -53,12 +52,15 @@ struct UpsamplePushConstants
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-RayTracedAO::RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer) :
-    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer)
+RayTracedAO::RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
+    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
 {
     auto vk_backend = m_backend.lock();
-    m_width         = vk_backend->swap_chain_extents().width / 2;
-    m_height        = vk_backend->swap_chain_extents().height / 2;
+
+    float scale_divisor = powf(2.0f, float(scale));
+
+    m_width  = vk_backend->swap_chain_extents().width / scale_divisor;
+    m_height = vk_backend->swap_chain_extents().height / scale_divisor;
 
     create_images();
     create_descriptor_sets();
@@ -76,18 +78,15 @@ RayTracedAO::~RayTracedAO()
 
 void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    if (m_enabled)
+    DW_SCOPED_SAMPLE("Ambient Occlusion", cmd_buf);
+
+    clear_images(cmd_buf);
+    ray_trace(cmd_buf);
+
+    if (m_denoise)
     {
-        DW_SCOPED_SAMPLE("Ambient Occlusion", cmd_buf);
-
-        clear_images(cmd_buf);
-        ray_trace(cmd_buf);
-
-        if (m_denoise)
-        {
-            denoise(cmd_buf);
-            upsample(cmd_buf);
-        }
+        denoise(cmd_buf);
+        upsample(cmd_buf);
     }
 }
 
@@ -95,9 +94,6 @@ void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void RayTracedAO::gui()
 {
-    ImGui::PushID("RTAO");
-
-    ImGui::Checkbox("Enabled", &m_enabled);
     ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::Checkbox("Disocclusion Blur", &m_disocclusion_blur.enabled);
     ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
@@ -108,8 +104,6 @@ void RayTracedAO::gui()
     ImGui::SliderInt("Blur Radius", &m_bilateral_blur.blur_radius, 1, 20);
     ImGui::SliderInt("Disocclusion Blur Radius", &m_disocclusion_blur.blur_radius, 1, 20);
     ImGui::SliderInt("Disocclusion Blur Threshold", &m_disocclusion_blur.threshold, 1, 15);
-
-    ImGui::PopID();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -785,7 +779,7 @@ void RayTracedAO::create_pipeline()
 
 void RayTracedAO::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    if (m_common_resources->first_frame)
+    if (m_first_frame)
     {
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -826,6 +820,8 @@ void RayTracedAO::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_GENERAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             subresource_range);
+
+        m_first_frame = false;
     }
 }
 

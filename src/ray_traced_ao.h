@@ -1,14 +1,13 @@
 #pragma once
 
-#include <vk.h>
+#include "common_resources.h"
 
-struct CommonResources;
 class GBuffer;
 
 class RayTracedAO
 {
 public:
-    RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer);
+    RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
     ~RayTracedAO();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -16,8 +15,8 @@ public:
 
     inline uint32_t                   width() { return m_width; }
     inline uint32_t                   height() { return m_height; }
+    inline RayTraceScale              scale() { return m_scale; }
     inline dw::vk::DescriptorSet::Ptr output_ds() { return m_denoise ? m_upsample.read_ds : m_ray_trace.read_ds; }
-    inline bool                       enabled() { return m_enabled; }
 
 private:
     void create_images();
@@ -101,10 +100,11 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
+    RayTraceScale                  m_scale;
     uint32_t                       m_width;
     uint32_t                       m_height;
-    bool                           m_enabled = true;
     bool                           m_denoise = true;
+    bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;
     DisocclusionBlur               m_disocclusion_blur;

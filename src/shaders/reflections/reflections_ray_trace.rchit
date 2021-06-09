@@ -6,8 +6,8 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #define RAY_TRACING
-#include "common.glsl"
-#include "scene_descriptor_set.glsl"
+#include "../common.glsl"
+#include "../scene_descriptor_set.glsl"
 
 // ------------------------------------------------------------------------
 // CONSTANTS --------------------------------------------------------------
@@ -313,7 +313,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         vec3 Wh = normalize(Wo + Wi);
 
         // fire shadow ray for visiblity
-        Li *= query_visibility(ray_origin, Wi);
+        //Li *= query_visibility(ray_origin, Wi);
 
         vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
         float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
