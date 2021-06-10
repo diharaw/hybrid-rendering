@@ -103,7 +103,7 @@ private:
     RayTraceScale                  m_scale;
     uint32_t                       m_width;
     uint32_t                       m_height;
-    bool                           m_denoise = true;
+    bool                           m_denoise     = true;
     bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
     TemporalReprojection           m_temporal_reprojection;

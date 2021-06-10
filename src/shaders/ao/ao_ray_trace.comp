@@ -150,7 +150,7 @@ float query_visibility(vec3 world_pos, vec3 direction)
 vec2 next_sample(ivec2 coord, int index)
 {
     return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile),
-                    sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
+                sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
 }
 
 // ------------------------------------------------------------------

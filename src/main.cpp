@@ -39,12 +39,12 @@ enum VisualizationType
 
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
-const std::vector<std::string> ray_trace_scales   = { "Full-Res", "Half-Res", "Quarter-Res" };
+const std::vector<std::string> ray_trace_scales    = { "Full-Res", "Half-Res", "Quarter-Res" };
 
 struct Light
 {
-    glm::vec4 data0;
-    glm::vec4 data1;
+    glm::vec4  data0;
+    glm::vec4  data1;
     glm::ivec4 data2;
 };
 
@@ -192,9 +192,9 @@ protected:
         create_descriptor_sets();
         write_descriptor_sets();
 
-        m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
-        m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_ao      = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
+        m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
         create_render_passes();
@@ -206,8 +206,8 @@ protected:
         create_taa_pipeline();
         create_cube();
 
-        m_common_resources->svgf_gi_denoiser     = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
-     
+        m_common_resources->svgf_gi_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
+
         // Create camera.
         create_camera();
 
@@ -329,7 +329,7 @@ protected:
                                     m_vk_backend->wait_idle();
                                     m_ray_traced_reflections.reset();
                                     m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
-                                }  
+                                }
 
                                 if (is_selected)
                                     ImGui::SetItemDefaultFocus();
@@ -755,12 +755,12 @@ private:
 
     void create_descriptor_sets()
     {
-        m_common_resources->per_frame_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
-        m_common_resources->skybox_ds              = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        m_common_resources->pbr_ds                 = m_vk_backend->allocate_descriptor_set(m_common_resources->pbr_ds_layout);
-        m_common_resources->rtgi_write_ds          = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_common_resources->rtgi_read_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        m_common_resources->deferred_read_ds       = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_common_resources->per_frame_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
+        m_common_resources->skybox_ds        = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_common_resources->pbr_ds           = m_vk_backend->allocate_descriptor_set(m_common_resources->pbr_ds_layout);
+        m_common_resources->rtgi_write_ds    = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        m_common_resources->rtgi_read_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_common_resources->deferred_read_ds = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
 
         for (int i = 0; i < 9; i++)
             m_common_resources->blue_noise_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->blue_noise_ds_layout);
@@ -1123,10 +1123,10 @@ private:
         // Create shader modules
         // ---------------------------------------------------------------------------
 
-        dw::vk::ShaderModule::Ptr rgen             = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rmiss.spv");
-       
+        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rgen.spv");
+        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rchit.spv");
+        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rmiss.spv");
+
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
         sbt_desc.add_ray_gen_group(rgen, "main");
@@ -1789,7 +1789,7 @@ private:
 
     void create_camera()
     {
-        m_main_camera = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+        m_main_camera     = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
         m_prev_camera_pos = m_main_camera->m_position;
     }
 
@@ -2299,7 +2299,7 @@ private:
 
         m_camera_x = m_mouse_delta_x * m_camera_sensitivity;
         m_camera_y = m_mouse_delta_y * m_camera_sensitivity;
-        
+
         if (m_mouse_look)
         {
             // Activate Mouse Look
@@ -2334,10 +2334,10 @@ private:
     }
 
 private:
-    std::unique_ptr<CommonResources>  m_common_resources;
-    std::unique_ptr<GBuffer>          m_g_buffer;
-    std::unique_ptr<RayTracedShadows> m_ray_traced_shadows;
-    std::unique_ptr<RayTracedAO>      m_ray_traced_ao;
+    std::unique_ptr<CommonResources>      m_common_resources;
+    std::unique_ptr<GBuffer>              m_g_buffer;
+    std::unique_ptr<RayTracedShadows>     m_ray_traced_shadows;
+    std::unique_ptr<RayTracedAO>          m_ray_traced_ao;
     std::unique_ptr<RayTracedReflections> m_ray_traced_reflections;
 
     // Camera.
@@ -2346,8 +2346,8 @@ private:
     glm::mat4                   m_prev_view_proj;
     std::vector<glm::vec2>      m_jitter_samples;
     glm::vec3                   m_prev_camera_pos = glm::vec3(0.0f);
-    glm::vec2                   m_prev_jitter    = glm::vec2(0.0f);
-    glm::vec2                   m_current_jitter = glm::vec2(0.0f);
+    glm::vec2                   m_prev_jitter     = glm::vec2(0.0f);
+    glm::vec2                   m_current_jitter  = glm::vec2(0.0f);
 
     // TAA
     bool  m_taa_enabled      = true;
@@ -2380,7 +2380,7 @@ private:
     bool m_downscaled_rt      = true;
 
     // Ray Traced Shadows
-    bool m_rt_shadows_enabled  = true;
+    bool m_rt_shadows_enabled = true;
 
     // Ray Traced Reflections
     float m_ray_traced_reflections_bias                        = 0.5f;

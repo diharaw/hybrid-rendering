@@ -26,8 +26,8 @@ public:
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds(Output output_type = OUTPUT_ATROUS);
 
-    inline uint32_t width() { return m_width; }
-    inline uint32_t height() { return m_height; }
+    inline uint32_t      width() { return m_width; }
+    inline uint32_t      height() { return m_height; }
     inline RayTraceScale scale() { return m_scale; }
 
 private:
@@ -76,7 +76,7 @@ private:
 
     struct ATrous
     {
-        float                        phi_color     = 10.0f;
+        float                        phi_color          = 10.0f;
         float                        phi_normal         = 32.0f;
         int32_t                      radius             = 1;
         int32_t                      filter_iterations  = 4;
@@ -97,7 +97,7 @@ private:
     uint32_t                       m_g_buffer_mip = 0;
     uint32_t                       m_width;
     uint32_t                       m_height;
-    bool                           m_denoise = true;
+    bool                           m_denoise     = true;
     bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
     TemporalAccumulation           m_temporal_accumulation;

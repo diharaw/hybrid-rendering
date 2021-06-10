@@ -309,7 +309,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         // float point_radius = light_radius(light) * sqrt(rnd_sample.x);
         // float point_angle  = rnd_sample.y * 2.0f * M_PI;
         // vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-        vec3  Wi           = light_direction(light);
+        vec3 Wi = light_direction(light);
         vec3 Wh = normalize(Wo + Wi);
 
         // fire shadow ray for visiblity
@@ -380,8 +380,8 @@ void main()
 
     Li += indirect_lighting(N, albedo) * IndirectIntensity;
 
-    p_ReflectionPayload.color        = Li;
-    p_ReflectionPayload.ray_length   = gl_RayTminEXT + gl_HitTEXT;
+    p_ReflectionPayload.color      = Li;
+    p_ReflectionPayload.ray_length = gl_RayTminEXT + gl_HitTEXT;
 }
 
 // ------------------------------------------------------------------------

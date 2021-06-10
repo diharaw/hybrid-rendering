@@ -22,13 +22,13 @@ enum RayTraceScale
 
 struct CommonResources
 {
-    bool        first_frame  = true;
-    bool        ping_pong    = false;
-    int32_t     num_frames   = 0;
-    size_t      ubo_size     = 0;
-    glm::vec4   z_buffer_params;
-    glm::vec3   camera_delta = glm::vec3(0.0f);
-    float       frame_time   = 0.0f;
+    bool      first_frame = true;
+    bool      ping_pong   = false;
+    int32_t   num_frames  = 0;
+    size_t    ubo_size    = 0;
+    glm::vec4 z_buffer_params;
+    glm::vec3 camera_delta = glm::vec3(0.0f);
+    float     frame_time   = 0.0f;
 
     // Assets.
     std::vector<dw::Mesh::Ptr> meshes;
@@ -55,8 +55,8 @@ struct CommonResources
     std::unique_ptr<BlueNoise>       blue_noise;
 
     // Denoisers
-    std::unique_ptr<SVGFDenoiser>          svgf_gi_denoiser;
-    
+    std::unique_ptr<SVGFDenoiser> svgf_gi_denoiser;
+
     // Global Illumination Ray Tracing pass
     dw::vk::DescriptorSet::Ptr      rtgi_write_ds;
     dw::vk::DescriptorSet::Ptr      rtgi_read_ds;

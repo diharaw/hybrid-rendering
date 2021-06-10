@@ -17,9 +17,9 @@ struct TemporalAccumulationPushConstants
 {
     glm::vec3 camera_delta;
     float     frame_time;
-    float   alpha;
-    float   moments_alpha;
-    int32_t g_buffer_mip;
+    float     alpha;
+    float     moments_alpha;
+    int32_t   g_buffer_mip;
 };
 
 struct ATrousFilterPushConstants
@@ -542,7 +542,7 @@ void RayTracedReflections::create_pipelines()
         dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_ray_trace.rgen.spv");
         dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_ray_trace.rchit.spv");
         dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_ray_trace.rmiss.spv");
-        
+
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
         sbt_desc.add_ray_gen_group(rgen, "main");
@@ -746,7 +746,7 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
 
-    auto                    backend           = m_backend.lock();
+    auto backend = m_backend.lock();
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -776,7 +776,7 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
     push_constants.g_buffer_mip  = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-    
+
     const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
 
     VkDescriptorSet descriptor_sets[] = {

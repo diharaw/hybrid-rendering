@@ -848,11 +848,11 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
-    push_constants.num_frames   = m_common_resources->num_frames;
-    push_constants.num_rays     = m_ray_trace.num_rays;
-    push_constants.ray_length   = m_ray_trace.ray_length;
-    push_constants.power        = m_ray_trace.power;
-    push_constants.bias         = m_ray_trace.bias;
+    push_constants.num_frames = m_common_resources->num_frames;
+    push_constants.num_rays   = m_ray_trace.num_rays;
+    push_constants.ray_length = m_ray_trace.ray_length;
+    push_constants.power      = m_ray_trace.power;
+    push_constants.bias       = m_ray_trace.bias;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

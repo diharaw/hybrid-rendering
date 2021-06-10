@@ -22,12 +22,12 @@ public:
     RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_FULL_RES);
     ~RayTracedShadows();
 
-    void render(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void gui();
+    void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds(Output output_type = OUTPUT_ATROUS);
 
-    inline uint32_t width()   { return m_width;   }
-    inline uint32_t height()  { return m_height;  }
+    inline uint32_t      width() { return m_width; }
+    inline uint32_t      height() { return m_height; }
     inline RayTraceScale scale() { return m_scale; }
 
 private:
@@ -43,13 +43,13 @@ private:
 private:
     struct RayTrace
     {
-        float                           bias = 0.5f;
-        dw::vk::ComputePipeline::Ptr    pipeline;
-        dw::vk::PipelineLayout::Ptr     pipeline_layout;
-        dw::vk::Image::Ptr              image;
-        dw::vk::ImageView::Ptr          view;
-        dw::vk::DescriptorSet::Ptr      write_ds;
-        dw::vk::DescriptorSet::Ptr      read_ds;
+        float                        bias = 0.5f;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       view;
+        dw::vk::DescriptorSet::Ptr   write_ds;
+        dw::vk::DescriptorSet::Ptr   read_ds;
     };
 
     struct TemporalAccumulation
@@ -74,12 +74,12 @@ private:
 
     struct ATrous
     {
-        float                        phi_visibility = 10.0f;
-        float                        phi_normal = 32.0f;
+        float                        phi_visibility     = 10.0f;
+        float                        phi_normal         = 32.0f;
         int32_t                      radius             = 1;
         int32_t                      filter_iterations  = 4;
         int32_t                      feedback_iteration = 1;
-        int32_t                      read_idx                   = 0;
+        int32_t                      read_idx           = 0;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::Image::Ptr           image[2];
@@ -88,16 +88,16 @@ private:
         dw::vk::DescriptorSet::Ptr   write_ds[2];
     };
 
-    std::weak_ptr<dw::vk::Backend>  m_backend;
-    CommonResources*                m_common_resources;
-    GBuffer*                        m_g_buffer;
-    RayTraceScale                   m_scale;
-    uint32_t                        m_g_buffer_mip = 0;
-    uint32_t                        m_width;
-    uint32_t                        m_height;
-    bool                            m_denoise = true;
-    bool                            m_first_frame = true;
-    RayTrace                        m_ray_trace;
-    TemporalAccumulation            m_temporal_accumulation;
-    ATrous                          m_a_trous;
+    std::weak_ptr<dw::vk::Backend> m_backend;
+    CommonResources*               m_common_resources;
+    GBuffer*                       m_g_buffer;
+    RayTraceScale                  m_scale;
+    uint32_t                       m_g_buffer_mip = 0;
+    uint32_t                       m_width;
+    uint32_t                       m_height;
+    bool                           m_denoise     = true;
+    bool                           m_first_frame = true;
+    RayTrace                       m_ray_trace;
+    TemporalAccumulation           m_temporal_accumulation;
+    ATrous                         m_a_trous;
 };

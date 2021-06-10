@@ -48,7 +48,8 @@ layout(set = 5, binding = 0) uniform PerFrameUBO
     mat4  view_proj;
     vec4  cam_pos;
     Light light;
-} u_GlobalUBO;
+}
+u_GlobalUBO;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -56,7 +57,7 @@ layout(set = 5, binding = 0) uniform PerFrameUBO
 
 layout(push_constant) uniform PushConstants
 {
-    vec3 camera_delta;
+    vec3  camera_delta;
     float frame_time;
     float alpha;
     float moments_alpha;
@@ -215,7 +216,7 @@ bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_m
         }
 
         // redistribute weights in case not all taps were used
-        valid       = (sumw >= 0.01);
+        valid           = (sumw >= 0.01);
         history_color   = valid ? history_color / sumw : vec3(0.0f);
         history_moments = valid ? history_moments / sumw : vec2(0.0f);
     }
@@ -253,9 +254,9 @@ bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_m
         history_length = texelFetch(s_HistoryMoments, ipos_prev, 0).b;
     else
     {
-        history_color     = vec3(0.0f);
-        history_moments   = vec2(0.0f);
-        history_length = 0.0f;
+        history_color   = vec3(0.0f);
+        history_moments = vec2(0.0f);
+        history_length  = 0.0f;
     }
 
     return valid;
@@ -267,7 +268,7 @@ bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_m
 float compute_max_accumulated_frame(float history_length)
 {
     if (length(u_PushConstants.camera_delta) > 0.0f)
-        return 8.0f; 
+        return 8.0f;
     else
         return history_length;
 }
@@ -284,7 +285,7 @@ void main()
     vec3 color = texelFetch(s_Input, ivec2(gl_GlobalInvocationID.xy), 0).rgb;
 
     float history_length;
-    vec3 history_color;
+    vec3  history_color;
     vec2  history_moments;
     bool  success  = load_prev_data(ivec2(gl_GlobalInvocationID.xy),
                                   history_color,
@@ -296,9 +297,9 @@ void main()
     {
         vec3 std_dev;
         vec3 mean;
-        
+
         neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy), mean, std_dev);
-        
+
         vec3 radiance_min = mean - std_dev;
         vec3 radiance_max = mean + std_dev;
 
@@ -310,8 +311,8 @@ void main()
     // the beginning.
 
     const float max_accumulated_frame = compute_max_accumulated_frame(history_length);
-    const float alpha         = success ? max(u_PushConstants.alpha, 1.0 / max_accumulated_frame) : 1.0;
-    const float alpha_moments = success ? max(u_PushConstants.moments_alpha, 1.0 / max_accumulated_frame) : 1.0;
+    const float alpha                 = success ? max(u_PushConstants.alpha, 1.0 / max_accumulated_frame) : 1.0;
+    const float alpha_moments         = success ? max(u_PushConstants.moments_alpha, 1.0 / max_accumulated_frame) : 1.0;
 
     // compute first two moments of luminance
     vec2 moments = vec2(0.0f);

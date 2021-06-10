@@ -109,29 +109,6 @@ vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
 
 // ------------------------------------------------------------------
 
-vec3 neighborhood_mean(ivec2 coord)
-{
-    vec3 color_sum = vec3(0.0f);
-
-    int   radius = 4;
-    float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
-
-    for (int dx = -radius; dx <= radius; dx++)
-    {
-        for (int dy = -radius; dy <= radius; dy++)
-        {
-            ivec2 sample_coord = coord + ivec2(dx, dy);
-            vec3  sample_color = texelFetch(s_Input, sample_coord, 0).rgb;
-
-            color_sum += sample_color;
-        }
-    }
-
-    return color_sum / weight;
-}
-
-// ------------------------------------------------------------------
-
 void neighborhood_standard_deviation(ivec2 coord, out vec3 mean, out vec3 std_dev)
 {
     vec3 m1 = vec3(0.0f);
@@ -206,11 +183,6 @@ bool load_prev_data(ivec2 fragCoord, out vec4 prevColor, out vec4 prevMoments, o
                        x * (1 - y),
                        (1 - x) * y,
                        x * y };
-
-        //                       float w[4] = { 1.0f,
-        //                       x * (1 - y),
-        //                       (1 - x) * y,
-        //                       x * y };
 
         prevColor   = vec4(0, 0, 0, 0);
         prevMoments = vec4(0, 0, 0, 0);
@@ -300,28 +272,15 @@ void main()
     if (success)
     {
         // For reflections
-        //        vec3 std_dev;
-        //        vec3 mean;
-        //
-        //        neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy), mean, std_dev);
-        //
-        //        vec3 radiance_min = mean - std_dev;
-        //        vec3 radiance_max = mean + std_dev;
+        vec3 std_dev;
+        vec3 mean;
+        
+        neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy), mean, std_dev);
+        
+        vec3 radiance_min = mean - std_dev;
+        vec3 radiance_max = mean + std_dev;
 
-        //prev_color.xyz = clamp(prev_color.xyz, radiance_min, radiance_max);
-        //        prev_color.xyz = clip_aabb(radiance_min, radiance_max, prev_color.xyz);
-
-        // For shadows
-        vec3 mean             = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
-        vec3 spatial_variance = mean;
-        spatial_variance      = max(spatial_variance - mean * mean, 0.0f);
-
-        // Compute the clamping bounding box
-        const vec3 std_deviation = sqrt(spatial_variance);
-        const vec3 nmin          = mean - 0.5f * std_deviation;
-        const vec3 nmax          = mean + 0.5f * std_deviation;
-
-        prev_color.xyz = clamp(prev_color.xyz, nmin, nmax);
+        prev_color.xyz = clip_aabb(radiance_min, radiance_max, prev_color.xyz);
     }
 
     // this adjusts the alpha for the case where insufficient history is available.

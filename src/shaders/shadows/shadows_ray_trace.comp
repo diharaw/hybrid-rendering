@@ -54,7 +54,7 @@ layout(set = 4, binding = 1) uniform sampler2D s_ScramblingRankingTile;
 // ------------------------------------------------------------------------
 
 layout(push_constant) uniform PushConstants
-{    
+{
     float bias;
     uint  num_frames;
     int   g_buffer_mip;
@@ -143,7 +143,7 @@ void main()
     vec3 normal     = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
     vec3 ray_origin = world_pos + normal * u_PushConstants.bias;
 
-    // Trace ray 
+    // Trace ray
     vec2 rnd_sample = next_sample(current_coord);
 
     vec3 shadow_ray_dir;
@@ -161,20 +161,20 @@ void main()
         vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
         shadow_ray_dir     = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
     }
-    else 
+    else
     {
-        vec3 to_light = light_position(light) - world_pos;
-        vec3 light_dir = normalize(to_light);
+        vec3  to_light       = light_position(light) - world_pos;
+        vec3  light_dir      = normalize(to_light);
         float light_distance = length(to_light);
-        float light_radius = light_radius(light) / light_distance;
+        float light_radius   = light_radius(light) / light_distance;
 
-        vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+        vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
         vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
 
         // calculate disk point
         float point_radius = light_radius * sqrt(rnd_sample.x);
-        float point_angle = rnd_sample.y * 2.0f * M_PI;
-        vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+        float point_angle  = rnd_sample.y * 2.0f * M_PI;
+        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
 
         shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
     }

@@ -87,7 +87,7 @@ float neighborhood_mean(ivec2 coord)
     {
         for (int dy = -radius; dy <= radius; dy++)
         {
-            ivec2 sample_coord = coord + ivec2(dx, dy);
+            ivec2 sample_coord      = coord + ivec2(dx, dy);
             float sample_visibility = texelFetch(s_Input, sample_coord, 0).r;
 
             visibility_sum += sample_visibility;
@@ -114,8 +114,8 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
     vec4 depth  = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip);
     vec3 normal = octohedral_to_direction(floatBitsToUint(depth.w));
 
-    history_visibility   = 0.0f;
-    history_moments = vec2(0.0f);
+    history_visibility = 0.0f;
+    history_moments    = vec2(0.0f);
 
     bool       v[4];
     const vec2 posPrev   = floor(frag_coord.xy) + motion.xy * imageDim;
@@ -146,8 +146,8 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
                        (1 - x) * y,
                        x * y };
 
-        history_visibility   = 0.0f;
-        history_moments = vec2(0.0f);
+        history_visibility = 0.0f;
+        history_moments    = vec2(0.0f);
 
         // perform the actual bilinear interpolation
         for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
@@ -163,9 +163,9 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
         }
 
         // redistribute weights in case not all taps were used
-        valid       = (sumw >= 0.01);
-        history_visibility   = valid ? history_visibility / sumw : 0.0f;
-        history_moments = valid ? history_moments / sumw : vec2(0.0f);
+        valid              = (sumw >= 0.01);
+        history_visibility = valid ? history_visibility / sumw : 0.0f;
+        history_moments    = valid ? history_moments / sumw : vec2(0.0f);
     }
     if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
     {
@@ -201,9 +201,9 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
         history_length = texelFetch(s_HistoryMoments, iposPrev, 0).b;
     else
     {
-        history_visibility     = 0.0f;
-        history_moments   = vec2(0.0f);
-        history_length = 0.0f;
+        history_visibility = 0.0f;
+        history_moments    = vec2(0.0f);
+        history_length     = 0.0f;
     }
 
     return valid;
@@ -231,14 +231,14 @@ void main()
 
     if (success)
     {
-        float mean = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
+        float mean             = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
         float spatial_variance = mean;
-        spatial_variance = max(spatial_variance - mean * mean, 0.0f);
+        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
 
         // Compute the clamping bounding box
         const float std_deviation = sqrt(spatial_variance);
-        const float nmin = mean - 0.5f * std_deviation;
-        const float nmax = mean + 0.5f * std_deviation;
+        const float nmin          = mean - 0.5f * std_deviation;
+        const float nmax          = mean + 0.5f * std_deviation;
 
         history_visibility = clamp(history_visibility, nmin, nmax);
     }

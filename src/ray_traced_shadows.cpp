@@ -94,7 +94,7 @@ dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds(Output output_type)
             return m_ray_trace.read_ds;
         else if (output_type == OUTPUT_TEMPORAL_ACCUMULATION)
             return m_temporal_accumulation.output_only_read_ds;
-        else 
+        else
             return m_a_trous.read_ds[m_a_trous.read_idx];
     }
     else
@@ -133,10 +133,9 @@ void RayTracedShadows::create_images()
 
         m_temporal_accumulation.prev_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_temporal_accumulation.prev_image->set_name("Shadows Previous Reprojection");
-        
+
         m_temporal_accumulation.prev_view = dw::vk::ImageView::create(backend, m_temporal_accumulation.prev_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_temporal_accumulation.prev_view->set_name("Shadows Previous Reprojection");
-
     }
 
     // A-Trous Filter
@@ -179,7 +178,7 @@ void RayTracedShadows::create_descriptor_sets()
         m_temporal_accumulation.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
 
-    for (int i = 0; i< 2; i++)
+    for (int i = 0; i < 2; i++)
     {
         m_temporal_accumulation.current_write_ds[i] = backend->allocate_descriptor_set(m_temporal_accumulation.write_ds_layout);
         m_temporal_accumulation.current_read_ds[i]  = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
@@ -457,7 +456,7 @@ void RayTracedShadows::write_descriptor_sets()
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
-   
+
     // A-Trous write
     {
         std::vector<VkDescriptorImageInfo> image_infos;
@@ -626,7 +625,7 @@ void RayTracedShadows::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         dw::vk::utilities::set_image_layout(
             cmd_buf->handle(),
-            m_temporal_accumulation.current_moments_image[!m_common_resources->ping_pong]-> handle(),
+            m_temporal_accumulation.current_moments_image[!m_common_resources->ping_pong]->handle(),
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
@@ -809,8 +808,8 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         ATrousFilterPushConstants push_constants;
 
-        push_constants.radius       = m_a_trous.radius;
-        push_constants.step_size    = 1 << i;
+        push_constants.radius         = m_a_trous.radius;
+        push_constants.step_size      = 1 << i;
         push_constants.phi_visibility = m_a_trous.phi_visibility;
         push_constants.phi_normal     = m_a_trous.phi_normal;
         push_constants.g_buffer_mip   = m_g_buffer_mip;

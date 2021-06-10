@@ -92,20 +92,20 @@ float compute_variance_center(ivec2 ipos)
 float normal_distance_cos(vec3 n1, vec3 n2, float power)
 {
     //return pow(max(0.0, dot(n1, n2)), 128.0);
-    return pow(clamp(dot(n1,n2), 0.0f, 1.0f), power);
+    return pow(clamp(dot(n1, n2), 0.0f, 1.0f), power);
     //return 1.0f;
 }
 
 // ------------------------------------------------------------------
 
-float compute_weight(float depth_center, 
-                     float depth_p, 
-                     float phi_depth, 
-                     vec3 normal_center, 
-                     vec3 normal_p, 
-                     float norm_power, 
-                     float luminance_center, 
-                     float luminance_p, 
+float compute_weight(float depth_center,
+                     float depth_p,
+                     float phi_depth,
+                     vec3  normal_center,
+                     vec3  normal_p,
+                     float norm_power,
+                     float luminance_center,
+                     float luminance_p,
                      float phi)
 {
     const float wNormal = normal_distance_cos(normal_center, normal_p, norm_power);
@@ -131,7 +131,7 @@ void main()
 
     // constant samplers to prevent the compiler from generating code which
     // fetches the sampler descriptor from memory for each texture access
-    const vec4 color_center = texelFetch(s_Input, ipos, 0);
+    const vec4  color_center      = texelFetch(s_Input, ipos, 0);
     const float luma_color_center = luminance(color_center.rgb);
 
     // variance for direct and indirect, filtered using 3x3 gaussin blur
@@ -147,7 +147,7 @@ void main()
     }
 
     const float phi_color = u_PushConstants.phi_color * sqrt(max(0.0, eps_variance + var.r));
-    const float phi_depth      = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
+    const float phi_depth = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
 
     // explicitly store/accumulate center pixel with weight 1 to prevent issues
     // with the edge-stopping functions
@@ -164,27 +164,28 @@ void main()
 
             if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
             {
-                const vec4 color_p = texelFetch(s_Input, p, 0);
+                const vec4  color_p      = texelFetch(s_Input, p, 0);
                 const float luma_color_p = luminance(color_p.rgb);
 
                 vec3 normal_p = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
                 vec2 zP       = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
 
                 // compute the edge-stopping functions
-                const float w = compute_weight(zCenter.x, 
-                                               zP.x, phi_depth * length(vec2(xx, yy)), 
-                                               normal_center, 
-                                               normal_p, 
-                                               u_PushConstants.phi_normal, 
-                                               luma_color_center, 
-                                               luma_color_p, 
+                const float w = compute_weight(zCenter.x,
+                                               zP.x,
+                                               phi_depth * length(vec2(xx, yy)),
+                                               normal_center,
+                                               normal_p,
+                                               u_PushConstants.phi_normal,
+                                               luma_color_center,
+                                               luma_color_p,
                                                phi_color);
 
                 const float w_color = w * kernel;
 
                 // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
                 sum_w_color += w_color;
-                sum_color   += vec4(vec3(w_color), w_color * w_color) * color_p;
+                sum_color += vec4(vec3(w_color), w_color * w_color) * color_p;
             }
         }
     }
