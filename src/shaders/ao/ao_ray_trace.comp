@@ -63,7 +63,6 @@ layout(push_constant) uniform PushConstants
     float ray_length;
     float power;
     float bias;
-    uint  sampler_type;
 }
 u_PushConstants;
 
@@ -148,15 +147,10 @@ float query_visibility(vec3 world_pos, vec3 direction)
 
 // ------------------------------------------------------------------------
 
-vec2 next_sample(ivec2 coord, int index, RNG rng)
+vec2 next_sample(ivec2 coord, int index)
 {
-    if (u_PushConstants.sampler_type == SAMPLER_WHITE_NOISE)
-        return next_vec2(rng);
-    else if (u_PushConstants.sampler_type == SAMPLER_BLUE_NOISE_DISTRIBUTION)
-        return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile),
+    return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2, s_SobolSequence, s_ScramblingRankingTile),
                     sample_blue_noise(coord, int(u_PushConstants.num_frames), index * 2 + 1, s_SobolSequence, s_ScramblingRankingTile));
-    else
-        return vec2(0.0f);
 }
 
 // ------------------------------------------------------------------
@@ -182,13 +176,11 @@ void main()
     vec3 normal     = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rgb;
     vec3 ray_origin = world_pos + normal * u_PushConstants.bias;
 
-    RNG rng = rng_init(current_coord, u_PushConstants.num_frames);
-
     float ao = 0.0f;
 
     for (int i = 0; i < u_PushConstants.num_rays; i++)
     {
-        vec2 rnd_sample = next_sample(current_coord, i, rng);
+        vec2 rnd_sample = next_sample(current_coord, i);
 
         vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 

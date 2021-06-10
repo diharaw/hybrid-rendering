@@ -27,12 +27,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.cpp
                              ${PROJECT_SOURCE_DIR}/src/tonemap.cpp
                              ${PROJECT_SOURCE_DIR}/src/utilities.cpp
-                             ${PROJECT_SOURCE_DIR}/src/temporal_reprojection.cpp
-                             ${PROJECT_SOURCE_DIR}/src/spatial_reconstruction.cpp
-                             ${PROJECT_SOURCE_DIR}/src/bilateral_blur.cpp
                              ${PROJECT_SOURCE_DIR}/src/svgf_denoiser.cpp
-                             ${PROJECT_SOURCE_DIR}/src/diffuse_denoiser.cpp
-                             ${PROJECT_SOURCE_DIR}/src/reflection_denoiser.cpp
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.cpp
                              ${PROJECT_SOURCE_DIR}/src/common_resources.h
                              ${PROJECT_SOURCE_DIR}/src/ddgi.h
@@ -46,12 +41,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.h
                              ${PROJECT_SOURCE_DIR}/src/tonemap.h
                              ${PROJECT_SOURCE_DIR}/src/utilities.h
-                             ${PROJECT_SOURCE_DIR}/src/temporal_reprojection.h
-                             ${PROJECT_SOURCE_DIR}/src/spatial_reconstruction.h
-                             ${PROJECT_SOURCE_DIR}/src/bilateral_blur.h
                              ${PROJECT_SOURCE_DIR}/src/svgf_denoiser.h
-                             ${PROJECT_SOURCE_DIR}/src/diffuse_denoiser.h
-                             ${PROJECT_SOURCE_DIR}/src/reflection_denoiser.h
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.h
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/brdf_preintegrate_lut.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_prefilter.cpp
@@ -64,13 +54,6 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/copy.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/deferred.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/triangle.vert
-                   ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rgen
-                   ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rmiss
-                   ${PROJECT_SOURCE_DIR}/src/shaders/shadow.rchit
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rgen
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rmiss
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection.rchit
-                   ${PROJECT_SOURCE_DIR}/src/shaders/ambient_occlusion.rgen
                    ${PROJECT_SOURCE_DIR}/src/shaders/indirect_diffuse.rgen
                    ${PROJECT_SOURCE_DIR}/src/shaders/indirect_diffuse.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/indirect_diffuse.rchit
@@ -80,14 +63,8 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/svgf_a_trous_filter.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.frag
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_spatial_resolve.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflection_blur.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/taa.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/bilateral_blur.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/temporal_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/spatial_reconstruction.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_ray_trace.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_bilateral_blur.comp

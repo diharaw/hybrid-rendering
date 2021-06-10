@@ -11,18 +11,8 @@
 #include <cubemap_prefilter.h>
 #include <stdexcept>
 #include "blue_noise.h"
-#include "spatial_reconstruction.h"
 
 class SVGFDenoiser;
-class ReflectionDenoiser;
-class DiffuseDenoiser;
-
-enum SamplerType
-{
-    SAMPLER_WHITE_NOISE,
-    SAMPLER_BLUE_NOISE_DISTRIBUTION
-};
-
 enum RayTraceScale
 {
     RAY_TRACE_SCALE_FULL_RES,
@@ -35,7 +25,6 @@ struct CommonResources
     bool        first_frame  = true;
     bool        ping_pong    = false;
     int32_t     num_frames   = 0;
-    SamplerType sampler_type = SAMPLER_BLUE_NOISE_DISTRIBUTION;
     size_t      ubo_size     = 0;
     glm::vec4   z_buffer_params;
     glm::vec3   camera_delta = glm::vec3(0.0f);
@@ -67,19 +56,7 @@ struct CommonResources
 
     // Denoisers
     std::unique_ptr<SVGFDenoiser>          svgf_gi_denoiser;
-    std::unique_ptr<SpatialReconstruction> spatial_reconstruction;
-    //std::unique_ptr<SVGFDenoiser>          svgf_reflection_denoiser;
-    //std::unique_ptr<ReflectionDenoiser>    reflection_denoiser;
-
-    // Reflection RT pass
-    //dw::vk::DescriptorSet::Ptr      reflection_rt_write_ds;
-    //dw::vk::DescriptorSet::Ptr      reflection_rt_read_ds;
-    //dw::vk::RayTracingPipeline::Ptr reflection_rt_pipeline;
-    //dw::vk::PipelineLayout::Ptr     reflection_rt_pipeline_layout;
-    //dw::vk::Image::Ptr              reflection_rt_color_image;
-    //dw::vk::ImageView::Ptr          reflection_rt_color_view;
-    //dw::vk::ShaderBindingTable::Ptr reflection_rt_sbt;
-
+    
     // Global Illumination Ray Tracing pass
     dw::vk::DescriptorSet::Ptr      rtgi_write_ds;
     dw::vk::DescriptorSet::Ptr      rtgi_read_ds;

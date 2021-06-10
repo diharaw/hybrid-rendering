@@ -6,8 +6,6 @@
 #include "ray_traced_shadows.h"
 #include "ray_traced_ao.h"
 #include "ray_traced_reflections.h"
-#include "diffuse_denoiser.h"
-#include "reflection_denoiser.h"
 #include "svgf_denoiser.h"
 #include "utilities.h"
 
@@ -39,7 +37,6 @@ enum VisualizationType
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
 
-const std::vector<std::string> sampler_types       = { "White Noise", "Blue Noise Distribution" };
 const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
 const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
 const std::vector<std::string> ray_trace_scales   = { "Full-Res", "Half-Res", "Quarter-Res" };
@@ -163,9 +160,6 @@ class HybridRendering : public dw::Application
 {
 public:
     friend class GBuffer;
-    friend class TemporalReprojection;
-    friend class SpatialReconstruction;
-    friend class BilateralBlur;
     friend class SVGFDenoiser;
 
 protected:
@@ -289,23 +283,6 @@ protected:
                         ImGui::InputFloat3("Direction", &m_light_direction.x);
                         ImGui::Checkbox("Animation", &m_light_animation);
                     }
-                    if (ImGui::CollapsingHeader("Common"))
-                    {
-                        if (ImGui::BeginCombo("Sampler", sampler_types[m_common_resources->sampler_type].c_str()))
-                        {
-                            for (uint32_t i = 0; i < sampler_types.size(); i++)
-                            {
-                                const bool is_selected = (i == m_common_resources->sampler_type);
-
-                                if (ImGui::Selectable(sampler_types[i].c_str(), is_selected))
-                                    m_common_resources->sampler_type = (SamplerType)i;
-
-                                if (is_selected)
-                                    ImGui::SetItemDefaultFocus();
-                            }
-                            ImGui::EndCombo();
-                        }
-                    }
                     if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("Ray Traced Shadows");
@@ -360,12 +337,6 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        /*ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
-                        ImGui::Checkbox("Denoise", &m_ray_traced_reflections_denoise);
-                        ImGui::Checkbox("VNDF", &m_ray_traced_reflections_vndf);
-                        ImGui::InputFloat("Bias", &m_ray_traced_reflections_bias);
-                        ImGui::SliderFloat("Lobe Trim", &m_ray_traced_reflections_trim, 0.0f, 1.0f);
-                        m_common_resources->reflection_denoiser->gui();*/
                         m_ray_traced_reflections->gui();
 
                         ImGui::PopID();
@@ -1155,16 +1126,12 @@ private:
         dw::vk::ShaderModule::Ptr rgen             = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rgen.spv");
         dw::vk::ShaderModule::Ptr rchit            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rchit.spv");
         dw::vk::ShaderModule::Ptr rmiss            = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rmiss.spv");
-        dw::vk::ShaderModule::Ptr rchit_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss_visibility = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/shadow.rmiss.spv");
-
+       
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
         sbt_desc.add_ray_gen_group(rgen, "main");
         sbt_desc.add_hit_group(rchit, "main");
-        sbt_desc.add_hit_group(rchit_visibility, "main");
         sbt_desc.add_miss_group(rmiss, "main");
-        sbt_desc.add_miss_group(rmiss_visibility, "main");
 
         m_common_resources->rtgi_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
 
@@ -1872,8 +1839,8 @@ private:
         VkDeviceSize group_stride = group_size;
 
         const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->miss_group_offset(), group_stride, group_size * 2 };
-        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->hit_group_offset(), group_stride, group_size * 2 };
+        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->miss_group_offset(), group_stride, group_size };
+        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->hit_group_offset(), group_stride, group_size };
         const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
         uint32_t rt_image_width  = m_downscaled_rt ? m_width / 2 : m_width;

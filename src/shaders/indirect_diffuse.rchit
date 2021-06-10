@@ -1,6 +1,7 @@
 #version 460
 
 #extension GL_EXT_ray_tracing : require
+#extension GL_EXT_ray_query : enable
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 
@@ -15,8 +16,6 @@
 layout(location = 0) rayPayloadInEXT IndirectDiffusePayload p_PathTracePayload;
 
 layout(location = 1) rayPayloadEXT IndirectDiffusePayload p_IndirectPayload;
-
-layout(location = 2) rayPayloadEXT bool p_Visibility;
 
 // ------------------------------------------------------------------------
 // HIT ATTRIBUTE ----------------------------------------------------------
@@ -185,6 +184,36 @@ vec3 evaluate_uber(in vec3 albedo, in float roughness, in vec3 N, in vec3 F0, in
 
 // ------------------------------------------------------------------------
 
+float query_visibility(vec3 world_pos, vec3 direction)
+{
+    float t_min     = 0.01f;
+    float t_max     = 100000.0f;
+    uint  ray_flags = gl_RayFlagsOpaqueEXT;
+
+    // Initializes a ray query object but does not start traversal
+    rayQueryEXT ray_query;
+
+    rayQueryInitializeEXT(ray_query,
+                          u_TopLevelAS,
+                          ray_flags,
+                          0xFF,
+                          world_pos,
+                          t_min,
+                          direction,
+                          t_max);
+
+    // Start traversal: return false if traversal is complete
+    while (rayQueryProceedEXT(ray_query)) {}
+
+    // Returns type of committed (true) intersection
+    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+        return 0.0f;
+
+    return 1.0f;
+}
+
+// ------------------------------------------------------------------------
+
 vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness)
 {
     vec3 L = vec3(0.0f);
@@ -213,20 +242,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
 
         vec3 Wh = normalize(Wo + Wi);
 
-        // fire shadow ray for visiblity
-        traceRayEXT(u_TopLevelAS,
-                    ray_flags,
-                    cull_mask,
-                    1,
-                    0,
-                    1,
-                    ray_origin,
-                    tmin,
-                    Wi,
-                    tmax,
-                    2);
-
-        Li *= float(p_Visibility);
+        Li *= query_visibility(ray_origin, Wi);
 
         vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
         float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
@@ -244,19 +260,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         vec3  Wh         = normalize(Wo + Wi);
 
         // fire shadow ray for visiblity
-        traceRayEXT(u_TopLevelAS,
-                    ray_flags,
-                    cull_mask,
-                    1,
-                    0,
-                    1,
-                    ray_origin,
-                    tmin,
-                    Wi,
-                    tmax,
-                    2);
-
-        Li *= float(p_Visibility);
+        Li *= query_visibility(ray_origin, Wi);
 
         vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
         float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
