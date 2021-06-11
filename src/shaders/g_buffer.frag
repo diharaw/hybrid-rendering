@@ -104,7 +104,7 @@ void main()
 
     // Albedo
     FS_OUT_GBuffer1.rgb = albedo.rgb;
-    
+
     // Metallic
     FS_OUT_GBuffer1.a = fetch_metallic(material, FS_IN_Texcoord);
 
@@ -112,7 +112,7 @@ void main()
     FS_OUT_GBuffer2.rg = direction_to_octohedral_2d(fetch_normal(material, normalize(FS_IN_Tangent), normalize(FS_IN_Bitangent), normalize(FS_IN_Normal), FS_IN_Texcoord));
 
     // Curvature
-    float linear_z     = gl_FragCoord.z / gl_FragCoord.w;
+    float linear_z    = gl_FragCoord.z / gl_FragCoord.w;
     FS_OUT_GBuffer2.b = compute_curvature(linear_z);
 
     // Roughness

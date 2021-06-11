@@ -119,7 +119,7 @@ float compute_weight(float depth_center,
                      float phi)
 {
     const float wNormal = normal_distance_cos(normal_center, normal_p, norm_power);
-    const float wZ      = (phi_depth == 0) ? 0.0f : abs(depth_center - depth_p) / phi_depth;
+    const float wZ      = exp(-abs(depth_center - depth_p) / 1.0f); //(phi_depth == 0) ? 0.0f : abs(depth_center - depth_p) / phi_depth; //
     const float wL      = abs(luminance_center - luminance_p) / phi;
 
     const float w = exp(0.0 - max(wL, 0.0) - max(wZ, 0.0)) * wNormal;

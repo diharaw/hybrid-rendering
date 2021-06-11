@@ -273,9 +273,9 @@ void main()
     {
         vec3 std_dev;
         vec3 mean;
-        
+
         neighborhood_standard_deviation(ivec2(gl_GlobalInvocationID.xy), mean, std_dev);
-        
+
         vec3 radiance_min = mean - std_dev;
         vec3 radiance_max = mean + std_dev;
 

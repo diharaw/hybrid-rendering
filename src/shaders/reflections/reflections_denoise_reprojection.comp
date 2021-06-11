@@ -77,7 +77,7 @@ bool is_reprojection_valid(ivec2 coord, float Z, float Zprev, float fwidthZ, vec
     // check whether reprojected pixel is inside of the screen
     if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, imageDim - ivec2(1, 1)))) return false;
     // check if deviation of depths is acceptable
-    if (abs(Zprev - Z) / (fwidthZ + 1e-4) > 2.0) return false;
+    //if (abs(Zprev - Z) / (fwidthZ + 1e-4) > 2.0) return false;
     // check normals for compatibility
     if (distance(normal, normalPrev) / (fwidthNormal + 1e-2) > 16.0) return false;
 
@@ -93,33 +93,6 @@ vec3 octohedral_to_direction(uint octo)
     if (v.z < 0.0)
         v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
     return normalize(v);
-}
-
-// ------------------------------------------------------------------
-
-vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
-{
-    return vec2(coord) + motion_vector.xy * vec2(size);
-}
-
-// ------------------------------------------------------------------
-
-vec2 virtual_point_reprojection(vec3 ray_origin, float ray_length, ivec2 size)
-{
-    vec3 camera_ray = ray_origin - u_GlobalUBO.cam_pos.xyz;
-
-    float camera_ray_length     = length(camera_ray);
-    float reflection_ray_length = ray_length;
-
-    camera_ray = normalize(camera_ray);
-
-    vec3 parallax_hit_point = u_GlobalUBO.cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
-
-    vec4 reprojected_parallax_hit_point = u_GlobalUBO.prev_view_proj * vec4(parallax_hit_point, 1.0f);
-
-    reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
-
-    return (reprojected_parallax_hit_point.xy * 0.5f + 0.5f) * vec2(size);
 }
 
 // ------------------------------------------------------------------------
@@ -140,6 +113,55 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
     return world_pos.xyz;
 }
+
+// ------------------------------------------------------------------
+
+vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
+{
+    return vec2(coord) + motion_vector.xy * vec2(size);
+}
+
+// ------------------------------------------------------------------
+
+vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float ray_length)
+{
+    const vec2 pixel_center = vec2(current_coord) + vec2(0.5);
+    const vec2 tex_coord    = pixel_center / vec2(size);
+    float      depth        = texelFetch(s_Depth, current_coord, u_PushConstants.g_buffer_mip).r;
+    vec3       ray_origin   = world_position_from_depth(tex_coord, depth);
+
+    vec3 camera_ray = ray_origin - u_GlobalUBO.cam_pos.xyz;
+
+    float camera_ray_length     = length(camera_ray);
+    float reflection_ray_length = ray_length;
+
+    camera_ray = normalize(camera_ray);
+
+    vec3 parallax_hit_point = u_GlobalUBO.cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
+
+    vec4 reprojected_parallax_hit_point = u_GlobalUBO.prev_view_proj * vec4(parallax_hit_point, 1.0f);
+
+    reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
+
+    return (reprojected_parallax_hit_point.xy * 0.5f + 0.5f) * vec2(size);
+}
+
+// ------------------------------------------------------------------------
+
+vec2 compute_history_coord(ivec2 current_coord, ivec2 size, vec2 motion, float ray_length)
+{
+    vec2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
+
+    vec2 history_coord = surface_history_coord;
+
+    float curvature = texelFetch(s_Normals, current_coord, u_PushConstants.g_buffer_mip).b;
+
+    if (ray_length > 0.0f && curvature == 0.0f)
+        history_coord = virtual_point_reprojection(current_coord, size, ray_length);
+
+    return history_coord;
+}
+
 // ------------------------------------------------------------------
 
 float luminance(vec3 rgb)
@@ -201,7 +223,7 @@ void neighborhood_standard_deviation(ivec2 coord, out vec3 mean, out vec3 std_de
 
 bool load_prev_data(ivec2 frag_coord, vec2 history_coord, float fwidth_normal, out vec3 history_color, out vec2 history_moments, out float history_length)
 {
-    const ivec2 ipos     = frag_coord;
+    const ivec2 ipos = frag_coord;
 
     // +0.5 to account for texel center offset
     const ivec2 ipos_prev = ivec2(history_coord + vec2(0.5, 0.5));
@@ -322,46 +344,25 @@ float compute_max_accumulated_frame(float history_length)
 
 void main()
 {
-    const ivec2 size      = textureSize(s_HistoryOutput, 0);
+    const ivec2 size          = textureSize(s_HistoryOutput, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
-    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
-    const vec2  tex_coord     = pixel_center / vec2(size);
 
-    vec4 color_ray_length = texelFetch(s_Input, current_coord, 0);
-    vec3 color = color_ray_length.rgb;
-    float ray_length = color_ray_length.a;
-    
-    float depth    = texelFetch(s_Depth, current_coord, u_PushConstants.g_buffer_mip).r;
-    vec3 world_pos = world_position_from_depth(tex_coord, depth);
-    vec4 motion    = texelFetch(s_MotionVectors, current_coord, u_PushConstants.g_buffer_mip);
-    
-    vec2 surface_history_coord = surface_point_reprojection(current_coord, motion.xy, size);
-    float curvature = texelFetch(s_Normals, current_coord, u_PushConstants.g_buffer_mip).b;
+    vec4  color_ray_length = texelFetch(s_Input, current_coord, 0);
+    vec3  color            = color_ray_length.rgb;
+    float ray_length       = color_ray_length.a;
+    vec4  motion           = texelFetch(s_MotionVectors, current_coord, u_PushConstants.g_buffer_mip);
 
-    vec2 history_coord = surface_history_coord;
+    vec2 history_coord = compute_history_coord(current_coord, size, motion.xy, ray_length);
 
-    if (ray_length > 0.0f && curvature == 0.0f)
-        history_coord = virtual_point_reprojection(world_pos, ray_length, size);
-    
     float history_length;
     vec3  history_color;
     vec2  history_moments;
-    bool  success  = load_prev_data(current_coord,
+    bool  success = load_prev_data(current_coord,
                                   history_coord,
                                   motion.w,
                                   history_color,
                                   history_moments,
                                   history_length);
- 
-    if (!success)
-    {
-        success  = load_prev_data(ivec2(gl_GlobalInvocationID.xy),
-                                      surface_history_coord,
-                                      motion.w,
-                                      history_color,
-                                      history_moments,
-                                      history_length);
-    }
 
     history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
 
