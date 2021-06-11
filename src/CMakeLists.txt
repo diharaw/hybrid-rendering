@@ -64,7 +64,6 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/taa.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/gi_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_ray_trace.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_denoise_bilateral_blur.comp

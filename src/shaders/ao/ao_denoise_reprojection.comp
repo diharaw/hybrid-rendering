@@ -75,6 +75,16 @@ vec3 octohedral_to_direction(uint octo)
     return normalize(v);
 }
 
+// ------------------------------------------------------------------------
+
+vec3 octohedral_to_direction_2d(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
 // ------------------------------------------------------------------
 
 bool load_prev_data(ivec2 frag_coord, out float prev_ao, out float history_length)

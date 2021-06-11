@@ -30,8 +30,8 @@ const float IndirectSpecularStrength = 2.0f;
 // DESCRIPTOR SETS --------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(set = 0, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 0, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
+layout(set = 0, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
+layout(set = 0, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, B: Curvature, A: Roughness
 layout(set = 0, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
 layout(set = 0, binding = 3) uniform sampler2D s_GBufferDepth;
 
@@ -212,6 +212,16 @@ vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 }
 
 // ------------------------------------------------------------------------
+
+vec3 octohedral_to_direction(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -223,12 +233,12 @@ void main()
 
     const vec3  world_pos  = world_position_from_depth(FS_IN_TexCoord, texture(s_GBufferDepth, FS_IN_TexCoord).r);
     const vec3  albedo     = g_buffer_data_1.rgb;
-    const float roughness  = g_buffer_data_1.a;
-    const float metallic   = g_buffer_data_2.a;
+    const float roughness  = g_buffer_data_2.a;
+    const float metallic   = g_buffer_data_1.a;
     const float visibility = u_PushConstants.shadow == 1 ? texture(s_Shadow, FS_IN_TexCoord).r : 1.0f;
     const float ao         = u_PushConstants.ao == 1 ? texture(s_AO, FS_IN_TexCoord).r : 1.0f;
 
-    const vec3 N  = g_buffer_data_2.rgb;
+    const vec3 N  = octohedral_to_direction(g_buffer_data_2.rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
     const vec3 R  = reflect(-Wo, N);
 

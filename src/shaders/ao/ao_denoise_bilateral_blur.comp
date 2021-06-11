@@ -68,6 +68,16 @@ float linear_eye_depth(float z)
 
 // ------------------------------------------------------------------------
 
+vec3 octohedral_to_direction(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------------
+
 #if defined(USE_SHARED_MEMORY_CACHE)
 void populate_cache(ivec2 coord)
 {
@@ -77,7 +87,7 @@ void populate_cache(ivec2 coord)
     g_cached_depth[cache_coord.x][cache_coord.y] = texelFetch(s_GBufferDepth, coord, G_BUFFER_MIP).r;
 
     float ao     = texelFetch(s_Input, coord, 0).r;
-    vec3  normal = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
+    vec3  normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rg);
 
     g_cached_normal_xy[cache_coord.x][cache_coord.y]   = packSnorm2x16(normal.xy);
     g_cached_normal_z_ao[cache_coord.x][cache_coord.y] = packSnorm2x16(vec2(normal.z, ao));
@@ -99,7 +109,7 @@ void load_ao_and_normal(ivec2 coord, out float ao, out vec3 normal)
 #endif
     {
         ao     = texelFetch(s_Input, coord, 0).r;
-        normal = texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rgb;
+        normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord, G_BUFFER_MIP).rg);
     }
 #if defined(USE_SHARED_MEMORY_CACHE)
     else // Otherwise read from cache.

@@ -117,6 +117,16 @@ vec2 next_sample(ivec2 coord)
 }
 
 // ------------------------------------------------------------------------
+
+vec3 octohedral_to_direction(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -135,9 +145,10 @@ void main()
         return;
     }
 
-    float roughness = texelFetch(s_GBuffer1, current_coord, u_PushConstants.g_buffer_mip).a;
+    vec4 normal_roughness = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip);
+    float roughness = normal_roughness.a;
     vec3  P         = world_position_from_depth(tex_coord, depth);
-    vec3  N         = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rgb;
+    vec3  N         = octohedral_to_direction(normal_roughness.rg);
     vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;

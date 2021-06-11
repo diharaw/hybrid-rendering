@@ -271,7 +271,6 @@ void main()
 
     if (success)
     {
-        // For reflections
         vec3 std_dev;
         vec3 mean;
         

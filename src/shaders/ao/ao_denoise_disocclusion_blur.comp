@@ -66,6 +66,16 @@ float linear_eye_depth(float z)
 
 // ------------------------------------------------------------------------
 
+vec3 octohedral_to_direction(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------------
+
 float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
 {
     float depth_diff = abs(hi_res_depth - coarse_depth);
@@ -94,7 +104,7 @@ float disocclusion_blur(ivec2 current_coord, float norm_accumulated_frames, floa
             ivec2 sample_coord  = current_coord + ivec2(dx, dy);
             float sample_ao     = texelFetch(s_Input, sample_coord, 0).r;
             float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, G_BUFFER_MIP_OFFSET).r);
-            vec3  sample_normal = texelFetch(s_GBuffer2, sample_coord, G_BUFFER_MIP_OFFSET).rgb;
+            vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, G_BUFFER_MIP_OFFSET).rg);
 
             float weight = depth_edge_stopping_weight(center_depth, sample_depth); // * normal_edge_stopping_weight(center_normal, sample_normal);
 
@@ -122,7 +132,7 @@ void main()
 
     // Skip pixel if it belongs to the background
     const float center_depth  = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP_OFFSET).r;
-    const vec3  center_normal = texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP_OFFSET).rgb;
+    const vec3  center_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP_OFFSET).rg);
 
     if (center_depth == 1.0f)
     {

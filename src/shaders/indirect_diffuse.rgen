@@ -132,6 +132,16 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 }
 
 // ------------------------------------------------------------------------
+
+vec3 octohedral_to_direction(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -155,7 +165,7 @@ void main()
 
     vec3 albedo = texelFetch(s_GBuffer1, full_res_pixel_coord, 0).rgb;
     vec3 P      = world_position_from_depth(tex_coord, depth);
-    vec3 N      = texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rgb;
+    vec3 N      = octohedral_to_direction(texelFetch(s_GBuffer2, full_res_pixel_coord, 0).rg);
     vec3 Wo     = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;

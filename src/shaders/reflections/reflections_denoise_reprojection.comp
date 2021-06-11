@@ -25,7 +25,9 @@ layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D i_Output;
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D i_Moments;
 
 // Current G-buffer DS
+layout(set = 1, binding = 1) uniform sampler2D s_Normals;
 layout(set = 1, binding = 2) uniform sampler2D s_MotionVectors;
+layout(set = 1, binding = 3) uniform sampler2D s_Depth;
 layout(set = 1, binding = 4) uniform sampler2D s_LinearZ;
 
 // Previous G-Buffer DS
@@ -95,6 +97,51 @@ vec3 octohedral_to_direction(uint octo)
 
 // ------------------------------------------------------------------
 
+vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
+{
+    return vec2(coord) + motion_vector.xy * vec2(size);
+}
+
+// ------------------------------------------------------------------
+
+vec2 virtual_point_reprojection(vec3 ray_origin, float ray_length, ivec2 size)
+{
+    vec3 camera_ray = ray_origin - u_GlobalUBO.cam_pos.xyz;
+
+    float camera_ray_length     = length(camera_ray);
+    float reflection_ray_length = ray_length;
+
+    camera_ray = normalize(camera_ray);
+
+    vec3 parallax_hit_point = u_GlobalUBO.cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
+
+    vec4 reprojected_parallax_hit_point = u_GlobalUBO.prev_view_proj * vec4(parallax_hit_point, 1.0f);
+
+    reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
+
+    return (reprojected_parallax_hit_point.xy * 0.5f + 0.5f) * vec2(size);
+}
+
+// ------------------------------------------------------------------------
+
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = u_GlobalUBO.view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
+// ------------------------------------------------------------------
+
 float luminance(vec3 rgb)
 {
     return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
@@ -152,16 +199,12 @@ void neighborhood_standard_deviation(ivec2 coord, out vec3 mean, out vec3 std_de
 
 // ------------------------------------------------------------------
 
-bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_moments, out float history_length)
+bool load_prev_data(ivec2 frag_coord, vec2 history_coord, float fwidth_normal, out vec3 history_color, out vec2 history_moments, out float history_length)
 {
     const ivec2 ipos     = frag_coord;
-    const vec2  imageDim = vec2(textureSize(s_HistoryOutput, 0));
-
-    // xy = motion, z = length(fwidth(pos)), w = length(fwidth(normal))
-    vec4 motion = texelFetch(s_MotionVectors, ipos, u_PushConstants.g_buffer_mip);
 
     // +0.5 to account for texel center offset
-    const ivec2 ipos_prev = ivec2(vec2(ipos) + motion.xy * imageDim + vec2(0.5, 0.5));
+    const ivec2 ipos_prev = ivec2(history_coord + vec2(0.5, 0.5));
 
     // stores: linearZ, maxChangeZ, prevLinearZ, objNorm
     vec4 depth  = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip);
@@ -171,7 +214,7 @@ bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_m
     history_moments = vec2(0.0f);
 
     bool       v[4];
-    const vec2 posPrev   = floor(frag_coord.xy) + motion.xy * imageDim;
+    const vec2 posPrev   = history_coord;
     ivec2      offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
 
     // check for all 4 taps of the bilinear filter for validity
@@ -182,7 +225,7 @@ bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_m
         vec4  depthPrev  = texelFetch(s_PrevLinearZ, loc, u_PushConstants.g_buffer_mip);
         vec3  normalPrev = octohedral_to_direction(floatBitsToUint(depthPrev.w));
 
-        v[sampleIdx] = is_reprojection_valid(ipos_prev, depth.z, depthPrev.x, depth.y, normal, normalPrev, motion.w);
+        v[sampleIdx] = is_reprojection_valid(ipos_prev, depth.z, depthPrev.x, depth.y, normal, normalPrev, fwidth_normal);
 
         valid = valid || v[sampleIdx];
     }
@@ -234,7 +277,7 @@ bool load_prev_data(ivec2 frag_coord, out vec3 history_color, out vec2 history_m
                 vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
                 vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
 
-                if (is_reprojection_valid(ipos_prev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
+                if (is_reprojection_valid(ipos_prev, depth.z, depthFilter.x, depth.y, normal, normalFilter, fwidth_normal))
                 {
                     history_color += texelFetch(s_HistoryOutput, p, 0).rgb;
                     history_moments += texelFetch(s_HistoryMoments, p, 0).rg;
@@ -279,18 +322,47 @@ float compute_max_accumulated_frame(float history_length)
 
 void main()
 {
-    ivec2 size      = textureSize(s_HistoryOutput, 0);
-    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    const ivec2 size      = textureSize(s_HistoryOutput, 0);
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(size);
 
-    vec3 color = texelFetch(s_Input, ivec2(gl_GlobalInvocationID.xy), 0).rgb;
+    vec4 color_ray_length = texelFetch(s_Input, current_coord, 0);
+    vec3 color = color_ray_length.rgb;
+    float ray_length = color_ray_length.a;
+    
+    float depth    = texelFetch(s_Depth, current_coord, u_PushConstants.g_buffer_mip).r;
+    vec3 world_pos = world_position_from_depth(tex_coord, depth);
+    vec4 motion    = texelFetch(s_MotionVectors, current_coord, u_PushConstants.g_buffer_mip);
+    
+    vec2 surface_history_coord = surface_point_reprojection(current_coord, motion.xy, size);
+    float curvature = texelFetch(s_Normals, current_coord, u_PushConstants.g_buffer_mip).b;
 
+    vec2 history_coord = surface_history_coord;
+
+    if (ray_length > 0.0f && curvature == 0.0f)
+        history_coord = virtual_point_reprojection(world_pos, ray_length, size);
+    
     float history_length;
     vec3  history_color;
     vec2  history_moments;
-    bool  success  = load_prev_data(ivec2(gl_GlobalInvocationID.xy),
+    bool  success  = load_prev_data(current_coord,
+                                  history_coord,
+                                  motion.w,
                                   history_color,
                                   history_moments,
                                   history_length);
+ 
+    if (!success)
+    {
+        success  = load_prev_data(ivec2(gl_GlobalInvocationID.xy),
+                                      surface_history_coord,
+                                      motion.w,
+                                      history_color,
+                                      history_moments,
+                                      history_length);
+    }
+
     history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
 
     if (success)

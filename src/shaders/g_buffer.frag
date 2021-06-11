@@ -59,12 +59,34 @@ vec2 motion_vector(vec4 prev_pos, vec4 current_pos)
 
 // ------------------------------------------------------------------------
 
+float compute_curvature(float depth)
+{
+    vec3 dx = dFdx(FS_IN_Normal);
+    vec3 dy = dFdy(FS_IN_Normal);
+
+    float x = dot(dx, dx);
+    float y = dot(dy, dy);
+
+    return pow(max(x, y), 0.5f);
+}
+
+// ------------------------------------------------------------------------
+
 // A simple utility to convert a float to a 2-component octohedral representation packed into one uint
 uint direction_to_octohedral(vec3 normal)
 {
     vec2 p = normal.xy * (1.0 / dot(abs(normal), vec3(1.0)));
     vec2 e = normal.z > 0.0 ? p : (1.0 - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
     return packSnorm2x16(e);
+}
+
+// ------------------------------------------------------------------------
+
+// A simple utility to convert a float to a 2-component octohedral representation packed into one uint
+vec2 direction_to_octohedral_2d(vec3 normal)
+{
+    vec2 p = normal.xy * (1.0 / dot(abs(normal), vec3(1.0)));
+    return normal.z > 0.0 ? p : (1.0 - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
 }
 
 // ------------------------------------------------------------------------
@@ -82,15 +104,19 @@ void main()
 
     // Albedo
     FS_OUT_GBuffer1.rgb = albedo.rgb;
+    
+    // Metallic
+    FS_OUT_GBuffer1.a = fetch_metallic(material, FS_IN_Texcoord);
 
-    // Normal.
-    FS_OUT_GBuffer2.rgb = fetch_normal(material, normalize(FS_IN_Tangent), normalize(FS_IN_Bitangent), normalize(FS_IN_Normal), FS_IN_Texcoord);
+    // Normal
+    FS_OUT_GBuffer2.rg = direction_to_octohedral_2d(fetch_normal(material, normalize(FS_IN_Tangent), normalize(FS_IN_Bitangent), normalize(FS_IN_Normal), FS_IN_Texcoord));
+
+    // Curvature
+    float linear_z     = gl_FragCoord.z / gl_FragCoord.w;
+    FS_OUT_GBuffer2.b = compute_curvature(linear_z);
 
     // Roughness
-    FS_OUT_GBuffer1.a = fetch_roughness(material, FS_IN_Texcoord);
-
-    // Metallic
-    FS_OUT_GBuffer2.a = fetch_metallic(material, FS_IN_Texcoord);
+    FS_OUT_GBuffer2.a = fetch_roughness(material, FS_IN_Texcoord);
 
     // Motion Vector
     vec2 position_normal_fwidth = vec2(length(fwidth(FS_IN_FragPos)), length(fwidth(FS_IN_Normal)));
@@ -99,7 +125,6 @@ void main()
     FS_OUT_GBuffer3 = vec4(motion_vec, position_normal_fwidth);
 
     // Linear Z
-    float linear_z     = gl_FragCoord.z / gl_FragCoord.w;
     float max_change_z = max(abs(dFdx(linear_z)), abs(dFdy(linear_z)));
     float os_normal    = uintBitsToFloat(direction_to_octohedral(normalize(FS_IN_OSNormal)));
 

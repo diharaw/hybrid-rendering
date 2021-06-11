@@ -51,6 +51,16 @@ vec3 octohedral_to_direction(uint octo)
     return normalize(v);
 }
 
+// ------------------------------------------------------------------------
+
+vec3 octohedral_to_direction_2d(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
+}
+
 // ------------------------------------------------------------------
 
 // computes a 3x3 gaussian blur of the variance, centered around
@@ -129,7 +139,7 @@ void main()
     // variance for direct and indirect, filtered using 3x3 gaussin blur
     const float var = compute_variance_center(ipos);
 
-    vec3 normal_center = texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rgb;
+    vec3 normal_center = octohedral_to_direction_2d(texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rg);
     vec2 zCenter       = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
 
     if (zCenter.x < 0)
@@ -158,7 +168,7 @@ void main()
             {
                 const vec2 visibility_p = texelFetch(s_Input, p, 0).rg;
 
-                vec3 normal_p = texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rgb;
+                vec3 normal_p = octohedral_to_direction_2d(texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rg);
                 vec2 zP       = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
 
                 // compute the edge-stopping functions
