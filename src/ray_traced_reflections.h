@@ -7,7 +7,7 @@ class GBuffer;
 class RayTracedReflections
 {
 public:
-    enum Output
+    enum OutputType
     {
         OUTPUT_RAY_TRACE,
         OUTPUT_TEMPORAL_ACCUMULATION,
@@ -15,7 +15,7 @@ public:
     };
 
     const static int         kNumOutputTypes = 3;
-    const static Output      kOutputTypeEnums[];
+    const static OutputType  kOutputTypeEnums[];
     const static std::string kOutputTypeNames[];
 
 public:
@@ -24,11 +24,13 @@ public:
 
     void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
     void                       gui();
-    dw::vk::DescriptorSet::Ptr output_ds(Output output_type = OUTPUT_ATROUS);
+    dw::vk::DescriptorSet::Ptr output_ds();
 
     inline uint32_t      width() { return m_width; }
     inline uint32_t      height() { return m_height; }
     inline RayTraceScale scale() { return m_scale; }
+    inline RayTracedReflections::OutputType current_output() { return m_current_output; }
+    inline void set_current_output(RayTracedReflections::OutputType output_type) { m_current_output = output_type; }
 
 private:
     void create_images();
@@ -93,6 +95,7 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
+    OutputType                     m_current_output = OUTPUT_ATROUS;
     RayTraceScale                  m_scale;
     uint32_t                       m_g_buffer_mip = 0;
     uint32_t                       m_width;

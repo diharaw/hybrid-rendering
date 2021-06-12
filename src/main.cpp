@@ -185,8 +185,8 @@ protected:
         m_common_resources->blue_noise_view_1      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_common_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
         m_common_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-
         m_common_resources->blue_noise = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
+        
         create_output_images();
         create_descriptor_set_layouts();
         create_descriptor_sets();
@@ -219,6 +219,8 @@ protected:
 
         return true;
     }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
 
     void update(double delta) override
     {
@@ -271,6 +273,49 @@ protected:
                                     ImGui::SetItemDefaultFocus();
                             }
                             ImGui::EndCombo();
+                        }
+
+                        if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+                        {
+                            RayTracedReflections::OutputType type = m_ray_traced_reflections->current_output();
+
+                            if (ImGui::BeginCombo("Buffers", RayTracedReflections::kOutputTypeNames[type].c_str()))
+                            {
+                                for (uint32_t i = 0; i < RayTracedReflections::kNumOutputTypes; i++)
+                                {
+                                    const bool is_selected = (i == type);
+
+                                    if (ImGui::Selectable(RayTracedReflections::kOutputTypeNames[i].c_str(), is_selected))
+                                        type = (RayTracedReflections::OutputType)i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            m_ray_traced_reflections->set_current_output(type);
+                        }
+                        else if (m_current_visualization == VISUALIZATION_SHADOWS)
+                        {
+                            RayTracedShadows::OutputType type = m_ray_traced_shadows->current_output();
+
+                            if (ImGui::BeginCombo("Buffers", RayTracedShadows::kOutputTypeNames[type].c_str()))
+                            {
+                                for (uint32_t i = 0; i < RayTracedShadows::kNumOutputTypes; i++)
+                                {
+                                    const bool is_selected = (i == type);
+
+                                    if (ImGui::Selectable(RayTracedShadows::kOutputTypeNames[i].c_str(), is_selected))
+                                        type = (RayTracedShadows::OutputType)i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            m_ray_traced_shadows->set_current_output(type);
                         }
 
                         ImGui::InputFloat("Exposure", &m_exposure);
@@ -417,6 +462,8 @@ protected:
         m_common_resources->ping_pong = !m_common_resources->ping_pong;
     }
 
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void shutdown() override
     {
         m_g_buffer.reset();
@@ -425,6 +472,8 @@ protected:
         m_ray_traced_reflections.reset();
         m_common_resources.reset();
     }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
 
     void key_pressed(int code) override
     {

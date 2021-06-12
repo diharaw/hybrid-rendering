@@ -150,11 +150,10 @@ vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float ray_lengt
 
 vec2 compute_history_coord(ivec2 current_coord, ivec2 size, vec2 motion, float ray_length)
 {
-    vec2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
+    const vec2  surface_history_coord = surface_point_reprojection(current_coord, motion, size);
+    const float curvature             = texelFetch(s_Normals, current_coord, u_PushConstants.g_buffer_mip).b;
 
     vec2 history_coord = surface_history_coord;
-
-    float curvature = texelFetch(s_Normals, current_coord, u_PushConstants.g_buffer_mip).b;
 
     if (ray_length > 0.0f && curvature == 0.0f)
         history_coord = virtual_point_reprojection(current_coord, size, ray_length);
@@ -377,7 +376,7 @@ void main()
         vec3 radiance_max = mean + std_dev;
 
         history_color.xyz = clip_aabb(radiance_min, radiance_max, history_color.xyz);
-    }
+    } 
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in

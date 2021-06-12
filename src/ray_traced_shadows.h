@@ -7,7 +7,7 @@ class GBuffer;
 class RayTracedShadows
 {
 public:
-    enum Output
+    enum OutputType
     {
         OUTPUT_RAY_TRACE,
         OUTPUT_TEMPORAL_ACCUMULATION,
@@ -15,7 +15,7 @@ public:
     };
 
     const static int         kNumOutputTypes = 3;
-    const static Output      kOutputTypeEnums[];
+    const static OutputType  kOutputTypeEnums[];
     const static std::string kOutputTypeNames[];
 
 public:
@@ -24,11 +24,13 @@ public:
 
     void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
     void                       gui();
-    dw::vk::DescriptorSet::Ptr output_ds(Output output_type = OUTPUT_ATROUS);
+    dw::vk::DescriptorSet::Ptr output_ds();
 
     inline uint32_t      width() { return m_width; }
     inline uint32_t      height() { return m_height; }
     inline RayTraceScale scale() { return m_scale; }
+    inline OutputType    current_output() { return m_current_output; }
+    inline void          set_current_output(OutputType current_output) { m_current_output = current_output; }
 
 private:
     void create_images();
@@ -92,6 +94,7 @@ private:
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
     RayTraceScale                  m_scale;
+    OutputType                     m_current_output = OUTPUT_ATROUS;
     uint32_t                       m_g_buffer_mip = 0;
     uint32_t                       m_width;
     uint32_t                       m_height;

@@ -28,7 +28,7 @@ struct ATrousFilterPushConstants
     int32_t g_buffer_mip;
 };
 
-const RayTracedShadows::Output RayTracedShadows::kOutputTypeEnums[] = {
+const RayTracedShadows::OutputType RayTracedShadows::kOutputTypeEnums[] = {
     RayTracedShadows::OUTPUT_RAY_TRACE,
     RayTracedShadows::OUTPUT_TEMPORAL_ACCUMULATION,
     RayTracedShadows::OUTPUT_ATROUS
@@ -86,13 +86,13 @@ void RayTracedShadows::gui()
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
 }
 
-dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds(Output output_type)
+dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
 {
     if (m_denoise)
     {
-        if (output_type == OUTPUT_RAY_TRACE)
+        if (m_current_output == OUTPUT_RAY_TRACE)
             return m_ray_trace.read_ds;
-        else if (output_type == OUTPUT_TEMPORAL_ACCUMULATION)
+        else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
             return m_temporal_accumulation.output_only_read_ds;
         else
             return m_a_trous.read_ds[m_a_trous.read_idx];
