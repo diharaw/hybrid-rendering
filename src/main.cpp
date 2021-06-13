@@ -317,6 +317,27 @@ protected:
 
                             m_ray_traced_shadows->set_current_output(type);
                         }
+                        else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
+                        {
+                            RayTracedAO::OutputType type = m_ray_traced_ao->current_output();
+
+                            if (ImGui::BeginCombo("Buffers", RayTracedAO::kOutputTypeNames[type].c_str()))
+                            {
+                                for (uint32_t i = 0; i < RayTracedAO::kNumOutputTypes; i++)
+                                {
+                                    const bool is_selected = (i == type);
+
+                                    if (ImGui::Selectable(RayTracedAO::kOutputTypeNames[i].c_str(), is_selected))
+                                        type = (RayTracedAO::OutputType)i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            m_ray_traced_ao->set_current_output(type);
+                        }
 
                         ImGui::InputFloat("Exposure", &m_exposure);
                     }
