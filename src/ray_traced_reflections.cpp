@@ -5,6 +5,8 @@
 #include <macros.h>
 #include <imgui.h>
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct RayTracePushConstants
 {
     float    bias;
@@ -12,6 +14,8 @@ struct RayTracePushConstants
     uint32_t num_frames;
     int32_t  g_buffer_mip;
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 struct TemporalAccumulationPushConstants
 {
@@ -22,6 +26,8 @@ struct TemporalAccumulationPushConstants
     int32_t   g_buffer_mip;
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct ATrousFilterPushConstants
 {
     int     radius;
@@ -31,17 +37,23 @@ struct ATrousFilterPushConstants
     int32_t g_buffer_mip;
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 const RayTracedReflections::OutputType RayTracedReflections::kOutputTypeEnums[] = {
     RayTracedReflections::OUTPUT_RAY_TRACE,
     RayTracedReflections::OUTPUT_TEMPORAL_ACCUMULATION,
     RayTracedReflections::OUTPUT_ATROUS
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 const std::string RayTracedReflections::kOutputTypeNames[] = {
     "Ray Trace",
     "Temporal Accumulation",
     "A-Trous"
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
     m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
@@ -61,9 +73,13 @@ RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backen
     create_pipelines();
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 RayTracedReflections::~RayTracedReflections()
 {
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -79,6 +95,8 @@ void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::gui()
 {
     ImGui::Checkbox("Denoise", &m_denoise);
@@ -89,6 +107,8 @@ void RayTracedReflections::gui()
     ImGui::InputFloat("Phi Color", &m_a_trous.phi_color);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 dw::vk::DescriptorSet::Ptr RayTracedReflections::output_ds()
 {
@@ -104,6 +124,8 @@ dw::vk::DescriptorSet::Ptr RayTracedReflections::output_ds()
     else
         return m_ray_trace.read_ds;
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedReflections::create_images()
 {
@@ -153,6 +175,8 @@ void RayTracedReflections::create_images()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::create_descriptor_sets()
 {
     auto backend = m_backend.lock();
@@ -198,6 +222,8 @@ void RayTracedReflections::create_descriptor_sets()
         m_a_trous.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedReflections::write_descriptor_sets()
 {
@@ -529,6 +555,8 @@ void RayTracedReflections::write_descriptor_sets()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::create_pipelines()
 {
     auto backend = m_backend.lock();
@@ -628,6 +656,8 @@ void RayTracedReflections::create_pipelines()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     if (m_first_frame)
@@ -675,6 +705,8 @@ void RayTracedReflections::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_first_frame = false;
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -742,6 +774,8 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         subresource_range);
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
@@ -805,6 +839,8 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -936,3 +972,5 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------

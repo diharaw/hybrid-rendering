@@ -119,7 +119,7 @@ struct TAAPushConstants
 
 struct ToneMapPushConstants
 {
-    int   visualization;
+    int   single_channel;
     float exposure;
 };
 
@@ -185,8 +185,8 @@ protected:
         m_common_resources->blue_noise_view_1      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_common_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
         m_common_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->blue_noise = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
-        
+        m_common_resources->blue_noise             = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
+
         create_output_images();
         create_descriptor_set_layouts();
         create_descriptor_sets();
@@ -426,7 +426,11 @@ protected:
                     if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("TAA");
-                        ImGui::Checkbox("Enabled", &m_taa_enabled);
+                        if (ImGui::Checkbox("Enabled", &m_taa_enabled))
+                        {
+                            if (m_taa_enabled)
+                                m_taa_reset = true;
+                        }
                         ImGui::Checkbox("Sharpen", &m_taa_sharpen);
                         ImGui::SliderFloat("Feedback Min", &m_taa_feedback_min, 0.0f, 1.0f);
                         ImGui::SliderFloat("Feedback Max", &m_taa_feedback_max, 0.0f, 1.0f);
@@ -467,7 +471,8 @@ protected:
 
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
-            temporal_aa(cmd_buf);
+            if (m_taa_enabled)
+                temporal_aa(cmd_buf);
             tone_map(cmd_buf);
         }
 
@@ -1175,10 +1180,6 @@ private:
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants));
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
 
         m_common_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
@@ -2138,67 +2139,20 @@ private:
         const uint32_t write_idx   = (uint32_t)m_common_resources->ping_pong;
         const uint32_t read_idx    = (uint32_t)!m_common_resources->ping_pong;
 
-        if (m_taa_enabled)
-        {
-            VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_common_resources->taa_image[write_idx]->handle(),
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_GENERAL,
-                subresource_range);
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_common_resources->taa_image[write_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
 
-            if (m_common_resources->first_frame)
-            {
-                blitt_image(cmd_buf,
-                            m_common_resources->deferred_image,
-                            m_common_resources->taa_image[read_idx],
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                            VK_IMAGE_LAYOUT_UNDEFINED,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                            VK_IMAGE_ASPECT_COLOR_BIT,
-                            VK_FILTER_NEAREST);
-            }
-
-            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline->handle());
-
-            TAAPushConstants push_constants;
-
-            push_constants.texel_size          = glm::vec4(1.0f / float(m_width), 1.0f / float(m_height), float(m_width), float(m_height));
-            push_constants.current_prev_jitter = glm::vec4(m_current_jitter, m_prev_jitter);
-            push_constants.time_params         = glm::vec4(static_cast<float>(glfwGetTime()), sinf(static_cast<float>(glfwGetTime())), cosf(static_cast<float>(glfwGetTime())), static_cast<float>(m_delta_seconds));
-            push_constants.feedback_min        = m_taa_feedback_min;
-            push_constants.feedback_max        = m_taa_feedback_max;
-            push_constants.sharpen             = static_cast<int>(m_taa_sharpen);
-
-            vkCmdPushConstants(cmd_buf->handle(), m_common_resources->taa_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-            VkDescriptorSet descriptor_sets[] = {
-                m_common_resources->taa_write_ds[write_idx]->handle(),
-                m_common_resources->deferred_read_ds->handle(),
-                m_common_resources->taa_read_ds[read_idx]->handle(),
-                m_g_buffer->output_ds()->handle()
-            };
-
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
-
-            vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
-
-            // Prepare ray tracing output image as transfer source
-            dw::vk::utilities::set_image_layout(
-                cmd_buf->handle(),
-                m_common_resources->taa_image[write_idx]->handle(),
-                VK_IMAGE_LAYOUT_GENERAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                subresource_range);
-        }
-        else
+        if (m_taa_reset)
         {
             blitt_image(cmd_buf,
                         m_common_resources->deferred_image,
-                        m_common_resources->taa_image[write_idx],
+                        m_common_resources->taa_image[read_idx],
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_UNDEFINED,
@@ -2206,6 +2160,51 @@ private:
                         VK_IMAGE_ASPECT_COLOR_BIT,
                         VK_FILTER_NEAREST);
         }
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline->handle());
+
+        TAAPushConstants push_constants;
+
+        push_constants.texel_size          = glm::vec4(1.0f / float(m_width), 1.0f / float(m_height), float(m_width), float(m_height));
+        push_constants.current_prev_jitter = glm::vec4(m_current_jitter, m_prev_jitter);
+        push_constants.time_params         = glm::vec4(static_cast<float>(glfwGetTime()), sinf(static_cast<float>(glfwGetTime())), cosf(static_cast<float>(glfwGetTime())), static_cast<float>(m_delta_seconds));
+        push_constants.feedback_min        = m_taa_feedback_min;
+        push_constants.feedback_max        = m_taa_feedback_max;
+        push_constants.sharpen             = static_cast<int>(m_taa_sharpen);
+
+        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->taa_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet read_ds;
+
+        if (m_current_visualization == VISUALIZATION_FINAL)
+            read_ds = m_common_resources->deferred_read_ds->handle();
+        else if (m_current_visualization == VISUALIZATION_SHADOWS)
+            read_ds = m_ray_traced_shadows->output_ds()->handle();
+        else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
+            read_ds = m_ray_traced_ao->output_ds()->handle();
+        else if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+            read_ds = m_ray_traced_reflections->output_ds()->handle();
+        else
+            read_ds = m_common_resources->svgf_gi_denoiser->output_ds()->handle();
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_common_resources->taa_write_ds[write_idx]->handle(),
+            read_ds,
+            m_common_resources->taa_read_ds[read_idx]->handle(),
+            m_g_buffer->output_ds()->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+
+        // Prepare ray tracing output image as transfer source
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_common_resources->taa_image[write_idx]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2259,22 +2258,36 @@ private:
 
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->copy_pipeline->handle());
 
+        VkDescriptorSet read_ds;
+
+        if (m_taa_enabled)
+            read_ds = m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle();
+        else
+        {
+            if (m_current_visualization == VISUALIZATION_FINAL)
+                read_ds = m_common_resources->deferred_read_ds->handle();
+            else if (m_current_visualization == VISUALIZATION_SHADOWS)
+                read_ds = m_ray_traced_shadows->output_ds()->handle();
+            else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
+                read_ds = m_ray_traced_ao->output_ds()->handle();
+            else if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+                read_ds = m_ray_traced_reflections->output_ds()->handle();
+            else
+                read_ds = m_common_resources->svgf_gi_denoiser->output_ds()->handle();
+        }
+
         VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle(),
-            m_ray_traced_ao->output_ds()->handle(),
-            m_ray_traced_shadows->output_ds()->handle(),
-            m_ray_traced_reflections->output_ds()->handle(),
-            m_common_resources->svgf_gi_denoiser->output_ds()->handle()
+            read_ds
         };
 
         ToneMapPushConstants push_constants;
 
-        push_constants.visualization = m_current_visualization;
-        push_constants.exposure      = m_exposure;
+        push_constants.single_channel = (m_current_visualization == VISUALIZATION_SHADOWS || m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION) ? 1 : 0;
+        push_constants.exposure       = m_exposure;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->copy_pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->copy_pipeline_layout->handle(), 0, 1, descriptor_sets, 0, nullptr);
 
         vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
@@ -2422,6 +2435,7 @@ private:
     // TAA
     bool  m_taa_enabled      = true;
     bool  m_taa_sharpen      = true;
+    bool  m_taa_reset        = true;
     float m_taa_feedback_min = 0.88f;
     float m_taa_feedback_max = 0.97f;
 

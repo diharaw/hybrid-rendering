@@ -26,11 +26,11 @@ public:
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
-    inline uint32_t      width() { return m_width; }
-    inline uint32_t      height() { return m_height; }
-    inline RayTraceScale scale() { return m_scale; }
+    inline uint32_t                         width() { return m_width; }
+    inline uint32_t                         height() { return m_height; }
+    inline RayTraceScale                    scale() { return m_scale; }
     inline RayTracedReflections::OutputType current_output() { return m_current_output; }
-    inline void set_current_output(RayTracedReflections::OutputType output_type) { m_current_output = output_type; }
+    inline void                             set_current_output(RayTracedReflections::OutputType output_type) { m_current_output = output_type; }
 
 private:
     void create_images();

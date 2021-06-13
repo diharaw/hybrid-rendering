@@ -5,6 +5,8 @@
 #include <macros.h>
 #include <imgui.h>
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct RayTracePushConstants
 {
     float    bias;
@@ -12,12 +14,16 @@ struct RayTracePushConstants
     int32_t  g_buffer_mip;
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct TemporalAccumulationPushConstants
 {
     float   alpha;
     float   moments_alpha;
     int32_t g_buffer_mip;
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 struct ATrousFilterPushConstants
 {
@@ -28,17 +34,23 @@ struct ATrousFilterPushConstants
     int32_t g_buffer_mip;
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 const RayTracedShadows::OutputType RayTracedShadows::kOutputTypeEnums[] = {
     RayTracedShadows::OUTPUT_RAY_TRACE,
     RayTracedShadows::OUTPUT_TEMPORAL_ACCUMULATION,
     RayTracedShadows::OUTPUT_ATROUS
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 const std::string RayTracedShadows::kOutputTypeNames[] = {
     "Ray Trace",
     "Temporal Accumulation",
     "A-Trous"
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 RayTracedShadows::RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
     m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
@@ -58,9 +70,13 @@ RayTracedShadows::RayTracedShadows(std::weak_ptr<dw::vk::Backend> backend, Commo
     create_pipelines();
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 RayTracedShadows::~RayTracedShadows()
 {
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -76,6 +92,8 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedShadows::gui()
 {
     ImGui::Checkbox("Denoise", &m_denoise);
@@ -85,6 +103,8 @@ void RayTracedShadows::gui()
     ImGui::InputFloat("Phi Visibility", &m_a_trous.phi_visibility);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
 {
@@ -100,6 +120,8 @@ dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
     else
         return m_ray_trace.read_ds;
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedShadows::create_images()
 {
@@ -149,6 +171,8 @@ void RayTracedShadows::create_images()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedShadows::create_descriptor_sets()
 {
     auto backend = m_backend.lock();
@@ -194,6 +218,8 @@ void RayTracedShadows::create_descriptor_sets()
         m_a_trous.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedShadows::write_descriptor_sets()
 {
@@ -525,6 +551,8 @@ void RayTracedShadows::write_descriptor_sets()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedShadows::create_pipelines()
 {
     auto backend = m_backend.lock();
@@ -603,6 +631,8 @@ void RayTracedShadows::create_pipelines()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedShadows::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     if (m_first_frame)
@@ -650,6 +680,8 @@ void RayTracedShadows::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_first_frame = false;
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -703,6 +735,8 @@ void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         subresource_range);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -760,6 +794,8 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -891,3 +927,5 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------

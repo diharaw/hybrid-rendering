@@ -24,15 +24,15 @@ public:
     RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
     ~RayTracedAO();
 
-    void render(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void gui();
+    void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
-    inline uint32_t                   width() { return m_width; }
-    inline uint32_t                   height() { return m_height; }
-    inline RayTraceScale              scale() { return m_scale; }
-    inline OutputType                 current_output() { return m_current_output; }
-    inline void                       set_current_output(OutputType current_output) { m_current_output = current_output; }
+    inline uint32_t      width() { return m_width; }
+    inline uint32_t      height() { return m_height; }
+    inline RayTraceScale scale() { return m_scale; }
+    inline OutputType    current_output() { return m_current_output; }
+    inline void          set_current_output(OutputType current_output) { m_current_output = current_output; }
 
 private:
     void create_images();

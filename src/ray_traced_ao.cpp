@@ -49,6 +49,8 @@ struct UpsamplePushConstants
     glm::vec4 z_buffer_params;
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 const RayTracedAO::OutputType RayTracedAO::kOutputTypeEnums[] = {
     RayTracedAO::OUTPUT_RAY_TRACE,
     RayTracedAO::OUTPUT_TEMPORAL_ACCUMULATION,
@@ -56,6 +58,8 @@ const RayTracedAO::OutputType RayTracedAO::kOutputTypeEnums[] = {
     RayTracedAO::OUTPUT_DISOCCLUSION_BLUR,
     RayTracedAO::OUTPUT_UPSAMPLE
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 const std::string RayTracedAO::kOutputTypeNames[] = {
     "Ray Trace",
@@ -135,7 +139,7 @@ dw::vk::DescriptorSet::Ptr RayTracedAO::output_ds()
             return m_bilateral_blur.read_ds[1];
         else if (m_current_output == OUTPUT_DISOCCLUSION_BLUR)
             return m_disocclusion_blur.read_ds;
-        else 
+        else
             return m_upsample.read_ds;
     }
     else

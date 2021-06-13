@@ -376,7 +376,7 @@ void main()
         vec3 radiance_max = mean + std_dev;
 
         history_color.xyz = clip_aabb(radiance_min, radiance_max, history_color.xyz);
-    } 
+    }
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in

@@ -1,6 +1,10 @@
 #include "blue_noise.h"
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 static const char* kSOBOL_TEXTURE = "texture/blue_noise/sobol_256_4d.png";
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 static const char* kSCRAMBLING_RANKING_TEXTURES[] = {
     "texture/blue_noise/scrambling_ranking_128x128_2d_1spp.png",
@@ -14,6 +18,8 @@ static const char* kSCRAMBLING_RANKING_TEXTURES[] = {
     "texture/blue_noise/scrambling_ranking_128x128_2d_256spp.png"
 };
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 BlueNoise::BlueNoise(dw::vk::Backend::Ptr backend)
 {
     m_sobol_image      = dw::vk::Image::create_from_file(backend, kSOBOL_TEXTURE);
@@ -26,6 +32,10 @@ BlueNoise::BlueNoise(dw::vk::Backend::Ptr backend)
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 BlueNoise::~BlueNoise()
 {
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------

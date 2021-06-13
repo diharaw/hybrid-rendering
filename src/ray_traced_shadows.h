@@ -95,7 +95,7 @@ private:
     GBuffer*                       m_g_buffer;
     RayTraceScale                  m_scale;
     OutputType                     m_current_output = OUTPUT_ATROUS;
-    uint32_t                       m_g_buffer_mip = 0;
+    uint32_t                       m_g_buffer_mip   = 0;
     uint32_t                       m_width;
     uint32_t                       m_height;
     bool                           m_denoise     = true;

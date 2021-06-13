@@ -1,12 +1,5 @@
 #version 450
 
-#define VISUALIZATION_FINAL 0
-#define VISUALIZATION_SHADOWS 1
-#define VISUALIZATION_AMBIENT_OCCLUSION 2
-#define VISUALIZATION_REFLECTIONS 3
-#define VISUALIZATION_GLOBAL_ILLUMINATION 4
-#define VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE 5
-
 // ------------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -24,10 +17,6 @@ layout(location = 0) out vec4 FS_OUT_Color;
 // ------------------------------------------------------------------------
 
 layout(set = 0, binding = 0) uniform sampler2D s_Color;
-layout(set = 1, binding = 0) uniform sampler2D s_AO;
-layout(set = 2, binding = 0) uniform sampler2D s_Shadow;
-layout(set = 3, binding = 0) uniform sampler2D s_Reflections;
-layout(set = 4, binding = 0) uniform sampler2D s_GI;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -35,7 +24,7 @@ layout(set = 4, binding = 0) uniform sampler2D s_GI;
 
 layout(push_constant) uniform PushConstants
 {
-    int   visualization;
+    int   single_channel;
     float exposure;
 }
 u_PushConstants;
@@ -60,11 +49,11 @@ vec3 aces_film(vec3 x)
 
 void main()
 {
-    vec3 color = vec3(0.0f);
-
-    if (u_PushConstants.visualization == VISUALIZATION_FINAL)
+    if (u_PushConstants.single_channel == 1)
+        FS_OUT_Color = vec4(texture(s_Color, inUV).rrr, 1.0);
+    else
     {
-        color = texture(s_Color, inUV).rgb;
+        vec3 color = texture(s_Color, inUV).rgb;
 
         // Apply exposure
         color *= u_PushConstants.exposure;
@@ -72,37 +61,9 @@ void main()
         // HDR tonemap and gamma correct
         color = aces_film(color);
         color = pow(color, vec3(1.0 / 2.2));
+
+        FS_OUT_Color = vec4(color, 1.0);
     }
-    else if (u_PushConstants.visualization == VISUALIZATION_SHADOWS)
-        color = texture(s_Shadow, inUV).rrr;
-    else if (u_PushConstants.visualization == VISUALIZATION_AMBIENT_OCCLUSION)
-        color = texture(s_AO, inUV).rrr;
-    else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS)
-    {
-        color = texture(s_Reflections, inUV).rgb;
-
-        // Apply exposure
-        color *= u_PushConstants.exposure;
-
-        // HDR tonemap and gamma correct
-        color = aces_film(color);
-        color = pow(color, vec3(1.0 / 2.2));
-    }
-    else if (u_PushConstants.visualization == VISUALIZATION_GLOBAL_ILLUMINATION)
-    {
-        color = texture(s_GI, inUV).rgb;
-
-        // Apply exposure
-        color *= u_PushConstants.exposure;
-
-        // HDR tonemap and gamma correct
-        color = aces_film(color);
-        color = pow(color, vec3(1.0 / 2.2));
-    }
-    else if (u_PushConstants.visualization == VISUALIZATION_REFLECTIONS_TEMPORAL_VARIANCE)
-        color = texture(s_Reflections, inUV).aaa;
-
-    FS_OUT_Color = vec4(color, 1.0);
 }
 
 // ------------------------------------------------------------------------
