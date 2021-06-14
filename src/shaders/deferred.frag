@@ -31,8 +31,8 @@ const float IndirectSpecularStrength = 2.0f;
 // ------------------------------------------------------------------------
 
 layout(set = 0, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
-layout(set = 0, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, B: Curvature, A: Roughness
-layout(set = 0, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 0, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
+layout(set = 0, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 layout(set = 0, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(set = 1, binding = 0) uniform sampler2D s_AO;
@@ -233,8 +233,8 @@ void main()
 
     const vec3  world_pos  = world_position_from_depth(FS_IN_TexCoord, texture(s_GBufferDepth, FS_IN_TexCoord).r);
     const vec3  albedo     = g_buffer_data_1.rgb;
-    const float roughness  = g_buffer_data_2.a;
     const float metallic   = g_buffer_data_1.a;
+    const float roughness  = g_buffer_data_3.r;
     const float visibility = u_PushConstants.shadow == 1 ? texture(s_Shadow, FS_IN_TexCoord).r : 1.0f;
     const float ao         = u_PushConstants.ao == 1 ? texture(s_AO, FS_IN_TexCoord).r : 1.0f;
 

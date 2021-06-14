@@ -93,7 +93,7 @@ struct CommonResources
     dw::vk::PipelineLayout::Ptr   skybox_pipeline_layout;
     dw::vk::DescriptorSet::Ptr    skybox_ds;
     dw::vk::RenderPass::Ptr       skybox_rp;
-    dw::vk::Framebuffer::Ptr      skybox_fbo;
+    dw::vk::Framebuffer::Ptr      skybox_fbo[2];
 
     // PBR resources
     dw::vk::DescriptorSetLayout::Ptr pbr_ds_layout;

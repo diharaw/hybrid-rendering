@@ -193,20 +193,20 @@ protected:
         write_descriptor_sets();
 
         m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
-        m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        //m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        //m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        //m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
         create_render_passes();
         create_framebuffers();
         create_deferred_pipeline();
-        create_gi_ray_tracing_pipeline();
+        //create_gi_ray_tracing_pipeline();
         create_skybox_pipeline();
         create_tone_map_pipeline();
         create_taa_pipeline();
         create_cube();
 
-        m_common_resources->svgf_gi_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
+        //m_common_resources->svgf_gi_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
 
         // Create camera.
         create_camera();
@@ -275,7 +275,7 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+                        /*if (m_current_visualization == VISUALIZATION_REFLECTIONS)
                         {
                             RayTracedReflections::OutputType type = m_ray_traced_reflections->current_output();
 
@@ -337,7 +337,7 @@ protected:
                             }
 
                             m_ray_traced_ao->set_current_output(type);
-                        }
+                        }*/
 
                         ImGui::InputFloat("Exposure", &m_exposure);
                     }
@@ -349,7 +349,7 @@ protected:
                         ImGui::InputFloat3("Direction", &m_light_direction.x);
                         ImGui::Checkbox("Animation", &m_light_animation);
                     }
-                    if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+                    /*if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("Ray Traced Shadows");
 
@@ -422,7 +422,7 @@ protected:
                         ImGui::Checkbox("Enabled", &m_rtao_enabled);
                         m_ray_traced_ao->gui();
                         ImGui::PopID();
-                    }
+                    }*/
                     if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("TAA");
@@ -458,15 +458,15 @@ protected:
 
             // Render.
             m_g_buffer->render(cmd_buf);
-            m_ray_traced_shadows->render(cmd_buf);
-            m_ray_traced_ao->render(cmd_buf);
-            m_ray_traced_reflections->render(cmd_buf);
+            //m_ray_traced_shadows->render(cmd_buf);
+            //m_ray_traced_ao->render(cmd_buf);
+            //m_ray_traced_reflections->render(cmd_buf);
 
             {
-                DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
+                //DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
 
-                ray_trace_gi(cmd_buf);
-                m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
+                //ray_trace_gi(cmd_buf);
+                //m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
             }
 
             deferred_shading(cmd_buf);
@@ -757,8 +757,11 @@ private:
         m_common_resources->deferred_fbo.reset();
         m_common_resources->deferred_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_common_resources->deferred_rp, { m_common_resources->deferred_view }, m_width, m_height, 1);
 
-        m_common_resources->skybox_fbo.reset();
-        m_common_resources->skybox_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_common_resources->skybox_rp, { m_common_resources->deferred_view, m_g_buffer->depth_fbo_image_view() }, m_width, m_height, 1);
+        for (uint32_t i = 0; i < 2; i++)
+        {
+            m_common_resources->skybox_fbo[i].reset();
+            m_common_resources->skybox_fbo[i] = dw::vk::Framebuffer::create(m_vk_backend, m_common_resources->skybox_rp, { m_common_resources->deferred_view, m_g_buffer->depth_fbo_image_view(i) }, m_width, m_height, 1);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2008,7 +2011,7 @@ private:
         VkRenderPassBeginInfo info    = {};
         info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         info.renderPass               = m_common_resources->skybox_rp->handle();
-        info.framebuffer              = m_common_resources->skybox_fbo->handle();
+        info.framebuffer              = m_common_resources->skybox_fbo[m_common_resources->ping_pong]->handle();
         info.renderArea.extent.width  = m_width;
         info.renderArea.extent.height = m_height;
         info.clearValueCount          = 0;
@@ -2061,6 +2064,16 @@ private:
     {
         DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        // Transition ray tracing output image back to general layout
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_common_resources->rtgi_image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
         VkClearValue clear_value;
 
         clear_value.color.float32[0] = 0.0f;
@@ -2103,10 +2116,10 @@ private:
 
         DeferredShadingPushConstants push_constants;
 
-        push_constants.shadows     = (float)m_rt_shadows_enabled;
-        push_constants.ao          = (float)m_rtao_enabled;
-        push_constants.reflections = (float)m_rt_reflections_enabled;
-        push_constants.gi          = (float)m_rtgi_enabled;
+        push_constants.shadows     = 0;//(float)m_rt_shadows_enabled;
+        push_constants.ao          = 0;//(float)m_rtao_enabled;
+        push_constants.reflections = 0;//(float)m_rt_reflections_enabled;
+        push_constants.gi          = 0;//(float)m_rtgi_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -2114,10 +2127,14 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
-            m_ray_traced_ao->output_ds()->handle(),
+            m_common_resources->rtgi_read_ds->handle(),
+            m_common_resources->rtgi_read_ds->handle(),
+            m_common_resources->rtgi_read_ds->handle(),
+            m_common_resources->rtgi_read_ds->handle(),
+            /*m_ray_traced_ao->output_ds()->handle(),
             m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections->output_ds()->handle(),
-            m_common_resources->svgf_gi_denoiser->output_ds()->handle(),
+            m_common_resources->svgf_gi_denoiser->output_ds()->handle(),*/
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()
         };

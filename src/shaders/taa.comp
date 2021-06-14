@@ -37,8 +37,8 @@ layout(set = 1, binding = 0) uniform sampler2D s_Current;
 
 layout(set = 2, binding = 0) uniform sampler2D s_Prev;
 
-layout(set = 3, binding = 2) uniform sampler2D s_Velocity;
-layout(set = 3, binding = 4) uniform sampler2D s_Depth;
+layout(set = 3, binding = 1) uniform sampler2D s_Velocity;
+layout(set = 3, binding = 3) uniform sampler2D s_Depth;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -407,14 +407,14 @@ void main()
     //float vs_dist = depth_sample_linear(uv);
     //--- 5 tap nearest (decent)
     //vec3 c_frag = find_closest_fragment_5tap(uv);
-    //vec2 ss_vel = texture(s_Velocity, c_frag.xy).xy;
+    //vec2 ss_vel = texture(s_Velocity, c_frag.xy).zw;
     //float vs_dist = depth_resolve_linear(c_frag.z);
     //--- 3x3 nearest (good)
     vec3  c_frag  = find_closest_fragment_3x3(uv);
-    vec2  ss_vel  = texture(s_Velocity, c_frag.xy).xy;
+    vec2  ss_vel  = texture(s_Velocity, c_frag.xy).zw;
     float vs_dist = c_frag.z;
 #else
-    vec2  ss_vel                      = texture(s_Velocity, uv).xy;
+    vec2  ss_vel                      = texture(s_Velocity, uv).zw;
     float vs_dist                     = texture(s_Depth, uv).x;
 #endif
     // temporal resolve

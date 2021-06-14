@@ -25,7 +25,6 @@ layout(location = 3) out vec3 FS_IN_Tangent;
 layout(location = 4) out vec3 FS_IN_Bitangent;
 layout(location = 5) out vec4 FS_IN_CSPos;
 layout(location = 6) out vec4 FS_IN_PrevCSPos;
-layout(location = 7) out vec3 FS_IN_OSNormal;
 
 out gl_PerVertex
 {
@@ -57,6 +56,7 @@ layout(push_constant) uniform PushConstants
     mat4 model;
     mat4 prev_model;
     uint material_idx;
+    uint mesh_id;
 }
 u_PushConstants;
 
@@ -80,9 +80,7 @@ void main()
     FS_IN_CSPos     = gl_Position;
     FS_IN_PrevCSPos = ubo.prev_view_proj * prev_world_pos;
 
-    // Pass object space normal
-    FS_IN_OSNormal = VS_IN_Normal;
-
+    // Pass texture coordinate
     FS_IN_Texcoord = VS_IN_Texcoord;
 
     // Transform vertex normal into world space

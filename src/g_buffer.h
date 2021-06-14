@@ -15,7 +15,7 @@ public:
     dw::vk::DescriptorSetLayout::Ptr ds_layout();
     dw::vk::DescriptorSet::Ptr       output_ds();
     dw::vk::DescriptorSet::Ptr       history_ds();
-    dw::vk::ImageView::Ptr           depth_fbo_image_view();
+    dw::vk::ImageView::Ptr           depth_fbo_image_view(uint32_t idx);
 
 private:
     void create_images();
@@ -32,21 +32,18 @@ private:
     CommonResources*                 m_common_resources;
     uint32_t                         m_input_width;
     uint32_t                         m_input_height;
-    dw::vk::Image::Ptr               m_image_1; // RGB: Albedo, A: Metallic
-    dw::vk::Image::Ptr               m_image_2; // RGB: Normal, A: Roughness
-    dw::vk::Image::Ptr               m_image_3; // RGB: Position, A: -
-    dw::vk::Image::Ptr               m_image_linear_z[2];
-    dw::vk::Image::Ptr               m_depth;
-    dw::vk::ImageView::Ptr           m_image_1_view;
-    dw::vk::ImageView::Ptr           m_image_2_view;
-    dw::vk::ImageView::Ptr           m_image_3_view;
-    dw::vk::ImageView::Ptr           m_image_linear_z_view[2];
-    dw::vk::ImageView::Ptr           m_depth_view;
-    dw::vk::ImageView::Ptr           m_image_1_fbo_view;
-    dw::vk::ImageView::Ptr           m_image_2_fbo_view;
-    dw::vk::ImageView::Ptr           m_image_3_fbo_view;
-    dw::vk::ImageView::Ptr           m_image_linear_z_fbo_view[2];
-    dw::vk::ImageView::Ptr           m_depth_fbo_view;
+    dw::vk::Image::Ptr               m_image_1[2]; // RGB: Albedo, A: Metallic
+    dw::vk::Image::Ptr               m_image_2[2]; // RG: Normal, BA: Motion Vector
+    dw::vk::Image::Ptr               m_image_3[2]; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
+    dw::vk::Image::Ptr               m_depth[2];
+    dw::vk::ImageView::Ptr           m_image_1_view[2];
+    dw::vk::ImageView::Ptr           m_image_2_view[2];
+    dw::vk::ImageView::Ptr           m_image_3_view[2];
+    dw::vk::ImageView::Ptr           m_depth_view[2];
+    dw::vk::ImageView::Ptr           m_image_1_fbo_view[2];
+    dw::vk::ImageView::Ptr           m_image_2_fbo_view[2];
+    dw::vk::ImageView::Ptr           m_image_3_fbo_view[2];
+    dw::vk::ImageView::Ptr           m_depth_fbo_view[2];
     dw::vk::Framebuffer::Ptr         m_fbo[2];
     dw::vk::RenderPass::Ptr          m_rp;
     dw::vk::GraphicsPipeline::Ptr    m_pipeline;
