@@ -1884,7 +1884,7 @@ private:
 
         GIPushConstants push_constants;
 
-        push_constants.bias          = m_ray_traced_reflections_bias;
+        push_constants.bias          = 0.5f;
         push_constants.num_frames    = m_common_resources->num_frames;
         push_constants.max_ray_depth = m_ray_traced_gi_max_ray_bounces - 1;
         push_constants.sample_sky    = static_cast<uint32_t>(m_ray_traced_gi_sample_sky);
@@ -2463,23 +2463,8 @@ private:
     bool m_quarter_resolution = true;
     bool m_downscaled_rt      = true;
 
-    // Ray Traced Shadows
     bool m_rt_shadows_enabled = true;
-
-    // Ray Traced Reflections
-    float m_ray_traced_reflections_bias                        = 0.5f;
-    bool  m_ray_traced_reflections_denoise                     = true;
-    bool  m_ray_traced_reflections_vndf                        = false;
-    bool  m_ray_traced_reflections_spatial_resolve             = true;
     bool  m_rt_reflections_enabled                             = true;
-    bool  m_rt_reflections_neighborhood_clamping               = true;
-    bool  m_rt_reflections_blur                                = true;
-    float m_ray_traced_reflections_alpha                       = 0.01f;
-    float m_ray_traced_reflections_std_scale                   = 5.0f;
-    float m_ray_traced_reflections_temporal_variance_threshold = 0.002f;
-    float m_ray_traced_reflections_sigma_min                   = 0.001f;
-    float m_ray_traced_reflections_sigma_max                   = 0.01f;
-    float m_ray_traced_reflections_trim                        = 0.8f;
 
     // Ray Traced Global Illumination
     bool    m_rtgi_enabled                  = true;
