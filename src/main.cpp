@@ -192,7 +192,7 @@ protected:
         create_descriptor_sets();
         write_descriptor_sets();
 
-        m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
+        m_g_buffer = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         //m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         //m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         //m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
@@ -2116,10 +2116,10 @@ private:
 
         DeferredShadingPushConstants push_constants;
 
-        push_constants.shadows     = 0;//(float)m_rt_shadows_enabled;
-        push_constants.ao          = 0;//(float)m_rtao_enabled;
-        push_constants.reflections = 0;//(float)m_rt_reflections_enabled;
-        push_constants.gi          = 0;//(float)m_rtgi_enabled;
+        push_constants.shadows     = 0; //(float)m_rt_shadows_enabled;
+        push_constants.ao          = 0; //(float)m_rtao_enabled;
+        push_constants.reflections = 0; //(float)m_rt_reflections_enabled;
+        push_constants.gi          = 0; //(float)m_rtgi_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -2480,8 +2480,8 @@ private:
     bool m_quarter_resolution = true;
     bool m_downscaled_rt      = true;
 
-    bool m_rt_shadows_enabled = true;
-    bool  m_rt_reflections_enabled                             = true;
+    bool m_rt_shadows_enabled     = true;
+    bool m_rt_reflections_enabled = true;
 
     // Ray Traced Global Illumination
     bool    m_rtgi_enabled                  = true;

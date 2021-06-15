@@ -93,20 +93,20 @@ void main()
 
     // G-Buffer 1
     FS_OUT_GBuffer1.rgb = albedo.rgb;
-    FS_OUT_GBuffer1.a = fetch_metallic(material, FS_IN_TexCoord);
+    FS_OUT_GBuffer1.a   = fetch_metallic(material, FS_IN_TexCoord);
 
     // G-Buffer 2
     vec2 packed_normal = direction_to_octohedral(fetch_normal(material, normalize(FS_IN_Tangent), normalize(FS_IN_Bitangent), normalize(FS_IN_Normal), FS_IN_TexCoord));
     vec2 motion_vector = compute_motion_vector(FS_IN_PrevCSPos, FS_IN_CSPos);
 
-    FS_OUT_GBuffer2 = vec4(packed_normal, motion_vector); 
+    FS_OUT_GBuffer2 = vec4(packed_normal, motion_vector);
 
     // G-Buffer 3
     float roughness = fetch_roughness(material, FS_IN_TexCoord);
-    float linear_z = gl_FragCoord.z / gl_FragCoord.w;
+    float linear_z  = gl_FragCoord.z / gl_FragCoord.w;
     float curvature = compute_curvature(linear_z);
-    float mesh_id = float(u_PushConstants.mesh_id);
-    
+    float mesh_id   = float(u_PushConstants.mesh_id);
+
     FS_OUT_GBuffer3 = vec4(roughness, curvature, mesh_id, linear_z);
 }
 

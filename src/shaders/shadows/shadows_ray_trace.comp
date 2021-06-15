@@ -41,9 +41,9 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 u_GlobalUBO;
 
-layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Roughness
-layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RGB: Normal, A: Metallic
-layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // RG: Motion Vector, BA: -
+layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
+layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
+layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(set = 4, binding = 0) uniform sampler2D s_SobolSequence;

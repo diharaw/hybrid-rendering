@@ -21,11 +21,16 @@ layout(set = 0, binding = 0, rg16f) uniform writeonly image2D i_Output;
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D i_Moments;
 
 // Current G-buffer DS
-layout(set = 1, binding = 2) uniform sampler2D s_MotionVectors;
-layout(set = 1, binding = 4) uniform sampler2D s_LinearZ;
+layout(set = 1, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
+layout(set = 1, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
+layout(set = 1, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
+layout(set = 1, binding = 3) uniform sampler2D s_GBufferDepth;
 
 // Previous G-Buffer DS
-layout(set = 2, binding = 4) uniform sampler2D s_PrevLinearZ;
+layout(set = 2, binding = 0) uniform sampler2D s_PrevGBuffer1; // RGB: Albedo, A: Metallic
+layout(set = 2, binding = 1) uniform sampler2D s_PrevGBuffer2; // RG: Normal, BA: Motion Vector
+layout(set = 2, binding = 2) uniform sampler2D s_PrevGBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
+layout(set = 2, binding = 3) uniform sampler2D s_PrevGBufferDepth;
 
 // Input DS
 layout(set = 3, binding = 0) uniform sampler2D s_Input;
@@ -50,24 +55,29 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-bool is_reprojection_valid(ivec2 coord, float Z, float Zprev, float fwidthZ, vec3 normal, vec3 normalPrev, float fwidthNormal)
+bool is_reprojection_valid(ivec2 coord, float z, float z_prev, vec3 normal, vec3 normal_prev, float mesh_id, float mesh_id_prev)
 {
     const ivec2 imageDim = textureSize(s_HistoryOutput, 0);
+
     // check whether reprojected pixel is inside of the screen
     if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, imageDim - ivec2(1, 1)))) return false;
+
+    // check if the history belongs to the same surface
+    if (mesh_id != mesh_id_prev) return false;
+
     // check if deviation of depths is acceptable
-    if (abs(Zprev - Z) / (fwidthZ + 1e-4) > 2.0) return false;
+    if (abs(z_prev - z) / (fwidthZ + 1e-4) > 2.0) return false;
+
     // check normals for compatibility
-    if (distance(normal, normalPrev) / (fwidthNormal + 1e-2) > 16.0) return false;
+    if (distance(normal, normal_prev) / (fwidthNormal + 1e-2) > 16.0) return false;
 
     return true;
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-vec3 octohedral_to_direction(uint octo)
+vec3 octohedral_to_direction(vec2 e)
 {
-    vec2 e = unpackSnorm2x16(octo);
     vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
     if (v.z < 0.0)
         v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
@@ -104,32 +114,38 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
     const ivec2 ipos     = frag_coord;
     const vec2  imageDim = vec2(textureSize(s_HistoryOutput, 0));
 
-    // xy = motion, z = length(fwidth(pos)), w = length(fwidth(normal))
-    vec4 motion = texelFetch(s_MotionVectors, ipos, u_PushConstants.g_buffer_mip);
+    vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, u_PushConstants.g_buffer_mip);
+    vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, u_PushConstants.g_buffer_mip);
+
+    vec3  normal  = octohedral_to_direction(center_g_buffer_2.xy);
+    vec2  motion  = center_g_buffer_2.zw;
+    float mesh_id = center_g_buffer_3.z;
+    float depth   = center_g_buffer_3.w;
 
     // +0.5 to account for texel center offset
-    const ivec2 iposPrev = ivec2(vec2(ipos) + motion.xy * imageDim + vec2(0.5, 0.5));
-
-    // stores: linearZ, maxChangeZ, prevLinearZ, objNorm
-    vec4 depth  = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip);
-    vec3 normal = octohedral_to_direction(floatBitsToUint(depth.w));
+    const ivec2 ipos_prev = ivec2(vec2(ipos) + motion.xy * imageDim + vec2(0.5, 0.5));
 
     history_visibility = 0.0f;
     history_moments    = vec2(0.0f);
 
     bool       v[4];
-    const vec2 posPrev   = floor(frag_coord.xy) + motion.xy * imageDim;
+    const vec2 pos_prev  = floor(frag_coord.xy) + motion.xy * imageDim;
     ivec2      offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
 
     // check for all 4 taps of the bilinear filter for validity
     bool valid = false;
     for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
     {
-        ivec2 loc        = ivec2(posPrev) + offset[sampleIdx];
-        vec4  depthPrev  = texelFetch(s_PrevLinearZ, loc, u_PushConstants.g_buffer_mip);
-        vec3  normalPrev = octohedral_to_direction(floatBitsToUint(depthPrev.w));
+        ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
 
-        v[sampleIdx] = is_reprojection_valid(iposPrev, depth.z, depthPrev.x, depth.y, normal, normalPrev, motion.w);
+        vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, loc, u_PushConstants.g_buffer_mip);
+        vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, loc, u_PushConstants.g_buffer_mip);
+
+        vec3  normal_prev  = octohedral_to_direction(sample_g_buffer_2.xy);
+        float mesh_id_prev = sample_g_buffer_3.z;
+        float depth_prev   = sample_g_buffer_3.w;
+
+        v[sampleIdx] = is_reprojection_valid(ipos_prev, depth, depth_prev, normal, normal_prev, mesh_id, mesh_id_prev);
 
         valid = valid || v[sampleIdx];
     }
@@ -137,8 +153,8 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
     if (valid)
     {
         float sumw = 0;
-        float x    = fract(posPrev.x);
-        float y    = fract(posPrev.y);
+        float x    = fract(pos_prev.x);
+        float y    = fract(pos_prev.y);
 
         // bilinear weights
         float w[4] = { (1 - x) * (1 - y),
@@ -152,7 +168,7 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
         // perform the actual bilinear interpolation
         for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
         {
-            ivec2 loc = ivec2(posPrev) + offset[sampleIdx];
+            ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
 
             if (v[sampleIdx])
             {
@@ -177,11 +193,16 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
         {
             for (int xx = -radius; xx <= radius; xx++)
             {
-                ivec2 p            = iposPrev + ivec2(xx, yy);
-                vec4  depthFilter  = texelFetch(s_PrevLinearZ, p, u_PushConstants.g_buffer_mip);
-                vec3  normalFilter = octohedral_to_direction(floatBitsToUint(depthFilter.w));
+                ivec2 p = ipos_prev + ivec2(xx, yy);
 
-                if (is_reprojection_valid(iposPrev, depth.z, depthFilter.x, depth.y, normal, normalFilter, motion.w))
+                vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, p, u_PushConstants.g_buffer_mip);
+                vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, p, u_PushConstants.g_buffer_mip);
+
+                vec3  normal_prev  = octohedral_to_direction(sample_g_buffer_2.xy);
+                float mesh_id_prev = sample_g_buffer_3.z;
+                float depth_prev   = sample_g_buffer_3.w;
+
+                if (is_reprojection_valid(ipos_prev, depth, depth_prev, normal, normal_prev, mesh_id, mesh_id_prev))
                 {
                     history_visibility += texelFetch(s_HistoryOutput, p, 0).r;
                     history_moments += texelFetch(s_HistoryMoments, p, 0).rg;
@@ -198,7 +219,7 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
     }
 
     if (valid)
-        history_length = texelFetch(s_HistoryMoments, iposPrev, 0).b;
+        history_length = texelFetch(s_HistoryMoments, ipos_prev, 0).b;
     else
     {
         history_visibility = 0.0f;
@@ -215,15 +236,24 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
 
 void main()
 {
-    ivec2 size      = textureSize(s_HistoryOutput, 0);
-    vec2  tex_coord = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / vec2(size);
+    const ivec2 size          = textureSize(s_HistoryOutput, 0);
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
-    float visibility = texelFetch(s_Input, ivec2(gl_GlobalInvocationID.xy), 0).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
+
+    if (depth == 1.0f)
+    {
+        imageStore(i_Output, current_coord, vec4(0.0f));
+        imageStore(i_Moments, current_coord, vec4(0.0f));
+        return;
+    }
+
+    float visibility = texelFetch(s_Input, current_coord, 0).r;
 
     float history_length;
     float history_visibility;
     vec2  history_moments;
-    bool  success  = load_prev_data(ivec2(gl_GlobalInvocationID.xy),
+    bool  success  = load_prev_data(current_coord,
                                   history_visibility,
                                   history_moments,
                                   history_length);
@@ -231,7 +261,7 @@ void main()
 
     if (success)
     {
-        float mean             = neighborhood_mean(ivec2(gl_GlobalInvocationID.xy));
+        float mean             = neighborhood_mean(current_coord);
         float spatial_variance = mean;
         spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
 
@@ -257,14 +287,14 @@ void main()
     // temporal integration of the moments
     moments = mix(history_moments, moments, alpha_moments);
 
-    imageStore(i_Moments, ivec2(gl_GlobalInvocationID.xy), vec4(moments, history_length, 0.0f));
+    imageStore(i_Moments, current_coord, vec4(moments, history_length, 0.0f));
 
     float variance = max(0.0f, moments.g - moments.r * moments.r);
 
     float accumulated_visibility = mix(history_visibility, visibility, alpha);
 
     // temporal integration
-    imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), vec4(accumulated_visibility, variance, 0.0f, 0.0f));
+    imageStore(i_Output, current_coord, vec4(accumulated_visibility, variance, 0.0f, 0.0f));
 }
 
 // ------------------------------------------------------------------
