@@ -9,6 +9,8 @@
 // ------------------------------------------------------------------
 
 #define NUM_THREADS 32
+#define NORMAL_DISTANCE 0.1f
+#define PLANE_DISTANCE 5.0f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -51,6 +53,7 @@ layout(set = 5, binding = 0) uniform PerFrameUBO
     mat4  prev_view_proj;
     mat4  view_proj;
     vec4  cam_pos;
+    vec4  current_prev_jitter;
     Light light;
 }
 u_GlobalUBO;
@@ -71,29 +74,62 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-bool plane_distance_disocclusion(vec3 current_pos, vec3 current_normal, vec3 history_pos, vec3 history_normal)
+bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
 {
     vec3 to_current = current_pos - history_pos;
-    float dist_to_plane = dot(to_current, current_normal);
+    float dist_to_plane = abs(dot(to_current, current_normal));
 
-    return dist_to_plane > 1.0f;
+    return dist_to_plane > PLANE_DISTANCE;
 }
 
-bool is_reprojection_valid(ivec2 coord, float z, float z_prev, vec3 normal, vec3 normal_prev, float mesh_id, float mesh_id_prev)
+// ------------------------------------------------------------------------
+
+bool out_of_frame_disocclusion_check(ivec2 coord)
 {
     const ivec2 imageDim = textureSize(s_HistoryOutput, 0);
 
     // check whether reprojected pixel is inside of the screen
-    if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, imageDim - ivec2(1, 1)))) return false;
+    if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, imageDim - ivec2(1, 1)))) 
+        return true;
+    else
+        return false;
+}
+
+// ------------------------------------------------------------------------
+
+bool mesh_id_disocclusion_check(float mesh_id, float mesh_id_prev)
+{
+    if (mesh_id == mesh_id_prev)
+        return false;
+    else 
+        return true;
+}
+
+// ------------------------------------------------------------------------
+
+bool normals_disocclusion_check(vec3 current_normal, vec3 history_normal)
+{
+    if (pow(abs(dot(current_normal, history_normal)), 2) > NORMAL_DISTANCE)
+        return false;
+    else
+        return true;
+}
+
+// ------------------------------------------------------------------------
+
+bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3 current_normal, vec3 history_normal, float current_mesh_id, float history_mesh_id)
+{
+    // check if the history sample is within the frame
+    if (out_of_frame_disocclusion_check(coord)) return false;
 
     // check if the history belongs to the same surface
-    if (mesh_id != mesh_id_prev) return false;
+    if (mesh_id_disocclusion_check(current_mesh_id, history_mesh_id)) return false;
 
-    // check if deviation of depths is acceptable
-    //if (abs(z_prev - z) / (fwidthZ + 1e-4) > 2.0) return false;
+    // check if history sample is on the same plane
+    if (plane_distance_disocclusion_check(current_pos, history_pos, current_normal)) return false;
 
     // check normals for compatibility
-    //if (distance(normal, normal_prev) / (fwidthNormal + 1e-2) > 16.0) return false;
+    if (normals_disocclusion_check(current_normal, history_normal)) return false;
 
     return true;
 }
@@ -131,29 +167,51 @@ float neighborhood_mean(ivec2 coord)
     return visibility_sum / weight;
 }
 
+// ------------------------------------------------------------------------
+
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = u_GlobalUBO.view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
+
 // ------------------------------------------------------------------
 
-bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 history_moments, out float history_length)
+bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility, out vec2 history_moments, out float history_length)
 {
     const ivec2 ipos     = frag_coord;
     const vec2  imageDim = vec2(textureSize(s_HistoryOutput, 0));
+    const vec2  pixel_center  = vec2(frag_coord) + vec2(0.5);
+    const vec2  tex_coord     = pixel_center / vec2(imageDim);
 
     vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, u_PushConstants.g_buffer_mip);
     vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, u_PushConstants.g_buffer_mip);
 
-    vec3  normal  = octohedral_to_direction(center_g_buffer_2.xy);
-    vec2  motion  = center_g_buffer_2.zw;
-    float mesh_id = center_g_buffer_3.z;
-    float depth   = center_g_buffer_3.w;
+    vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
+    vec2  current_motion  = center_g_buffer_2.zw;
+    float current_mesh_id = center_g_buffer_3.z;
+    vec3  current_pos = world_position_from_depth(tex_coord, depth);
 
     // +0.5 to account for texel center offset
-    const ivec2 ipos_prev = ivec2(vec2(ipos) + motion.xy * imageDim + vec2(0.5, 0.5));
+    const ivec2 ipos_prev = ivec2(vec2(ipos) + current_motion.xy * imageDim + vec2(0.5, 0.5));
 
     history_visibility = 0.0f;
     history_moments    = vec2(0.0f);
 
     bool       v[4];
-    const vec2 pos_prev  = floor(frag_coord.xy) + motion.xy * imageDim;
+    const vec2 pos_prev  = floor(frag_coord.xy) + current_motion.xy * imageDim;
+    const vec2 history_tex_coord = tex_coord + current_motion.xy;    
     ivec2      offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
 
     // check for all 4 taps of the bilinear filter for validity
@@ -162,14 +220,15 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
     {
         ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
 
-        vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, loc, u_PushConstants.g_buffer_mip);
-        vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, loc, u_PushConstants.g_buffer_mip);
+        vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, loc, u_PushConstants.g_buffer_mip);
+        vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, loc, u_PushConstants.g_buffer_mip);
+        float sample_depth = texelFetch(s_PrevGBufferDepth, loc, u_PushConstants.g_buffer_mip).r;
 
-        vec3  normal_prev  = octohedral_to_direction(sample_g_buffer_2.xy);
-        float mesh_id_prev = sample_g_buffer_3.z;
-        float depth_prev   = sample_g_buffer_3.w;
+        vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
+        float history_mesh_id = sample_g_buffer_3.z;
+        vec3  history_pos = world_position_from_depth(history_tex_coord, sample_depth);
 
-        v[sampleIdx] = is_reprojection_valid(ipos_prev, depth, depth_prev, normal, normal_prev, mesh_id, mesh_id_prev);
+        v[sampleIdx] = is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id);
 
         valid = valid || v[sampleIdx];
     }
@@ -219,14 +278,15 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
             {
                 ivec2 p = ipos_prev + ivec2(xx, yy);
 
-                vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, p, u_PushConstants.g_buffer_mip);
-                vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, p, u_PushConstants.g_buffer_mip);
+                vec4 sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, p, u_PushConstants.g_buffer_mip);
+                vec4 sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, p, u_PushConstants.g_buffer_mip);
+                float sample_depth = texelFetch(s_PrevGBufferDepth, p, u_PushConstants.g_buffer_mip).r;
 
-                vec3  normal_prev  = octohedral_to_direction(sample_g_buffer_2.xy);
-                float mesh_id_prev = sample_g_buffer_3.z;
-                float depth_prev   = sample_g_buffer_3.w;
-
-                if (is_reprojection_valid(ipos_prev, depth, depth_prev, normal, normal_prev, mesh_id, mesh_id_prev))
+                vec3  history_normal = octohedral_to_direction(sample_g_buffer_2.xy);
+                float history_mesh_id = sample_g_buffer_3.z;
+                vec3  history_pos = world_position_from_depth(history_tex_coord, sample_depth);
+  
+                if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id))
                 {
                     history_visibility += texelFetch(s_HistoryOutput, p, 0).r;
                     history_moments += texelFetch(s_HistoryMoments, p, 0).rg;
@@ -254,25 +314,6 @@ bool load_prev_data(ivec2 frag_coord, out float history_visibility, out vec2 his
     return valid;
 }
 
-// ------------------------------------------------------------------------
-
-vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
-{
-    // Take texture coordinate and remap to [-1.0, 1.0] range.
-    vec2 screen_pos = tex_coords * 2.0 - 1.0;
-
-    // // Create NDC position.
-    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
-
-    // Transform back into world position.
-    vec4 world_pos = u_GlobalUBO.view_proj_inverse * ndc_pos;
-
-    // Undo projection.
-    world_pos = world_pos / world_pos.w;
-
-    return world_pos.xyz;
-}
-
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
@@ -281,8 +322,6 @@ void main()
 {
     const ivec2 size          = textureSize(s_HistoryOutput, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
-    const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
-    const vec2  tex_coord     = pixel_center / vec2(size);
 
     float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
@@ -293,77 +332,54 @@ void main()
         return;
     }
 
-//    float visibility = texelFetch(s_Input, current_coord, 0).r;
-//
-//    float history_length;
-//    float history_visibility;
-//    vec2  history_moments;
-//    bool  success  = load_prev_data(current_coord,
-//                                  history_visibility,
-//                                  history_moments,
-//                                  history_length);
-//    history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
-//
-//    if (success)
-//    {
-//        float mean             = neighborhood_mean(current_coord);
-//        float spatial_variance = mean;
-//        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
-//
-//        // Compute the clamping bounding box
-//        const float std_deviation = sqrt(spatial_variance);
-//        const float nmin          = mean - 0.5f * std_deviation;
-//        const float nmax          = mean + 0.5f * std_deviation;
-//
-//        history_visibility = clamp(history_visibility, nmin, nmax);
-//    }
-//
-//    // this adjusts the alpha for the case where insufficient history is available.
-//    // It boosts the temporal accumulation to give the samples equal weights in
-//    // the beginning.
-//    const float alpha         = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
-//    const float alpha_moments = success ? max(u_PushConstants.moments_alpha, 1.0 / history_length) : 1.0;
-//
-//    // compute first two moments of luminance
-//    vec2 moments = vec2(0.0f);
-//    moments.r    = visibility;
-//    moments.g    = moments.r * moments.r;
-//
-//    // temporal integration of the moments
-//    moments = mix(history_moments, moments, alpha_moments);
-//
-//    imageStore(i_Moments, current_coord, vec4(moments, history_length, 0.0f));
-//
-//    float variance = max(0.0f, moments.g - moments.r * moments.r);
-//
-//    float accumulated_visibility = mix(history_visibility, visibility, alpha);
-//
-//    // temporal integration
-//    imageStore(i_Output, current_coord, vec4(accumulated_visibility, variance, 0.0f, 0.0f));
+    float visibility = texelFetch(s_Input, current_coord, 0).r;
 
-    vec4 current_g_buffer_2 = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip);
-    vec4 current_g_buffer_3 = texelFetch(s_GBuffer3, current_coord, u_PushConstants.g_buffer_mip);
+    float history_length;
+    float history_visibility;
+    vec2  history_moments;
+    bool  success  = load_prev_data(current_coord,
+                                    depth,
+                                  history_visibility,
+                                  history_moments,
+                                  history_length);
+    history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
 
-    vec3 current_pos = world_position_from_depth(tex_coord, depth);
-    vec3 current_normal  = octohedral_to_direction(current_g_buffer_2.xy);
-    vec2  current_motion  = current_g_buffer_2.zw;
-    float current_mesh_id = current_g_buffer_3.z;
+    if (success)
+    {
+        float mean             = neighborhood_mean(current_coord);
+        float spatial_variance = mean;
+        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
 
-    const ivec2 prev_current_coord = ivec2(vec2(current_coord) + current_motion.xy * size + vec2(0.5f));
+        // Compute the clamping bounding box
+        const float std_deviation = sqrt(spatial_variance);
+        const float nmin          = mean - 0.5f * std_deviation;
+        const float nmax          = mean + 0.5f * std_deviation;
 
-    vec4  history_g_buffer_2 = texelFetch(s_PrevGBuffer2, prev_current_coord, u_PushConstants.g_buffer_mip);
-    vec4  history_g_buffer_3 = texelFetch(s_PrevGBuffer3, prev_current_coord, u_PushConstants.g_buffer_mip);
+        history_visibility = clamp(history_visibility, nmin, nmax);
+    }
 
-    vec2 history_tex_coord = tex_coord + current_motion.xy;
-    float history_depth = texelFetch(s_PrevGBufferDepth, prev_current_coord, u_PushConstants.g_buffer_mip).r;
-    vec3  history_pos = world_position_from_depth(history_tex_coord, history_depth);
-    vec3  history_normal  = octohedral_to_direction(history_g_buffer_2.xy);
-    vec2  history_motion  = history_g_buffer_2.zw;
-    float history_mesh_id = history_g_buffer_3.z;
+    // this adjusts the alpha for the case where insufficient history is available.
+    // It boosts the temporal accumulation to give the samples equal weights in
+    // the beginning.
+    const float alpha         = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
+    const float alpha_moments = success ? max(u_PushConstants.moments_alpha, 1.0 / history_length) : 1.0;
 
-    bool depth_disocclusion = plane_distance_disocclusion(current_pos, history_pos, current_normal, history_normal); 
+    // compute first two moments of luminance
+    vec2 moments = vec2(0.0f);
+    moments.r    = visibility;
+    moments.g    = moments.r * moments.r;
 
-    imageStore(i_Output, current_coord, vec4(vec3(depth_disocclusion ? 0.0f : 1.0f), 0.0f));
+    // temporal integration of the moments
+    moments = mix(history_moments, moments, alpha_moments);
+
+    imageStore(i_Moments, current_coord, vec4(moments, history_length, 0.0f));
+
+    float variance = max(0.0f, moments.g - moments.r * moments.r);
+
+    float accumulated_visibility = mix(history_visibility, visibility, alpha);
+
+    // temporal integration
+    imageStore(i_Output, current_coord, vec4(accumulated_visibility, variance, 0.0f, 0.0f));
 }
 
 // ------------------------------------------------------------------

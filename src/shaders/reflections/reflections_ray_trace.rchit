@@ -43,6 +43,7 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     mat4  prev_view_proj;
     mat4  view_proj;
     vec4  cam_pos;
+    vec4  current_prev_jitter;
     Light light;
 }
 ubo;

@@ -78,6 +78,7 @@ private:
     {
         float                        phi_visibility     = 10.0f;
         float                        phi_normal         = 32.0f;
+        float                        sigma_depth        = 1.0f;
         int32_t                      radius             = 1;
         int32_t                      filter_iterations  = 4;
         int32_t                      feedback_iteration = 1;

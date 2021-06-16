@@ -21,8 +21,10 @@ layout(set = 0, binding = 0, rg16f) uniform writeonly image2D i_Output;
 layout(set = 1, binding = 0) uniform sampler2D s_Input;
 
 // Current G-buffer DS
-layout(set = 2, binding = 1) uniform sampler2D s_Normals;
-layout(set = 2, binding = 4) uniform sampler2D s_LinearZ;
+layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
+layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
+layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
+layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -34,6 +36,7 @@ layout(push_constant) uniform PushConstants
     int   step_size;
     float phi_visibility;
     float phi_normal;
+    float sigma_depth;
     int   g_buffer_mip;
 }
 u_PushConstants;
@@ -42,18 +45,7 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-vec3 octohedral_to_direction(uint octo)
-{
-    vec2 e = unpackSnorm2x16(octo);
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0)
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-    return normalize(v);
-}
-
-// ------------------------------------------------------------------------
-
-vec3 octohedral_to_direction_2d(vec2 e)
+vec3 octohedral_to_direction(vec2 e)
 {
     vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
     if (v.z < 0.0)
@@ -94,26 +86,22 @@ float compute_variance_center(ivec2 ipos)
 
 float normal_distance_cos(vec3 n1, vec3 n2, float power)
 {
-    //return pow(max(0.0, dot(n1, n2)), 128.0);
     return pow(clamp(dot(n1, n2), 0.0f, 1.0f), power);
-    //return 1.0f;
 }
 
 // ------------------------------------------------------------------
 
-float compute_weight(float depth_center,
-                     float depth_p,
-                     float phi_depth,
-                     vec3  normal_center,
-                     vec3  normal_p,
-                     float norm_power,
-                     float visibility_center,
-                     float visibility_p,
+float compute_weight(float center_depth,
+                     float sample_depth,
+                     vec3  center_normal,
+                     vec3  sample_normal,
+                     float center_visibility,
+                     float sample_visibility,
                      float phi)
 {
-    const float wNormal = normal_distance_cos(normal_center, normal_p, norm_power);
-    const float wZ      = (phi_depth == 0) ? 0.0f : abs(depth_center - depth_p) / phi_depth;
-    const float wL      = abs(visibility_center - visibility_p) / phi;
+    const float wNormal = normal_distance_cos(center_normal, sample_normal, u_PushConstants.phi_normal);
+    const float wZ      = exp(-abs(center_depth - sample_depth) / u_PushConstants.sigma_depth);
+    const float wL      = abs(center_visibility - sample_visibility) / phi;
 
     const float w = exp(0.0 - max(wL, 0.0) - max(wZ, 0.0)) * wNormal;
 
@@ -126,7 +114,7 @@ float compute_weight(float depth_center,
 
 void main()
 {
-    ivec2       size = textureSize(s_Normals, u_PushConstants.g_buffer_mip);
+    ivec2       size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
     const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
 
     const float eps_variance      = 1e-10;
@@ -134,27 +122,29 @@ void main()
 
     // constant samplers to prevent the compiler from generating code which
     // fetches the sampler descriptor from memory for each texture access
-    const vec2 visibility_center = texelFetch(s_Input, ipos, 0).rg;
+    const vec2 center_visibility = texelFetch(s_Input, ipos, 0).rg;
 
     // variance for direct and indirect, filtered using 3x3 gaussin blur
     const float var = compute_variance_center(ipos);
 
-    vec3 normal_center = octohedral_to_direction_2d(texelFetch(s_Normals, ipos, u_PushConstants.g_buffer_mip).rg);
-    vec2 zCenter       = texelFetch(s_LinearZ, ipos, u_PushConstants.g_buffer_mip).rg;
+    vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, u_PushConstants.g_buffer_mip);
+    vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, u_PushConstants.g_buffer_mip);
 
-    if (zCenter.x < 0)
+    vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
+    float center_depth =  center_g_buffer_3.w;
+
+    if (center_depth < 0)
     {
-        // not a valid depth => must be envmap => do not filter
+        imageStore(i_Output, ipos, vec4(center_visibility, 0.0f, 0.0f));
         return;
     }
 
     const float phi_visibility = u_PushConstants.phi_visibility * sqrt(max(0.0, eps_variance + var.r));
-    const float phi_depth      = max(zCenter.y, 1e-8) * u_PushConstants.step_size;
 
     // explicitly store/accumulate center pixel with weight 1 to prevent issues
     // with the edge-stopping functions
     float sum_w_visibility = 1.0;
-    vec2  sum_visibility   = visibility_center;
+    vec2  sum_visibility   = center_visibility;
 
     for (int yy = -u_PushConstants.radius; yy <= u_PushConstants.radius; yy++)
     {
@@ -166,27 +156,28 @@ void main()
 
             if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
             {
-                const vec2 visibility_p = texelFetch(s_Input, p, 0).rg;
+                const vec2 sample_visibility = texelFetch(s_Input, p, 0).rg;
 
-                vec3 normal_p = octohedral_to_direction_2d(texelFetch(s_Normals, p, u_PushConstants.g_buffer_mip).rg);
-                vec2 zP       = texelFetch(s_LinearZ, p, u_PushConstants.g_buffer_mip).rg;
+                vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, p, u_PushConstants.g_buffer_mip);
+                vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, p, u_PushConstants.g_buffer_mip);
+
+                vec3  sample_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
+                float sample_depth =  sample_g_buffer_3.w;
 
                 // compute the edge-stopping functions
-                const float w = compute_weight(zCenter.x,
-                                               zP.x,
-                                               phi_depth * length(vec2(xx, yy)),
-                                               normal_center,
-                                               normal_p,
-                                               u_PushConstants.phi_normal,
-                                               visibility_center.r,
-                                               visibility_p.r,
+                const float w = compute_weight(center_depth,
+                                               sample_depth,
+                                               current_normal,
+                                               sample_normal,
+                                               center_visibility.r,
+                                               sample_visibility.r,
                                                phi_visibility);
 
                 const float w_visibility = w * kernel;
 
                 // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
                 sum_w_visibility += w_visibility;
-                sum_visibility += vec2(w_visibility, w_visibility * w_visibility) * visibility_p;
+                sum_visibility += vec2(w_visibility, w_visibility * w_visibility) * sample_visibility;
             }
         }
     }

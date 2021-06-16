@@ -31,6 +31,7 @@ struct ATrousFilterPushConstants
     int     step_size;
     float   phi_visibility;
     float   phi_normal;
+    float   sigma_depth;
     int32_t g_buffer_mip;
 };
 
@@ -88,7 +89,7 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     if (m_denoise)
     {
         temporal_accumulation(cmd_buf);
-        //a_trous_filter(cmd_buf);
+        a_trous_filter(cmd_buf);
     }
 }
 
@@ -102,25 +103,24 @@ void RayTracedShadows::gui()
     ImGui::InputFloat("Alpha Moments", &m_temporal_accumulation.moments_alpha);
     ImGui::InputFloat("Phi Visibility", &m_a_trous.phi_visibility);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
+    ImGui::InputFloat("Sigma Depth", &m_a_trous.sigma_depth);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
 {
-    //if (m_denoise)
-    //{
-    //    if (m_current_output == OUTPUT_RAY_TRACE)
-    //        return m_ray_trace.read_ds;
-    //    else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
-    //        return m_temporal_accumulation.output_only_read_ds;
-    //    else
-    //        return m_a_trous.read_ds[m_a_trous.read_idx];
-    //}
-    //else
-    //    return m_ray_trace.read_ds;
-
-    return m_temporal_accumulation.output_only_read_ds;
+    if (m_denoise)
+    {
+        if (m_current_output == OUTPUT_RAY_TRACE)
+            return m_ray_trace.read_ds;
+        else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
+            return m_temporal_accumulation.output_only_read_ds;
+        else
+            return m_a_trous.read_ds[m_a_trous.read_idx];
+    }
+    else
+        return m_ray_trace.read_ds;
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -630,7 +630,7 @@ void RayTracedShadows::create_pipelines()
         comp_desc.set_pipeline_layout(m_a_trous.pipeline_layout);
         comp_desc.set_shader_stage(module, "main");
 
-        //m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 }
 
@@ -856,6 +856,7 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.step_size      = 1 << i;
         push_constants.phi_visibility = m_a_trous.phi_visibility;
         push_constants.phi_normal     = m_a_trous.phi_normal;
+        push_constants.sigma_depth    = m_a_trous.sigma_depth;
         push_constants.g_buffer_mip   = m_g_buffer_mip;
 
         vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -863,7 +864,7 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
         VkDescriptorSet descriptor_sets[] = {
             m_a_trous.write_ds[write_idx]->handle(),
             i == 0 ? m_temporal_accumulation.output_only_read_ds->handle() : m_a_trous.read_ds[read_idx]->handle(),
-            m_g_buffer->history_ds()->handle()
+            m_g_buffer->output_ds()->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);

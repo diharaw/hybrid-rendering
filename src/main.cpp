@@ -153,6 +153,8 @@ struct UBO
     DW_ALIGNED(16)
     glm::vec4 cam_pos;
     DW_ALIGNED(16)
+    glm::vec4 current_prev_jitter;
+    DW_ALIGNED(16)
     Light light;
 };
 
@@ -700,7 +702,7 @@ private:
             attachments[1].format         = m_vk_backend->swap_chain_depth_format();
             attachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
             attachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
             attachments[1].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             attachments[1].initialLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -2116,7 +2118,7 @@ private:
 
         DeferredShadingPushConstants push_constants;
 
-        push_constants.shadows     = 0; //(float)m_rt_shadows_enabled;
+        push_constants.shadows     = (float)m_rt_shadows_enabled;
         push_constants.ao          = 0; //(float)m_rtao_enabled;
         push_constants.reflections = 0; //(float)m_rt_reflections_enabled;
         push_constants.gi          = 0; //(float)m_rtgi_enabled;
@@ -2128,11 +2130,11 @@ private:
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
             m_common_resources->rtgi_read_ds->handle(),
-            m_common_resources->rtgi_read_ds->handle(),
+            m_ray_traced_shadows->output_ds()->handle(),
             m_common_resources->rtgi_read_ds->handle(),
             m_common_resources->rtgi_read_ds->handle(),
             /*m_ray_traced_ao->output_ds()->handle(),
-            m_ray_traced_shadows->output_ds()->handle(),
+            
             m_ray_traced_reflections->output_ds()->handle(),
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),*/
             m_common_resources->per_frame_ds->handle(),
@@ -2328,6 +2330,7 @@ private:
         m_ubo_data.view_proj_inverse = glm::inverse(m_ubo_data.view_proj);
         m_ubo_data.prev_view_proj    = m_common_resources->first_frame ? m_main_camera->m_prev_view_projection : current_jitter * m_main_camera->m_prev_view_projection;
         m_ubo_data.cam_pos           = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
+        m_ubo_data.current_prev_jitter = glm::vec4(m_current_jitter, m_prev_jitter);
 
         set_light_radius(m_ubo_data.light, m_light_radius);
         set_light_direction(m_ubo_data.light, m_light_direction);
