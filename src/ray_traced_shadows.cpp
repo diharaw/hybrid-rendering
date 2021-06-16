@@ -88,7 +88,7 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     if (m_denoise)
     {
         temporal_accumulation(cmd_buf);
-        a_trous_filter(cmd_buf);
+        //a_trous_filter(cmd_buf);
     }
 }
 
@@ -108,17 +108,19 @@ void RayTracedShadows::gui()
 
 dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
 {
-    if (m_denoise)
-    {
-        if (m_current_output == OUTPUT_RAY_TRACE)
-            return m_ray_trace.read_ds;
-        else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
-            return m_temporal_accumulation.output_only_read_ds;
-        else
-            return m_a_trous.read_ds[m_a_trous.read_idx];
-    }
-    else
-        return m_ray_trace.read_ds;
+    //if (m_denoise)
+    //{
+    //    if (m_current_output == OUTPUT_RAY_TRACE)
+    //        return m_ray_trace.read_ds;
+    //    else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
+    //        return m_temporal_accumulation.output_only_read_ds;
+    //    else
+    //        return m_a_trous.read_ds[m_a_trous.read_idx];
+    //}
+    //else
+    //    return m_ray_trace.read_ds;
+
+    return m_temporal_accumulation.output_only_read_ds;
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -591,6 +593,7 @@ void RayTracedShadows::create_pipelines()
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalAccumulationPushConstants));
 
@@ -627,7 +630,7 @@ void RayTracedShadows::create_pipelines()
         comp_desc.set_pipeline_layout(m_a_trous.pipeline_layout);
         comp_desc.set_shader_stage(module, "main");
 
-        m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+        //m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 }
 
@@ -741,6 +744,8 @@ void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
+    
+    auto backend = m_backend.lock();
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -774,10 +779,13 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->output_ds()->handle(),
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
-        m_temporal_accumulation.prev_read_ds[!m_common_resources->ping_pong]->handle()
+        m_temporal_accumulation.prev_read_ds[!m_common_resources->ping_pong]->handle(),
+        m_common_resources->per_frame_ds->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 
