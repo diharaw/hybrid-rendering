@@ -744,7 +744,7 @@ void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
-    
+
     auto backend = m_backend.lock();
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -807,7 +807,7 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("SVGF A-Trous Filter", cmd_buf);
+    DW_SCOPED_SAMPLE("A-Trous Filter", cmd_buf);
 
     const uint32_t NUM_THREADS = 32;
 

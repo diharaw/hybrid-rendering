@@ -130,8 +130,8 @@ void main()
     vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, u_PushConstants.g_buffer_mip);
     vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, u_PushConstants.g_buffer_mip);
 
-    vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
-    float center_depth =  center_g_buffer_3.w;
+    vec3  current_normal = octohedral_to_direction(center_g_buffer_2.xy);
+    float center_depth   = center_g_buffer_3.w;
 
     if (center_depth < 0)
     {
@@ -161,8 +161,8 @@ void main()
                 vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, p, u_PushConstants.g_buffer_mip);
                 vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, p, u_PushConstants.g_buffer_mip);
 
-                vec3  sample_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
-                float sample_depth =  sample_g_buffer_3.w;
+                vec3  sample_normal = octohedral_to_direction(sample_g_buffer_2.xy);
+                float sample_depth  = sample_g_buffer_3.w;
 
                 // compute the edge-stopping functions
                 const float w = compute_weight(center_depth,

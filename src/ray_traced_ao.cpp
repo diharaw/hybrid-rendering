@@ -727,6 +727,7 @@ void RayTracedAO::create_pipeline()
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalReprojectionPushConstants));
 
@@ -983,6 +984,8 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
 
+    auto backend = m_backend.lock();
+
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
     {
@@ -1012,10 +1015,13 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
         m_temporal_accumulation.output_read_ds[!m_common_resources->ping_pong]->handle(),
-        m_temporal_accumulation.read_ds[!m_common_resources->ping_pong]->handle()
+        m_temporal_accumulation.read_ds[!m_common_resources->ping_pong]->handle(),
+        m_common_resources->per_frame_ds->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
+    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
     const int NUM_THREADS_X = 32;
     const int NUM_THREADS_Y = 32;
