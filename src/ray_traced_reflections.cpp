@@ -34,6 +34,7 @@ struct ATrousFilterPushConstants
     int     step_size;
     float   phi_color;
     float   phi_normal;
+    float   sigma_depth;
     int32_t g_buffer_mip;
 };
 
@@ -106,6 +107,7 @@ void RayTracedReflections::gui()
     ImGui::InputFloat("Alpha Moments", &m_temporal_accumulation.moments_alpha);
     ImGui::InputFloat("Phi Color", &m_a_trous.phi_color);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
+    ImGui::InputFloat("Sigma Depth", &m_a_trous.sigma_depth);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -894,6 +896,7 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.phi_color    = m_a_trous.phi_color;
         push_constants.phi_normal   = m_a_trous.phi_normal;
         push_constants.g_buffer_mip = m_g_buffer_mip;
+        push_constants.sigma_depth  = m_a_trous.sigma_depth;
 
         vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

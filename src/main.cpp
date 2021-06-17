@@ -197,7 +197,7 @@ protected:
         m_g_buffer           = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        //m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
         create_render_passes();
         create_framebuffers();
@@ -277,7 +277,7 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        /*if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+                        if (m_current_visualization == VISUALIZATION_REFLECTIONS)
                         {
                             RayTracedReflections::OutputType type = m_ray_traced_reflections->current_output();
 
@@ -339,7 +339,7 @@ protected:
                             }
 
                             m_ray_traced_ao->set_current_output(type);
-                        }*/
+                        }
 
                         ImGui::InputFloat("Exposure", &m_exposure);
                     }
@@ -351,7 +351,7 @@ protected:
                         ImGui::InputFloat3("Direction", &m_light_direction.x);
                         ImGui::Checkbox("Animation", &m_light_animation);
                     }
-                    /*if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+                    if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("Ray Traced Shadows");
 
@@ -424,7 +424,7 @@ protected:
                         ImGui::Checkbox("Enabled", &m_rtao_enabled);
                         m_ray_traced_ao->gui();
                         ImGui::PopID();
-                    }*/
+                    }
                     if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("TAA");
@@ -462,7 +462,7 @@ protected:
             m_g_buffer->render(cmd_buf);
             m_ray_traced_shadows->render(cmd_buf);
             m_ray_traced_ao->render(cmd_buf);
-            //m_ray_traced_reflections->render(cmd_buf);
+            m_ray_traced_reflections->render(cmd_buf);
 
             {
                 //DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
@@ -2119,8 +2119,8 @@ private:
         DeferredShadingPushConstants push_constants;
 
         push_constants.shadows     = (float)m_rt_shadows_enabled;
-        push_constants.ao          = 0; //(float)m_rtao_enabled;
-        push_constants.reflections = 0; //(float)m_rt_reflections_enabled;
+        push_constants.ao          = (float)m_rtao_enabled;
+        push_constants.reflections = (float)m_rt_reflections_enabled;
         push_constants.gi          = 0; //(float)m_rtgi_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
@@ -2129,13 +2129,13 @@ private:
 
         VkDescriptorSet descriptor_sets[] = {
             m_g_buffer->output_ds()->handle(),
-            m_common_resources->rtgi_read_ds->handle(),
+            m_ray_traced_ao->output_ds()->handle(),
             m_ray_traced_shadows->output_ds()->handle(),
-            m_common_resources->rtgi_read_ds->handle(),
-            m_common_resources->rtgi_read_ds->handle(),
-            /*m_ray_traced_ao->output_ds()->handle(),
-            
             m_ray_traced_reflections->output_ds()->handle(),
+            m_common_resources->rtgi_read_ds->handle(),
+            /*
+            
+            
             m_common_resources->svgf_gi_denoiser->output_ds()->handle(),*/
             m_common_resources->per_frame_ds->handle(),
             m_common_resources->pbr_ds->handle()

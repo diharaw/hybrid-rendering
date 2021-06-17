@@ -146,10 +146,9 @@ void main()
         return;
     }
 
-    vec4  normal_roughness = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip);
-    float roughness        = normal_roughness.a;
+    float roughness        = texelFetch(s_GBuffer3, current_coord, u_PushConstants.g_buffer_mip).r;
     vec3  P                = world_position_from_depth(tex_coord, depth);
-    vec3  N                = octohedral_to_direction(normal_roughness.rg);
+    vec3  N                = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
     vec3  Wo               = normalize(ubo.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
