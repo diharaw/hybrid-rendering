@@ -168,8 +168,8 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float history_length)
 {
-    const ivec2 ipos      = frag_coord;
-    const vec2  image_dim = vec2(textureSize(s_PrevAO, 0));
+    const ivec2 ipos         = frag_coord;
+    const vec2  image_dim    = vec2(textureSize(s_PrevAO, 0));
     const vec2  pixel_center = vec2(frag_coord) + vec2(0.5);
     const vec2  tex_coord    = pixel_center / vec2(image_dim);
 
@@ -187,16 +187,16 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
     prev_ao = 0.0f;
 
     bool       v[4];
-    const vec2 pos_prev  = floor(frag_coord.xy) + current_motion.xy * image_dim;
+    const vec2 pos_prev          = floor(frag_coord.xy) + current_motion.xy * image_dim;
     const vec2 history_tex_coord = tex_coord + current_motion.xy;
-    ivec2      offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
+    ivec2      offset[4]         = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
 
     // check for all 4 taps of the bilinear filter for validity
     bool valid = false;
     for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
     {
-        ivec2 loc        = ivec2(pos_prev) + offset[sampleIdx];
-        
+        ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
+
         vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, loc, G_BUFFER_MIP);
         vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, loc, G_BUFFER_MIP);
         float sample_depth      = texelFetch(s_PrevGBufferDepth, loc, G_BUFFER_MIP).r;
@@ -250,8 +250,8 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
         {
             for (int xx = -radius; xx <= radius; xx++)
             {
-                ivec2 p            = ipos_prev + ivec2(xx, yy);
-                
+                ivec2 p = ipos_prev + ivec2(xx, yy);
+
                 vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, p, G_BUFFER_MIP);
                 vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, p, G_BUFFER_MIP);
                 float sample_depth      = texelFetch(s_PrevGBufferDepth, p, G_BUFFER_MIP).r;
@@ -308,9 +308,9 @@ void main()
     float history_length;
     float prev_ao;
     bool  success  = load_prev_data(current_coord,
-                                    depth,
-                                    prev_ao,
-                                    history_length);
+                                  depth,
+                                  prev_ao,
+                                  history_length);
     history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
 
     // this adjusts the alpha for the case where insufficient history is available.

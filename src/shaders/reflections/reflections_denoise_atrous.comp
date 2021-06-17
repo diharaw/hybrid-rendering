@@ -166,7 +166,7 @@ void main()
             {
                 const vec4  sample_color      = texelFetch(s_Input, p, 0);
                 const float sample_color_luma = luminance(sample_color.rgb);
-                
+
                 vec4 sample_g_buffer_2 = texelFetch(s_GBuffer2, p, u_PushConstants.g_buffer_mip);
                 vec4 sample_g_buffer_3 = texelFetch(s_GBuffer3, p, u_PushConstants.g_buffer_mip);
 
