@@ -117,6 +117,7 @@ private:
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
     RayTraceScale                  m_scale;
+    uint32_t                       m_g_buffer_mip   = 0;
     OutputType                     m_current_output = OUTPUT_UPSAMPLE;
     uint32_t                       m_width;
     uint32_t                       m_height;

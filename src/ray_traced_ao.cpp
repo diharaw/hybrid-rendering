@@ -14,6 +14,7 @@ struct RayTracePushConstants
     float    ray_length;
     float    power;
     float    bias;
+    int32_t  g_buffer_mip;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -21,6 +22,7 @@ struct RayTracePushConstants
 struct TemporalReprojectionPushConstants
 {
     float alpha;
+    int32_t g_buffer_mip;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -31,6 +33,7 @@ struct DisocclusionBlurPushConstants
     float     threshold;
     int32_t   blur_radius;
     uint32_t  enabled;
+    int32_t   g_buffer_mip;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -40,13 +43,14 @@ struct BilateralBlurPushConstants
     glm::vec4  z_buffer_params;
     glm::ivec2 direction;
     int32_t    radius;
+    int32_t    g_buffer_mip;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct UpsamplePushConstants
 {
-    glm::vec4 z_buffer_params;
+    int32_t g_buffer_mip;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -81,6 +85,8 @@ RayTracedAO::RayTracedAO(std::weak_ptr<dw::vk::Backend> backend, CommonResources
     m_width  = vk_backend->swap_chain_extents().width / scale_divisor;
     m_height = vk_backend->swap_chain_extents().height / scale_divisor;
 
+    m_g_buffer_mip = static_cast<uint32_t>(scale);
+
     create_images();
     create_descriptor_sets();
     write_descriptor_sets();
@@ -105,7 +111,9 @@ void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     if (m_denoise)
     {
         denoise(cmd_buf);
-        upsample(cmd_buf);
+
+        if (m_scale != RAY_TRACE_SCALE_FULL_RES)
+            upsample(cmd_buf);
     }
 }
 
@@ -140,7 +148,12 @@ dw::vk::DescriptorSet::Ptr RayTracedAO::output_ds()
         else if (m_current_output == OUTPUT_DISOCCLUSION_BLUR)
             return m_disocclusion_blur.read_ds;
         else
-            return m_upsample.read_ds;
+        {
+            if (m_scale == RAY_TRACE_SCALE_FULL_RES)
+                return m_disocclusion_blur.read_ds;
+            else
+                return m_upsample.read_ds;                
+        }
     }
     else
         return m_ray_trace.read_ds;
@@ -202,7 +215,9 @@ void RayTracedAO::create_images()
 
     // Upsample
     {
-        m_upsample.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width * 2, m_height * 2, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        auto vk_backend = m_backend.lock();
+
+        m_upsample.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, vk_backend->swap_chain_extents().width, vk_backend->swap_chain_extents().height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_upsample.image->set_name("AO Upsample");
 
         m_upsample.image_view = dw::vk::ImageView::create(backend, m_upsample.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -895,6 +910,7 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     push_constants.ray_length = m_ray_trace.ray_length;
     push_constants.power      = m_ray_trace.power;
     push_constants.bias       = m_ray_trace.bias;
+    push_constants.g_buffer_mip = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -953,7 +969,7 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     UpsamplePushConstants push_constants;
 
-    push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+    push_constants.g_buffer_mip = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_upsample.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1006,6 +1022,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
     TemporalReprojectionPushConstants push_constants;
 
     push_constants.alpha = m_temporal_accumulation.alpha;
+    push_constants.g_buffer_mip = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1065,6 +1082,7 @@ void RayTracedAO::disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
     push_constants.enabled         = (uint32_t)m_disocclusion_blur.enabled;
     push_constants.blur_radius     = m_disocclusion_blur.blur_radius;
     push_constants.threshold       = (float)m_disocclusion_blur.threshold;
+    push_constants.g_buffer_mip    = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_disocclusion_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1094,7 +1112,7 @@ void RayTracedAO::disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("Disocclusion Blur", cmd_buf);
+    DW_SCOPED_SAMPLE("Bilateral Blur", cmd_buf);
 
     const int NUM_THREADS_X = 8;
     const int NUM_THREADS_Y = 8;
@@ -1119,6 +1137,7 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(1, 0);
         push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.g_buffer_mip    = m_g_buffer_mip;
 
         vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1159,6 +1178,7 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.z_buffer_params = m_common_resources->z_buffer_params;
         push_constants.direction       = glm::ivec2(0, 1);
         push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.g_buffer_mip    = m_g_buffer_mip;
 
         vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

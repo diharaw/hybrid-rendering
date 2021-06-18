@@ -10,7 +10,6 @@
 
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
-#define G_BUFFER_MIP 1
 #define NORMAL_DISTANCE 0.1f
 #define PLANE_DISTANCE 5.0f
 
@@ -68,6 +67,7 @@ u_GlobalUBO;
 layout(push_constant) uniform PushConstants
 {
     float alpha;
+    int g_buffer_mip;
 }
 u_PushConstants;
 
@@ -173,8 +173,8 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
     const vec2  pixel_center = vec2(frag_coord) + vec2(0.5);
     const vec2  tex_coord    = pixel_center / vec2(image_dim);
 
-    vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, G_BUFFER_MIP);
-    vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, G_BUFFER_MIP);
+    vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, u_PushConstants.g_buffer_mip);
+    vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, u_PushConstants.g_buffer_mip);
 
     vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
     vec2  current_motion  = center_g_buffer_2.zw;
@@ -197,9 +197,9 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
     {
         ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
 
-        vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, loc, G_BUFFER_MIP);
-        vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, loc, G_BUFFER_MIP);
-        float sample_depth      = texelFetch(s_PrevGBufferDepth, loc, G_BUFFER_MIP).r;
+        vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, loc, u_PushConstants.g_buffer_mip);
+        vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, loc, u_PushConstants.g_buffer_mip);
+        float sample_depth      = texelFetch(s_PrevGBufferDepth, loc, u_PushConstants.g_buffer_mip).r;
 
         vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
         float history_mesh_id = sample_g_buffer_3.z;
@@ -252,9 +252,9 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
             {
                 ivec2 p = ipos_prev + ivec2(xx, yy);
 
-                vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, p, G_BUFFER_MIP);
-                vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, p, G_BUFFER_MIP);
-                float sample_depth      = texelFetch(s_PrevGBufferDepth, p, G_BUFFER_MIP).r;
+                vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, p, u_PushConstants.g_buffer_mip);
+                vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, p, u_PushConstants.g_buffer_mip);
+                float sample_depth      = texelFetch(s_PrevGBufferDepth, p, u_PushConstants.g_buffer_mip).r;
 
                 vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
                 float history_mesh_id = sample_g_buffer_3.z;
@@ -294,7 +294,7 @@ void main()
     const ivec2 size          = textureSize(s_Input, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
-    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
     if (depth == 1.0f)
     {

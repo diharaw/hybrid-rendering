@@ -6,7 +6,6 @@
 
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
-#define G_BUFFER_MIP_OFFSET 1
 #define MAX_RECONSTRUCTED_MIPS 4.0f
 
 // ------------------------------------------------------------------
@@ -41,6 +40,7 @@ layout(push_constant) uniform PushConstants
     float threshold;
     int   blur_radius;
     uint  enabled;
+    int g_buffer_mip;
 }
 u_PushConstants;
 
@@ -104,8 +104,8 @@ float disocclusion_blur(ivec2 current_coord, float norm_accumulated_frames, floa
         {
             ivec2 sample_coord  = current_coord + ivec2(dx, dy);
             float sample_ao     = texelFetch(s_Input, sample_coord, 0).r;
-            float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, G_BUFFER_MIP_OFFSET).r);
-            vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, G_BUFFER_MIP_OFFSET).rg);
+            float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r);
+            vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
             float weight = depth_edge_stopping_weight(center_depth, sample_depth); // * normal_edge_stopping_weight(center_normal, sample_normal);
 
@@ -132,8 +132,8 @@ void main()
     const vec2  tex_coord     = pixel_center / vec2(size);
 
     // Skip pixel if it belongs to the background
-    const float center_depth  = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP_OFFSET).r;
-    const vec3  center_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP_OFFSET).rg);
+    const float center_depth  = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
+    const vec3  center_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
 
     if (center_depth == 1.0f)
     {

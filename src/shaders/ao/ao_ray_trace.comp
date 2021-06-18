@@ -16,7 +16,6 @@
 
 #define NUM_THREADS_X 32
 #define NUM_THREADS_Y 32
-#define G_BUFFER_MIP 1
 #define SAMPLER_WHITE_NOISE 0
 #define SAMPLER_BLUE_NOISE_DISTRIBUTION 1
 
@@ -64,6 +63,7 @@ layout(push_constant) uniform PushConstants
     float ray_length;
     float power;
     float bias;
+    int g_buffer_mip;
 }
 u_PushConstants;
 
@@ -170,12 +170,12 @@ vec3 octohedral_to_direction(vec2 e)
 
 void main()
 {
-    const ivec2 size          = textureSize(s_GBuffer1, G_BUFFER_MIP);
+    const ivec2 size          = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
-    float depth = texelFetch(s_GBufferDepth, current_coord, G_BUFFER_MIP).r;
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
     if (depth == 1.0f)
     {
@@ -184,7 +184,7 @@ void main()
     }
 
     vec3 world_pos  = world_position_from_depth(tex_coord, depth);
-    vec3 normal     = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, G_BUFFER_MIP).rg);
+    vec3 normal     = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
     vec3 ray_origin = world_pos + normal * u_PushConstants.bias;
 
     float ao = 0.0f;

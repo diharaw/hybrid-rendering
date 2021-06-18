@@ -100,8 +100,8 @@ void main()
 
     vec3  hi_res_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, 0).rg);
 
-    float upsampled = 0.0f;
-    float total_w   = 0.0f;
+    vec4 upsampled = 0.0f;
+    float total_w  = 0.0f;
 
     for (int i = 0; i < 4; i++)
     {
@@ -118,14 +118,14 @@ void main()
         float w_normal = normal_edge_stopping_weight(hi_res_normal, coarse_normal);
         float w        = w_depth * w_normal;
 
-        upsampled += textureLod(s_Input, coarse_tex_coord, 0).r * w;
+        upsampled += textureLod(s_Input, coarse_tex_coord, 0) * w;
         total_w += w;
     }
 
     upsampled = upsampled / max(total_w, FLT_EPS);
 
     // Store
-    imageStore(i_Output, current_coord, vec4(upsampled));
+    imageStore(i_Output, current_coord, upsampled);
 }
 
 // ------------------------------------------------------------------

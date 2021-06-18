@@ -423,6 +423,28 @@ protected:
                     if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("Ray Traced Ambient Occlusion");
+
+                        RayTraceScale scale = m_ray_traced_ao->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ray_traced_ao.reset();
+                                    m_ray_traced_ao = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
                         ImGui::Checkbox("Enabled", &m_rtao_enabled);
                         m_ray_traced_ao->gui();
                         ImGui::PopID();
