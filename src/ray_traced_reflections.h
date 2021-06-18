@@ -60,19 +60,20 @@ private:
     {
         float                            alpha         = 0.01f;
         float                            moments_alpha = 0.2f;
+        bool                             blur_as_input = false;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
-        dw::vk::Image::Ptr               current_output_image;
+        dw::vk::Image::Ptr               current_output_image[2];
         dw::vk::Image::Ptr               current_moments_image[2];
         dw::vk::Image::Ptr               prev_image;
-        dw::vk::ImageView::Ptr           current_output_view;
+        dw::vk::ImageView::Ptr           current_output_view[2];
         dw::vk::ImageView::Ptr           current_moments_view[2];
         dw::vk::ImageView::Ptr           prev_view;
         dw::vk::DescriptorSet::Ptr       current_write_ds[2];
         dw::vk::DescriptorSet::Ptr       current_read_ds[2];
-        dw::vk::DescriptorSet::Ptr       output_only_read_ds;
+        dw::vk::DescriptorSet::Ptr       output_only_read_ds[2];
         dw::vk::DescriptorSet::Ptr       prev_read_ds[2];
     };
 

@@ -84,7 +84,7 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     clear_values[2].color.float32[0] = 0.0f;
     clear_values[2].color.float32[1] = 0.0f;
     clear_values[2].color.float32[2] = 0.0f;
-    clear_values[2].color.float32[3] = 0.0f;
+    clear_values[2].color.float32[3] = -1.0f;
 
     clear_values[3].depthStencil.depth = 1.0f;
 

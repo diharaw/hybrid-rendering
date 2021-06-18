@@ -120,7 +120,7 @@ bool normals_disocclusion_check(vec3 current_normal, vec3 history_normal)
 
 // ------------------------------------------------------------------------
 
-bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3 current_normal, vec3 history_normal, float current_mesh_id, float history_mesh_id)
+bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3 current_normal, vec3 history_normal, float current_mesh_id, float history_mesh_id, float depth)
 {
     // check if the history sample is within the frame
     if (out_of_frame_disocclusion_check(coord)) return false;
@@ -133,6 +133,9 @@ bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3
 
     // check normals for compatibility
     if (normals_disocclusion_check(current_normal, history_normal)) return false;
+
+    // check if sample belongs to the skybox
+    if (depth == -1) return false;
 
     return true;
 }
@@ -175,11 +178,9 @@ vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
 
 // ------------------------------------------------------------------
 
-vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float ray_length)
+vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float depth, float ray_length)
 {
-    const vec2 pixel_center = vec2(current_coord) + vec2(0.5);
-    const vec2 tex_coord    = pixel_center / vec2(size);
-    float      depth        = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
+    const vec2 tex_coord    = current_coord / vec2(size);
     vec3       ray_origin   = world_position_from_depth(tex_coord, depth);
 
     vec3 camera_ray = ray_origin - u_GlobalUBO.cam_pos.xyz;
@@ -200,14 +201,14 @@ vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float ray_lengt
 
 // ------------------------------------------------------------------------
 
-vec2 compute_history_coord(ivec2 current_coord, ivec2 size, vec2 motion, float curvature, float ray_length)
+vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 motion, float curvature, float ray_length)
 {
     const vec2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
 
     vec2 history_coord = surface_history_coord;
 
     if (ray_length > 0.0f && curvature == 0.0f)
-        history_coord = virtual_point_reprojection(current_coord, size, ray_length);
+       history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length);
 
     return history_coord;
 }
@@ -306,7 +307,7 @@ bool load_prev_data(ivec2 frag_coord, vec2 history_coord, vec2 history_tex_coord
         float history_mesh_id = sample_g_buffer_3.z;
         vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth);
 
-        v[sampleIdx] = is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id);
+        v[sampleIdx] = is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, sample_depth);
 
         valid = valid || v[sampleIdx];
     }
@@ -364,7 +365,7 @@ bool load_prev_data(ivec2 frag_coord, vec2 history_coord, vec2 history_tex_coord
                 float history_mesh_id = sample_g_buffer_3.z;
                 vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth);
 
-                if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id))
+                if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, sample_depth))
                 {
                     history_color += texelFetch(s_HistoryOutput, p, 0).rgb;
                     history_moments += texelFetch(s_HistoryMoments, p, 0).rg;
@@ -431,7 +432,7 @@ void main()
     const vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, current_coord, u_PushConstants.g_buffer_mip);
 
     const vec2 history_tex_coord = tex_coord + center_g_buffer_2.zw;
-    const vec2 history_coord     = compute_history_coord(current_coord, size, center_g_buffer_2.zw, center_g_buffer_3.g, ray_length);
+    const vec2 history_coord     = compute_history_coord(current_coord, size, depth, center_g_buffer_2.zw, center_g_buffer_3.g, ray_length);
 
     float history_length;
     vec3  history_color;

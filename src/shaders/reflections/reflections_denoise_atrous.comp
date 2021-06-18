@@ -141,9 +141,11 @@ void main()
     vec3  current_normal = octohedral_to_direction(center_g_buffer_2.xy);
     float center_depth   = center_g_buffer_3.w;
 
-    if (center_depth < 0)
+    const float depth = texelFetch(s_GBufferDepth, ipos, u_PushConstants.g_buffer_mip).r;
+
+    if (depth == 1.0f)
     {
-        // not a valid depth => must be envmap => do not filter
+        imageStore(i_Output, ipos, vec4(0.0f));
         return;
     }
 

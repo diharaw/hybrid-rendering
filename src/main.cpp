@@ -376,6 +376,7 @@ protected:
                             ImGui::EndCombo();
                         }
 
+                        ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
                         m_ray_traced_shadows->gui();
 
                         ImGui::PopID();
@@ -405,6 +406,7 @@ protected:
                             ImGui::EndCombo();
                         }
 
+                        ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
                         m_ray_traced_reflections->gui();
 
                         ImGui::PopID();
