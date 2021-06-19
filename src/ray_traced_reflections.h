@@ -11,10 +11,11 @@ public:
     {
         OUTPUT_RAY_TRACE,
         OUTPUT_TEMPORAL_ACCUMULATION,
-        OUTPUT_ATROUS
+        OUTPUT_ATROUS,
+        OUTPUT_UPSAMPLE
     };
 
-    const static int         kNumOutputTypes = 3;
+    const static int         kNumOutputTypes = 4;
     const static OutputType  kOutputTypeEnums[];
     const static std::string kOutputTypeNames[];
 
@@ -41,6 +42,7 @@ private:
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
     void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     struct RayTrace
@@ -94,10 +96,20 @@ private:
         dw::vk::DescriptorSet::Ptr   write_ds[2];
     };
 
+    struct Upsample
+    {
+        dw::vk::PipelineLayout::Ptr  layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       image_view;
+        dw::vk::DescriptorSet::Ptr   read_ds;
+        dw::vk::DescriptorSet::Ptr   write_ds;
+    };
+
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
-    OutputType                     m_current_output = OUTPUT_ATROUS;
+    OutputType                     m_current_output = OUTPUT_UPSAMPLE;
     RayTraceScale                  m_scale;
     uint32_t                       m_g_buffer_mip = 0;
     uint32_t                       m_width;
@@ -107,4 +119,5 @@ private:
     RayTrace                       m_ray_trace;
     TemporalAccumulation           m_temporal_accumulation;
     ATrous                         m_a_trous;
+    Upsample                       m_upsample;
 };

@@ -37,10 +37,18 @@ struct ATrousFilterPushConstants
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+struct UpsamplePushConstants
+{
+    int32_t g_buffer_mip;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 const RayTracedShadows::OutputType RayTracedShadows::kOutputTypeEnums[] = {
     RayTracedShadows::OUTPUT_RAY_TRACE,
     RayTracedShadows::OUTPUT_TEMPORAL_ACCUMULATION,
-    RayTracedShadows::OUTPUT_ATROUS
+    RayTracedShadows::OUTPUT_ATROUS,
+    RayTracedShadows::OUTPUT_UPSAMPLE
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -48,7 +56,8 @@ const RayTracedShadows::OutputType RayTracedShadows::kOutputTypeEnums[] = {
 const std::string RayTracedShadows::kOutputTypeNames[] = {
     "Ray Trace",
     "Temporal Accumulation",
-    "A-Trous"
+    "A-Trous",
+    "Upsample"
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -90,6 +99,9 @@ void RayTracedShadows::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         temporal_accumulation(cmd_buf);
         a_trous_filter(cmd_buf);
+
+        if (m_scale != RAY_TRACE_SCALE_FULL_RES)
+            upsample(cmd_buf);
     }
 }
 
@@ -116,8 +128,15 @@ dw::vk::DescriptorSet::Ptr RayTracedShadows::output_ds()
             return m_ray_trace.read_ds;
         else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
             return m_temporal_accumulation.output_only_read_ds;
-        else
+        else if (m_current_output == OUTPUT_ATROUS)
             return m_a_trous.read_ds[m_a_trous.read_idx];
+        else
+        {
+            if (m_scale == RAY_TRACE_SCALE_FULL_RES)
+                return m_a_trous.read_ds[m_a_trous.read_idx];
+            else
+                return m_upsample.read_ds;
+        }
     }
     else
         return m_ray_trace.read_ds;
@@ -171,6 +190,17 @@ void RayTracedShadows::create_images()
         m_a_trous.view[i] = dw::vk::ImageView::create(backend, m_a_trous.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_a_trous.view[i]->set_name("A-Trous Filter View " + std::to_string(i));
     }
+
+    // Upsample
+    {
+        auto vk_backend = m_backend.lock();
+
+        m_upsample.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, vk_backend->swap_chain_extents().width, vk_backend->swap_chain_extents().height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_upsample.image->set_name("Shadows Upsample");
+
+        m_upsample.image_view = dw::vk::ImageView::create(backend, m_upsample.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_upsample.image_view->set_name("Shadows Upsample");
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -218,6 +248,15 @@ void RayTracedShadows::create_descriptor_sets()
     {
         m_a_trous.read_ds[i]  = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_a_trous.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+    }
+
+    // Upsample
+    {
+        m_upsample.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        m_upsample.write_ds->set_name("Shadows Upsample Write");
+
+        m_upsample.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_upsample.read_ds->set_name("Shadows Upsample Read");
     }
 }
 
@@ -551,6 +590,53 @@ void RayTracedShadows::write_descriptor_sets()
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
+
+    // Upsample
+    {
+        // write
+        {
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_upsample.image_view->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkWriteDescriptorSet write_data;
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &storage_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_upsample.write_ds->handle();
+
+            vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+        }
+
+        // read
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_upsample.image_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet write_data;
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &sampler_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_upsample.read_ds->handle();
+
+            vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -631,6 +717,29 @@ void RayTracedShadows::create_pipelines()
         comp_desc.set_shader_stage(module, "main");
 
         m_a_trous.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+    }
+
+    // Upsample
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(UpsamplePushConstants));
+
+        m_upsample.layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_upsample.layout->set_name("Shadows Upsample Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_upsample.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_upsample.layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_upsample.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 }
 
@@ -935,6 +1044,50 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
     };
 
     pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void RayTracedShadows::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Upsample", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_upsample.image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.pipeline->handle());
+
+    UpsamplePushConstants push_constants;
+
+    push_constants.g_buffer_mip = m_g_buffer_mip;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_upsample.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_upsample.write_ds->handle(),
+        m_a_trous.read_ds[m_a_trous.read_idx]->handle(),
+        m_g_buffer->output_ds()->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_upsample.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_upsample.image->height()) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_upsample.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
