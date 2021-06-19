@@ -175,21 +175,19 @@ void RayTracedAO::create_images()
     }
 
     // Temporal Reprojection
+    for (int i = 0; i < 2; i++)
     {
-        for (int i = 0; i < 2; i++)
-        {
-            m_temporal_accumulation.color_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-            m_temporal_accumulation.color_image[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
+        m_temporal_accumulation.color_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_temporal_accumulation.color_image[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
 
-            m_temporal_accumulation.color_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-            m_temporal_accumulation.color_view[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
+        m_temporal_accumulation.color_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_temporal_accumulation.color_view[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
 
-            m_temporal_accumulation.history_length_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-            m_temporal_accumulation.history_length_image[i]->set_name("AO Denoise Reprojection History " + std::to_string(i));
+        m_temporal_accumulation.history_length_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_temporal_accumulation.history_length_image[i]->set_name("AO Denoise Reprojection History " + std::to_string(i));
 
-            m_temporal_accumulation.history_length_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.history_length_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-            m_temporal_accumulation.history_length_view[i]->set_name("AO Denoise Reprojection History " + std::to_string(i));
-        }
+        m_temporal_accumulation.history_length_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.history_length_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_temporal_accumulation.history_length_view[i]->set_name("AO Denoise Reprojection History " + std::to_string(i));
     }
 
     // Disocclusion Blur
@@ -202,15 +200,13 @@ void RayTracedAO::create_images()
     }
 
     // Bilateral Blur
+    for (int i = 0; i < 2; i++)
     {
-        for (int i = 0; i < 2; i++)
-        {
-            m_bilateral_blur.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-            m_bilateral_blur.image[i]->set_name("AO Denoise Blur " + std::to_string(i));
+        m_bilateral_blur.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_bilateral_blur.image[i]->set_name("AO Denoise Blur " + std::to_string(i));
 
-            m_bilateral_blur.image_view[i] = dw::vk::ImageView::create(backend, m_bilateral_blur.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-            m_bilateral_blur.image_view[i]->set_name("AO Denoise Blur " + std::to_string(i));
-        }
+        m_bilateral_blur.image_view[i] = dw::vk::ImageView::create(backend, m_bilateral_blur.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_bilateral_blur.image_view[i]->set_name("AO Denoise Blur " + std::to_string(i));
     }
 
     // Upsample
