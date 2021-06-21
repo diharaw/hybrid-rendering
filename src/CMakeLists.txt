@@ -78,7 +78,9 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_ray_trace.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_atrous.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_upsample.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_upsample.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_probe_visualization.vert
+                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_probe_visualization.frag)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})

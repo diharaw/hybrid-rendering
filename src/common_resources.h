@@ -13,6 +13,7 @@
 #include "blue_noise.h"
 
 class SVGFDenoiser;
+
 enum RayTraceScale
 {
     RAY_TRACE_SCALE_FULL_RES,

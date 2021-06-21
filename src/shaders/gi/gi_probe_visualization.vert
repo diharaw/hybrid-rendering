@@ -1,0 +1,88 @@
+#version 460
+
+// ------------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(location = 0) in vec3 VS_IN_Position;
+layout(location = 1) in vec2 VS_IN_Texcoord;
+layout(location = 2) in vec3 VS_IN_Normal;
+layout(location = 3) in vec3 VS_IN_Tangent;
+layout(location = 4) in vec3 VS_IN_Bitangent;
+
+// ------------------------------------------------------------------------
+// OUTPUTS ----------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(location = 0) out vec3 FS_IN_FragPos;
+layout(location = 1) out vec3 FS_IN_Normal;
+
+out gl_PerVertex
+{
+    vec4 gl_Position;
+};
+
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    vec3  grid_start_position;
+    vec3  grid_step;
+    ivec3 probe_counts;
+    float scale;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------------
+// FUNCTION ---------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+vec3 grid_coord_to_position(ivec3 c) 
+{
+    return u_PushConstants.grid_step * vec3(c) + u_PushConstants.grid_start_position;
+}
+
+// ------------------------------------------------------------------------
+
+ivec3 probe_index_to_grid_coord(int index) 
+{
+    ivec3 i_pos;
+    // Slow, but works for any # of probes
+    /*
+    i_pos.x = index % probe_counts.x;
+    i_pos.y = (index % (probe_counts.x * probe_counts.y)) / probe_counts.x;
+    i_pos.z = index / (probe_counts.x * probe_counts.y);
+    */
+
+    // Assumes probeCounts are powers of two.
+    // Saves ~10ms compared to the divisions above
+    // Precomputing the MSB actually slows this code down substantially
+    i_pos.x = index & (probe_counts.x - 1);
+    i_pos.y = (index & ((probe_counts.x * probe_counts.y) - 1)) >> findMSB(probe_counts.x);
+    i_pos.z = index >> findMSB(probe_counts.x * probe_counts.y);
+
+    return i_pos;
+}
+
+// ------------------------------------------------------------------------
+// MAIN -------------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+void main()
+{
+    // Compute grid coord from instance ID.
+    ivec3 grid_coord = probe_index_to_grid_coord(gl_InstanceID);
+
+    // Compute probe position from grid coord.
+    vec3 probe_position = grid_coord_to_position(grid_coord);
+
+    // Scale and offset the vertex position.
+    gl_Position = vec4(VS_IN_Position * u_PushConstants.scale + probe_position, 1.0f);
+
+    // Pass normal into the fragment shader.
+    FS_IN_Normal = VS_IN_Normal;
+}
+
+// ------------------------------------------------------------------------
