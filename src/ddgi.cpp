@@ -9,25 +9,14 @@
 
 struct VisualizeProbeGridPushConstants
 {
+    DW_ALIGNED(16)
     glm::vec3  grid_start_position;
+    DW_ALIGNED(16)
     glm::vec3  grid_step;
+    DW_ALIGNED(16)
     glm::ivec3 probe_counts;
     float      scale;
 };
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
-uint32_t upper_power_of_two(uint32_t v)
-{
-    v--;
-    v |= v >> 1;
-    v |= v >> 2;
-    v |= v >> 4;
-    v |= v >> 8;
-    v |= v >> 16;
-    v++;
-    return v;
-}
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
@@ -60,36 +49,56 @@ void DDGI::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
-    DW_SCOPED_SAMPLE("DDGI Visualize Probe Grid", cmd_buf);
+    if (m_visualize_probe_grid.enabled)
+    {
+        DW_SCOPED_SAMPLE("DDGI Visualize Probe Grid", cmd_buf);
 
-    const auto& submeshes = m_visualize_probe_grid.sphere_mesh->sub_meshes();
+        auto        vk_backend = m_backend.lock();
 
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &m_visualize_probe_grid.sphere_mesh->vertex_buffer()->handle(), &offset);
-    vkCmdBindIndexBuffer(cmd_buf->handle(), m_visualize_probe_grid.sphere_mesh->index_buffer()->handle(), 0, VK_INDEX_TYPE_UINT32);
+        const auto& submeshes = m_visualize_probe_grid.sphere_mesh->sub_meshes();
 
-    auto& submesh = submeshes[0];
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_visualize_probe_grid.pipeline->handle());
 
-    VisualizeProbeGridPushConstants push_constants;
+        const uint32_t dynamic_offset = m_common_resources->ubo_size * vk_backend->current_frame_idx();
 
-    push_constants.grid_start_position = m_grid_start_position;
-    push_constants.grid_step           = glm::vec3(m_probe_distance);
-    push_constants.probe_counts        = m_probe_counts;
-    push_constants.scale               = m_scale;
+        VkDescriptorSet descriptor_sets[] = {
+            m_common_resources->per_frame_ds->handle()
+        };
 
-    vkCmdPushConstants(cmd_buf->handle(), m_visualize_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_visualize_probe_grid.pipeline_layout->handle(), 0, 1, descriptor_sets, 1, &dynamic_offset);
 
-    uint32_t probe_count = m_probe_counts.x * m_probe_counts.y * m_probe_counts.z;
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &m_visualize_probe_grid.sphere_mesh->vertex_buffer()->handle(), &offset);
+        vkCmdBindIndexBuffer(cmd_buf->handle(), m_visualize_probe_grid.sphere_mesh->index_buffer()->handle(), 0, VK_INDEX_TYPE_UINT32);
 
-    // Issue draw call.
-    vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, probe_count, submesh.base_index, submesh.base_vertex, 0);
+        auto& submesh = submeshes[0];
+
+        VisualizeProbeGridPushConstants push_constants;
+
+        push_constants.grid_start_position = m_grid_start_position;
+        push_constants.grid_step           = glm::vec3(m_probe_distance);
+        push_constants.probe_counts        = m_probe_counts;
+        push_constants.scale               = m_visualize_probe_grid.scale;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_visualize_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
+
+        uint32_t probe_count = m_probe_counts.x * m_probe_counts.y * m_probe_counts.z;
+
+        // Issue draw call.
+        vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, probe_count, submesh.base_index, submesh.base_vertex, 0);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 void DDGI::gui()
 {
-    ImGui::InputFloat("Probe Distance", &m_probe_distance);
+    ImGui::Text("Grid Size: [%i, %i, %i]", m_probe_counts.x, m_probe_counts.y, m_probe_counts.z);
+    ImGui::Text("Probe Count: %i", m_probe_counts.x * m_probe_counts.y * m_probe_counts.z);
+    ImGui::Checkbox("Visualize Probe Grid", &m_visualize_probe_grid.enabled);
+    ImGui::InputFloat("Scale", &m_visualize_probe_grid.scale);
+    if (ImGui::InputFloat("Probe Distance", &m_probe_distance))
+        initialize_probe_grid();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -120,17 +129,11 @@ void DDGI::initialize_probe_grid()
 
     // Compute the number of probes along each axis.
     // Add 2 more probes to fully cover scene.
-    glm::ivec3 probe_counts = glm::ivec3(scene_length / m_probe_distance) + glm::ivec3(2);
+    m_probe_counts        = glm::ivec3(scene_length / m_probe_distance) + glm::ivec3(2);
+    m_grid_start_position = min_extents;
 
-    // Round up the probe count to the next power of 2 value.
-    m_probe_counts = glm::ivec3(upper_power_of_two(probe_counts.x), upper_power_of_two(probe_counts.y), upper_power_of_two(probe_counts.z));
-
-    // Compute the scale of the actual rounded up probe grid compared to the scene length.
-    glm::vec3 adjusted_scene_length = glm::vec3(m_probe_counts - glm::ivec3(1)) * m_probe_distance;
-    glm::vec3 adjusted_scale        = adjusted_scene_length / scene_length;
-
-    // Use the scale to find the grid start position
-    m_grid_start_position = min_extents * adjusted_scale;
+    // Assign current scene ID
+    m_last_scene_id = m_common_resources->current_scene->id();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -234,8 +237,6 @@ void DDGI::create_pipeline()
     blend_state.set_logic_op_enable(VK_FALSE)
         .set_logic_op(VK_LOGIC_OP_COPY)
         .set_blend_constants(0.0f, 0.0f, 0.0f, 0.0f)
-        .add_attachment(blend_att_desc)
-        .add_attachment(blend_att_desc)
         .add_attachment(blend_att_desc);
 
     pso_desc.set_color_blend_state(blend_state);
@@ -246,7 +247,8 @@ void DDGI::create_pipeline()
 
     dw::vk::PipelineLayout::Desc pl_desc;
 
-    pl_desc.add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VisualizeProbeGridPushConstants));
+    pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout)
+        .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VisualizeProbeGridPushConstants));
 
     m_visualize_probe_grid.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, pl_desc);
 

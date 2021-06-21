@@ -1,5 +1,9 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive : require
+
+#include "../common.glsl"
+
 // ------------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -21,6 +25,23 @@ out gl_PerVertex
 {
     vec4 gl_Position;
 };
+
+// ------------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(set = 0, binding = 0) uniform PerFrameUBO
+{
+    mat4  view_inverse;
+    mat4  proj_inverse;
+    mat4  view_proj_inverse;
+    mat4  prev_view_proj;
+    mat4  view_proj;
+    vec4  cam_pos;
+    vec4  current_prev_jitter;
+    Light light;
+}
+u_GlobalUBO;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -50,18 +71,16 @@ ivec3 probe_index_to_grid_coord(int index)
 {
     ivec3 i_pos;
     // Slow, but works for any # of probes
-    /*
-    i_pos.x = index % probe_counts.x;
-    i_pos.y = (index % (probe_counts.x * probe_counts.y)) / probe_counts.x;
-    i_pos.z = index / (probe_counts.x * probe_counts.y);
-    */
-
+    i_pos.x = index % u_PushConstants.probe_counts.x;
+    i_pos.y = (index % (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y)) / u_PushConstants.probe_counts.x;
+    i_pos.z = index / (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
+    
     // Assumes probeCounts are powers of two.
     // Saves ~10ms compared to the divisions above
     // Precomputing the MSB actually slows this code down substantially
-    i_pos.x = index & (probe_counts.x - 1);
-    i_pos.y = (index & ((probe_counts.x * probe_counts.y) - 1)) >> findMSB(probe_counts.x);
-    i_pos.z = index >> findMSB(probe_counts.x * probe_counts.y);
+//    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
+//    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
+//    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
 
     return i_pos;
 }
@@ -73,13 +92,13 @@ ivec3 probe_index_to_grid_coord(int index)
 void main()
 {
     // Compute grid coord from instance ID.
-    ivec3 grid_coord = probe_index_to_grid_coord(gl_InstanceID);
+    ivec3 grid_coord = probe_index_to_grid_coord(gl_InstanceIndex);
 
     // Compute probe position from grid coord.
     vec3 probe_position = grid_coord_to_position(grid_coord);
 
     // Scale and offset the vertex position.
-    gl_Position = vec4(VS_IN_Position * u_PushConstants.scale + probe_position, 1.0f);
+    gl_Position = u_GlobalUBO.view_proj * vec4((VS_IN_Position * u_PushConstants.scale) + probe_position, 1.0f);
 
     // Pass normal into the fragment shader.
     FS_IN_Normal = VS_IN_Normal;

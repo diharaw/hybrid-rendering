@@ -6,6 +6,7 @@
 #include "ray_traced_shadows.h"
 #include "ray_traced_ao.h"
 #include "ray_traced_reflections.h"
+#include "ddgi.h"
 #include "svgf_denoiser.h"
 #include "utilities.h"
 
@@ -193,13 +194,14 @@ protected:
         create_descriptor_set_layouts();
         create_descriptor_sets();
         write_descriptor_sets();
-
+        create_render_passes();
+        
         m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get()));
 
-        create_render_passes();
         create_framebuffers();
         create_deferred_pipeline();
         //create_gi_ray_tracing_pipeline();
@@ -207,8 +209,7 @@ protected:
         create_tone_map_pipeline();
         create_taa_pipeline();
         create_cube();
-
-        //m_common_resources->svgf_gi_denoiser = std::unique_ptr<SVGFDenoiser>(new SVGFDenoiser(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), "SVGF Shadow Denoiser", m_common_resources->rtgi_image->width(), m_common_resources->rtgi_image->height(), 4));
+        set_active_scene();
 
         // Create camera.
         create_camera();
@@ -411,15 +412,21 @@ protected:
 
                         ImGui::PopID();
                     }
-                    if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
+                    if (ImGui::CollapsingHeader("DDGI", ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        ImGui::PushID("Ray Traced Global Illumination");
-                        ImGui::Checkbox("Enabled", &m_rtgi_enabled);
-                        ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
-                        ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
-                        ImGui::SliderInt("Max Bounces", &m_ray_traced_gi_max_ray_bounces, 1, 4);
+                        ImGui::PushID("DDGI");
+                        m_ddgi->gui();
                         ImGui::PopID();
                     }
+                    //if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
+                    //{
+                    //    ImGui::PushID("Ray Traced Global Illumination");
+                    //    ImGui::Checkbox("Enabled", &m_rtgi_enabled);
+                    //    ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
+                    //    ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
+                    //    ImGui::SliderInt("Max Bounces", &m_ray_traced_gi_max_ray_bounces, 1, 4);
+                    //    ImGui::PopID();
+                    //}
                     if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("Ray Traced Ambient Occlusion");
@@ -487,6 +494,7 @@ protected:
             m_ray_traced_shadows->render(cmd_buf);
             m_ray_traced_ao->render(cmd_buf);
             m_ray_traced_reflections->render(cmd_buf);
+            m_ddgi->render(cmd_buf);
 
             {
                 //DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
@@ -522,6 +530,7 @@ protected:
         m_ray_traced_shadows.reset();
         m_ray_traced_ao.reset();
         m_ray_traced_reflections.reset();
+        m_ddgi.reset();
         m_common_resources.reset();
     }
 
@@ -1880,8 +1889,6 @@ private:
             m_common_resources->pica_pica_scene = dw::RayTracedScene::create(m_vk_backend, instances);
         }
 
-        set_active_scene();
-
         return true;
     }
 
@@ -2032,8 +2039,6 @@ private:
 
     void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
-
         VkRenderPassBeginInfo info    = {};
         info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         info.renderPass               = m_common_resources->skybox_rp->handle();
@@ -2065,21 +2070,28 @@ private:
 
         vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
 
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline->handle());
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline_layout->handle(), 0, 1, &m_common_resources->skybox_ds->handle(), 0, nullptr);
+        // Also render the DDGI probe visualization here, if requested.
+        m_ddgi->render_probes(cmd_buf);
 
-        SkyboxPushConstants push_constants;
+        {
+            DW_SCOPED_SAMPLE("Skybox", cmd_buf);
 
-        push_constants.projection = m_projection;
-        push_constants.view       = m_main_camera->m_view;
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline->handle());
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline_layout->handle(), 0, 1, &m_common_resources->skybox_ds->handle(), 0, nullptr);
 
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->skybox_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
+            SkyboxPushConstants push_constants;
 
-        const VkBuffer     buffer = m_common_resources->cube_vbo->handle();
-        const VkDeviceSize size   = 0;
-        vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &buffer, &size);
+            push_constants.projection = m_projection;
+            push_constants.view       = m_main_camera->m_view;
 
-        vkCmdDraw(cmd_buf->handle(), 36, 1, 0, 0);
+            vkCmdPushConstants(cmd_buf->handle(), m_common_resources->skybox_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
+
+            const VkBuffer     buffer = m_common_resources->cube_vbo->handle();
+            const VkDeviceSize size   = 0;
+            vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &buffer, &size);
+
+            vkCmdDraw(cmd_buf->handle(), 36, 1, 0, 0);
+        }
 
         vkCmdEndRenderPass(cmd_buf->handle());
     }
@@ -2453,12 +2465,26 @@ private:
     void set_active_scene()
     {
         if (m_current_scene == SCENE_PILLARS)
+        {
             m_common_resources->current_scene = m_common_resources->pillars_scene;
+            m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->set_probe_visualization_scale(0.5f);
+        }
         else if (m_current_scene == SCENE_SPONZA)
+        {
             m_common_resources->current_scene = m_common_resources->sponza_scene;
+            m_ddgi->set_probe_distance(50.0f);
+            m_ddgi->set_probe_visualization_scale(5.0f);
+        }
         else if (m_current_scene == SCENE_PICA_PICA)
+        {
             m_common_resources->current_scene = m_common_resources->pica_pica_scene;
+            m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->set_probe_visualization_scale(0.5f);
+        }
     }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
 
 private:
     std::unique_ptr<CommonResources>      m_common_resources;
@@ -2466,6 +2492,7 @@ private:
     std::unique_ptr<RayTracedShadows>     m_ray_traced_shadows;
     std::unique_ptr<RayTracedAO>          m_ray_traced_ao;
     std::unique_ptr<RayTracedReflections> m_ray_traced_reflections;
+    std::unique_ptr<DDGI>                 m_ddgi;
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
