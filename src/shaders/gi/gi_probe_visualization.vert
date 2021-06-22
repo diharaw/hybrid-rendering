@@ -70,6 +70,7 @@ vec3 grid_coord_to_position(ivec3 c)
 ivec3 probe_index_to_grid_coord(int index) 
 {
     ivec3 i_pos;
+    
     // Slow, but works for any # of probes
     i_pos.x = index % u_PushConstants.probe_counts.x;
     i_pos.y = (index % (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y)) / u_PushConstants.probe_counts.x;

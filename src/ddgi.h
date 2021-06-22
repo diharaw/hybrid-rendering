@@ -20,9 +20,28 @@ public:
 private:
     void load_sphere_mesh();
     void initialize_probe_grid();
-    void create_pipeline();
+    void create_images();
+    void create_descriptor_sets();
+    void write_descriptor_sets();
+    void create_pipelines();
+    void recreate_probe_grid_resources();
+    void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
+    struct RayTrace
+    {
+        int32_t                         rays_per_probe = 64;
+        dw::vk::DescriptorSet::Ptr      write_ds;
+        dw::vk::DescriptorSet::Ptr      read_ds;
+        dw::vk::RayTracingPipeline::Ptr pipeline;
+        dw::vk::PipelineLayout::Ptr     pipeline_layout;
+        dw::vk::Image::Ptr              radiance_image;
+        dw::vk::Image::Ptr              direction_depth_image;
+        dw::vk::ImageView::Ptr          radiance_view;
+        dw::vk::ImageView::Ptr          direction_depth_view;
+        dw::vk::ShaderBindingTable::Ptr sbt;
+    };
+
     struct VisualizeProbeGrid
     {
         bool                          enabled = false;
@@ -38,5 +57,6 @@ private:
     float                          m_probe_distance = 1.0f;
     glm::vec3                      m_grid_start_position;
     glm::ivec3                     m_probe_counts;
+    RayTrace                       m_ray_trace;
     VisualizeProbeGrid             m_visualize_probe_grid;
 };

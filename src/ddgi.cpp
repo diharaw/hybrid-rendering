@@ -24,7 +24,8 @@ DDGI::DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resou
     m_backend(backend), m_common_resources(common_resources)
 {
     load_sphere_mesh();
-    create_pipeline();
+    create_descriptor_sets();
+    create_pipelines();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -38,11 +39,13 @@ DDGI::~DDGI()
 
 void DDGI::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
+    DW_SCOPED_SAMPLE("DDGI", cmd_buf);
+
     // If the scene has changed re-initialize the probe grid
     if (m_last_scene_id != m_common_resources->current_scene->id())
         initialize_probe_grid();
 
-
+    ray_trace(cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -97,6 +100,8 @@ void DDGI::gui()
     ImGui::Text("Probe Count: %i", m_probe_counts.x * m_probe_counts.y * m_probe_counts.z);
     ImGui::Checkbox("Visualize Probe Grid", &m_visualize_probe_grid.enabled);
     ImGui::InputFloat("Scale", &m_visualize_probe_grid.scale);
+    if (ImGui::InputInt("Rays Per Probe", &m_ray_trace.rays_per_probe))
+        recreate_probe_grid_resources();
     if (ImGui::InputFloat("Probe Distance", &m_probe_distance))
         initialize_probe_grid();
 }
@@ -134,11 +139,50 @@ void DDGI::initialize_probe_grid()
 
     // Assign current scene ID
     m_last_scene_id = m_common_resources->current_scene->id();
+
+    recreate_probe_grid_resources();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void DDGI::create_pipeline()
+void DDGI::create_images()
+{
+    auto backend = m_backend.lock();
+
+    // Ray Trace
+    {
+        uint32_t total_probes = m_probe_counts.x * m_probe_counts.y * m_probe_counts.z;
+
+        m_ray_trace.radiance_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, total_probes, m_ray_trace.rays_per_probe, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.radiance_image->set_name("DDGI Ray Trace Radiance");
+
+        m_ray_trace.radiance_view = dw::vk::ImageView::create(backend, m_ray_trace.radiance_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_ray_trace.radiance_view->set_name("DDGI Ray Trace Radiance");
+
+        m_ray_trace.direction_depth_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, total_probes, m_ray_trace.rays_per_probe, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.direction_depth_image->set_name("DDGI Ray Trace Direction Depth");
+
+        m_ray_trace.direction_depth_view = dw::vk::ImageView::create(backend, m_ray_trace.direction_depth_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_ray_trace.direction_depth_view->set_name("DDGI Ray Trace Direction Depth");
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::create_descriptor_sets()
+{
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::write_descriptor_sets()
+{
+
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::create_pipelines()
 {
     auto vk_backend = m_backend.lock();
 
@@ -268,6 +312,25 @@ void DDGI::create_pipeline()
     pso_desc.set_render_pass(m_common_resources->skybox_rp);
 
     m_visualize_probe_grid.pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::recreate_probe_grid_resources()
+{
+    auto backend = m_backend.lock();
+
+    backend->wait_idle();
+
+    create_images();
+    write_descriptor_sets();
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
