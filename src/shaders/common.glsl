@@ -42,6 +42,14 @@ struct IndirectDiffusePayload
     RNG rng;
 };
 
+struct GIPayload
+{
+    vec3  L;
+    vec3  T;
+    float hit_distance;
+    RNG   rng;
+};
+
 struct Light
 {
     vec4 data0;

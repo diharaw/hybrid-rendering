@@ -33,6 +33,8 @@ private:
         int32_t                         rays_per_probe = 64;
         dw::vk::DescriptorSet::Ptr      write_ds;
         dw::vk::DescriptorSet::Ptr      read_ds;
+        dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
         dw::vk::RayTracingPipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr     pipeline_layout;
         dw::vk::Image::Ptr              radiance_image;
