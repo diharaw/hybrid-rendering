@@ -35,7 +35,14 @@ struct ProbeUpdatePushConstants
     glm::vec3 grid_step;
     DW_ALIGNED(16)
     glm::ivec3 probe_counts;
-    float      scale;
+    float probe_side_length;
+    float max_distance;
+    float depth_sharpness;
+    float hysteresis;
+    int   texture_width;
+    int   texture_height;
+    int   rays_per_probe;
+    int   is_irradiance;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -83,6 +90,10 @@ void DDGI::render(dw::vk::CommandBuffer::Ptr cmd_buf)
         initialize_probe_grid();
 
     ray_trace(cmd_buf);
+    probe_update(cmd_buf, true);
+    probe_update(cmd_buf, false);
+
+    m_first_frame = false;
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -141,6 +152,8 @@ void DDGI::gui()
         recreate_probe_grid_resources();
     if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
         initialize_probe_grid();
+    ImGui::InputFloat("Hysteresis", &m_probe_update.hysteresis);
+    ImGui::InputFloat("Depth Sharpness", &m_probe_update.depth_sharpness);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -214,13 +227,13 @@ void DDGI::create_images()
 
         for (int i = 0; i < 2; i++)
         {
-            m_probe_grid.radiance_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, irradiance_width, irradiance_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-            m_probe_grid.radiance_image[i]->set_name("DDGI Irradiance Probe Grid");
+            m_probe_grid.irradiance_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, irradiance_width, irradiance_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_probe_grid.irradiance_image[i]->set_name("DDGI Irradiance Probe Grid");
 
-            m_probe_grid.radiance_view[i] = dw::vk::ImageView::create(backend, m_probe_grid.radiance_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-            m_probe_grid.radiance_view[i]->set_name("DDGI Irradiance Probe Grid");
+            m_probe_grid.irradiance_view[i] = dw::vk::ImageView::create(backend, m_probe_grid.irradiance_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+            m_probe_grid.irradiance_view[i]->set_name("DDGI Irradiance Probe Grid");
 
-            m_probe_grid.depth_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, depth_width, depth_height, 1, 1, 1, VK_FORMAT_R16G16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_probe_grid.depth_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, depth_width, depth_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
             m_probe_grid.depth_image[i]->set_name("DDGI Depth Probe Grid");
 
             m_probe_grid.depth_view[i] = dw::vk::ImageView::create(backend, m_probe_grid.depth_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -395,7 +408,7 @@ void DDGI::write_descriptor_sets()
             VkDescriptorImageInfo storage_image_info;
 
             storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_probe_grid.radiance_view[i]->handle();
+            storage_image_info.imageView   = m_probe_grid.irradiance_view[i]->handle();
             storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
             image_infos.push_back(storage_image_info);
@@ -450,7 +463,7 @@ void DDGI::write_descriptor_sets()
             VkDescriptorImageInfo sampler_image_info;
 
             sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
-            sampler_image_info.imageView   = m_probe_grid.radiance_view[i]->handle();
+            sampler_image_info.imageView   = m_probe_grid.irradiance_view[i]->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             image_infos.push_back(sampler_image_info);
@@ -781,46 +794,102 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
+void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
 {
-    DW_SCOPED_SAMPLE("Probe Update", cmd_buf);
+    std::string scope_name = "Probe Update ";
+
+    if (is_irradiance)
+        scope_name += " Irradiance";
+    else 
+        scope_name += " Depth";
+
+    DW_SCOPED_SAMPLE(scope_name, cmd_buf);
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
+    uint32_t read_idx = static_cast<uint32_t>(!m_probe_update.ping_pong);
+    uint32_t write_idx = static_cast<uint32_t>(m_probe_update.ping_pong);
+
     dw::vk::utilities::set_image_layout(
         cmd_buf->handle(),
-        m_upsample.image->handle(),
+        m_probe_grid.irradiance_image[write_idx]->handle(),
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_GENERAL,
         subresource_range);
 
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.pipeline->handle());
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_probe_grid.depth_image[write_idx]->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
 
-    UpsamplePushConstants push_constants;
+    if (m_first_frame)
+    {
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_probe_grid.irradiance_image[read_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
 
-    push_constants.g_buffer_mip = m_g_buffer_mip;
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_probe_grid.depth_image[read_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
 
-    vkCmdPushConstants(cmd_buf->handle(), m_upsample.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.pipeline->handle());
+
+    ProbeUpdatePushConstants push_constants;
+
+    push_constants.grid_start_position = m_probe_grid.grid_start_position;
+    push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
+    push_constants.probe_counts        = m_probe_grid.probe_counts;
+    push_constants.probe_side_length   = is_irradiance ? m_probe_grid.irradiance_oct_size : m_probe_grid.depth_oct_size;
+    push_constants.max_distance        = m_probe_update.max_distance;
+    push_constants.depth_sharpness     = m_probe_update.depth_sharpness;
+    push_constants.hysteresis          = m_first_frame ? 0.0f : m_probe_update.hysteresis;
+    push_constants.texture_width       = is_irradiance ? m_probe_grid.irradiance_image[0]->width() : m_probe_grid.depth_image[0]->width();
+    push_constants.texture_height      = is_irradiance ? m_probe_grid.irradiance_image[0]->height() : m_probe_grid.depth_image[0]->height();
+    push_constants.rays_per_probe      = m_ray_trace.rays_per_probe;
+    push_constants.is_irradiance       = (uint32_t)is_irradiance;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_probe_update.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
     VkDescriptorSet descriptor_sets[] = {
-        m_upsample.write_ds->handle(),
-        m_a_trous.read_ds[m_a_trous.read_idx]->handle(),
-        m_g_buffer->output_ds()->handle()
+        m_probe_grid.write_ds[write_idx]->handle(),
+        m_probe_grid.read_ds[write_idx]->handle(),
+        m_ray_trace.read_ds->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
     const int NUM_THREADS_X = 32;
     const int NUM_THREADS_Y = 32;
 
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_upsample.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_upsample.image->height()) / float(NUM_THREADS_Y))), 1);
+    const uint32_t dispatch_x = static_cast<uint32_t>(ceil(float(is_irradiance ? m_probe_grid.irradiance_image[0]->width() : m_probe_grid.depth_image[0]->width()) / float(NUM_THREADS_X)));
+    const uint32_t dispatch_y = static_cast<uint32_t>(ceil(float(is_irradiance ? m_probe_grid.irradiance_image[0]->height() : m_probe_grid.depth_image[0]->height()) / float(NUM_THREADS_Y)));
+
+    vkCmdDispatch(cmd_buf->handle(), dispatch_x, dispatch_y, 1);
 
     dw::vk::utilities::set_image_layout(
         cmd_buf->handle(),
-        m_upsample.image->handle(),
+        m_probe_grid.irradiance_image[write_idx]->handle(),
         VK_IMAGE_LAYOUT_GENERAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         subresource_range);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_probe_grid.depth_image[write_idx]->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+
+    m_probe_update.ping_pong = !m_probe_update.ping_pong;
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

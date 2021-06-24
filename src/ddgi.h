@@ -28,7 +28,7 @@ private:
     void create_pipelines();
     void recreate_probe_grid_resources();
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance);
 
 private:
     struct RayTrace
@@ -49,7 +49,6 @@ private:
 
     struct ProbeGrid
     {
-        bool ping_pong                                      = false;
         float                      probe_distance      = 1.0f;
         uint32_t                   irradiance_oct_size = 8;
         uint32_t                   depth_oct_size      = 16;
@@ -57,14 +56,18 @@ private:
         glm::ivec3                 probe_counts;
         dw::vk::DescriptorSet::Ptr write_ds[2];
         dw::vk::DescriptorSet::Ptr read_ds[2];
-        dw::vk::Image::Ptr         radiance_image[2];
+        dw::vk::Image::Ptr         irradiance_image[2];
         dw::vk::Image::Ptr         depth_image[2];
-        dw::vk::ImageView::Ptr     radiance_view[2];
+        dw::vk::ImageView::Ptr     irradiance_view[2];
         dw::vk::ImageView::Ptr     depth_view[2];
     };
 
     struct ProbeUpdate
     {
+        bool                         ping_pong       = false;
+        float                        hysteresis      = 0.98f;
+        float                        depth_sharpness = 50.0f;
+        float                        max_distance    = 4.0f;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
     };
@@ -86,6 +89,7 @@ private:
     uint32_t                       m_last_scene_id = UINT32_MAX;
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
+    bool                                  m_first_frame = true;
     std::random_device               m_random_device;        
     std::mt19937                     m_random_generator; 
     std::uniform_real_distribution<float> m_random_distribution_zo;

@@ -18,10 +18,13 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 // ------------------------------------------------------------------
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D i_OutputIrradiance;
-layout(set = 0, binding = 1, rg16f) uniform image2D i_OutputDepth;
+layout(set = 0, binding = 1, rgba16f) uniform image2D i_OutputDepth;
 
 layout(set = 1, binding = 0) uniform sampler2D s_InputIrradiance;
 layout(set = 1, binding = 1) uniform sampler2D s_InputDepth;
+
+layout(set = 2, binding = 0) uniform sampler2D s_InputRadiance;
+layout(set = 2, binding = 1) uniform sampler2D s_InputDirectionDepth;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -33,6 +36,9 @@ layout(push_constant) uniform PushConstants
     vec3  grid_step;
     ivec3 probe_counts;
     float probe_side_length;
+    float max_distance;
+    float depth_sharpness;
+    float hysteresis;
     int   texture_width;
     int   texture_height;
     int   rays_per_probe;
@@ -70,6 +76,39 @@ vec2 normalized_oct_coord(ivec2 frag_coord)
 }
 
 // ------------------------------------------------------------------
+
+float sign_not_zero(in float k) 
+{
+    return (k >= 0.0) ? 1.0 : -1.0;
+}
+
+// ------------------------------------------------------------------
+
+vec2 sign_not_zero(in vec2 v) 
+{
+    return vec2(sign_not_zero(v.x), sign_not_zero(v.y));
+}
+
+// ------------------------------------------------------------------
+
+vec3 oct_decode(vec2 o) 
+{
+    vec3 v = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
+
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy);
+    
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------
+
+float square(float v)
+{
+    return v * v;
+}
+
+// ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
 
@@ -77,53 +116,59 @@ void main()
 {
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const int relative_probe_id = probe_id(current_coord);
-    const float energy_conservation = 0.95;
+    const float energy_conservation = 0.95f;
+
+    vec3 result = vec3(0.0f);
+    float total_weight = 0.0f;
 
     // For each ray
 	for (int r = 0; r < u_PushConstants.rays_per_probe; ++r) 
     {
 		ivec2 C = ivec2(r, relative_probe_id);
 
-		vec3 rayDirection    = texelFetch(rayDirections, C, 0).xyz;
-        vec3  rayHitRadiance  = texelFetch(rayHitRadiance, C, 0).xyz * energy_conservation;
-		vec3  rayHitLocation  = texelFetch(rayHitLocations, C, 0).xyz;
+		vec4 ray_direction_depth = texelFetch(s_InputDirectionDepth, C, 0);
 
-        vec3 probeLocation = texelFetch(rayOrigins, C, 0).xyz;
-        // Will be zero on a miss
-		vec3 rayHitNormal    = texelFetch(rayHitNormals, C, 0).xyz;
+        vec3 ray_direction = ray_direction_depth.xyz;
+        float ray_probe_distance = min(u_PushConstants.max_distance, ray_direction_depth.w - 0.01f);
+        vec3 ray_hit_radiance  = texelFetch(s_InputRadiance, C, 0).xyz * energy_conservation;
 
-        rayHitLocation += rayHitNormal * 0.01f;
-
-		float rayProbeDistance = min(maxDistance, length(probeLocation - rayHitLocation));
-        
         // Detect misses and force depth
-		if (dot(rayHitNormal, rayHitNormal) < epsilon)
-            rayProbeDistance = maxDistance;
+		if (ray_probe_distance == -1.0f)
+            ray_probe_distance = u_PushConstants.max_distance;
 
-        vec3 texelDirection = octDecode(normalizedOctCoord(ivec2(gl_FragCoord.xy)));
+        vec3 texel_direction = oct_decode(normalized_oct_coord(current_coord));
 
-#if OUTPUT_IRRADIANCE
-        float weight = max(0.0, dot(texelDirection, rayDirection));
-#else
-        float weight = pow(max(0.0, dot(texelDirection, rayDirection)), depthSharpness);
-#endif
-        if (weight >= epsilon) 
+        float weight = 0.0f;
+
+        if (u_PushConstants.is_irradiance == 1)
+            weight = max(0.0, dot(texel_direction, ray_direction));
+        else
+            weight = pow(max(0.0, dot(texel_direction, ray_direction)), u_PushConstants.depth_sharpness);
+
+        if (weight >= FLT_EPS) 
         {
             // Storing the sum of the weights in alpha temporarily
-#               if OUTPUT_IRRADIANCE
-            result += vec4(rayHitRadiance * weight, weight);
-#               else
-            result += vec4(rayProbeDistance * weight, square(rayProbeDistance) * weight, 0.0, weight);
-#               endif
+            if (u_PushConstants.is_irradiance == 1)
+                result += vec3(ray_hit_radiance * weight);
+            else
+                result += vec3(ray_probe_distance * weight, square(ray_probe_distance) * weight, 0.0);
+
+            total_weight += weight;
         }
-		
 	}
 
-    if (result.w > epsilon) 
-    {
-        result.xyz /= result.w;
-        result.w = 1.0f - hysteresis;
-    } // if nonzero
+    if (total_weight > FLT_EPS) 
+        result /= total_weight;
+
+    // Temporal Blending 
+    vec3 prev_result;
+
+    if (u_PushConstants.is_irradiance == 1)
+        prev_result = texelFetch(s_InputIrradiance, current_coord, 0).rgb;
+    else
+        prev_result = texelFetch(s_InputDepth, current_coord, 0).rgb;
+
+    result = mix(result, prev_result, u_PushConstants.hysteresis);        
 }
 
 // ------------------------------------------------------------------
