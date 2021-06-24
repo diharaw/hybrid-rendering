@@ -5,17 +5,37 @@
 #include <profiler.h>
 #include <macros.h>
 #include <imgui.h>
+#include <gtc/quaternion.hpp>
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct RayTracePushConstants
 {
+    DW_ALIGNED(16)
     glm::mat3  random_orientation;
+    DW_ALIGNED(16)
     glm::vec3  grid_start_position;
+    DW_ALIGNED(16)
     glm::vec3  grid_step;
+    DW_ALIGNED(16)
     glm::ivec3 probe_counts;
     uint32_t   num_frames;
     uint32_t   rays_per_probe;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+struct ProbeUpdatePushConstants
+{
+    DW_ALIGNED(16)
+    glm::vec3 grid_start_position;
+    DW_ALIGNED(16)
+    glm::vec3 grid_step;
+    DW_ALIGNED(16)
+    glm::ivec3 probe_counts;
+    float      scale;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -36,6 +56,10 @@ struct VisualizeProbeGridPushConstants
 DDGI::DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources) :
     m_backend(backend), m_common_resources(common_resources)
 {
+    m_random_generator = std::mt19937(m_random_device());
+    m_random_distribution_zo = std::uniform_real_distribution<float>(0.0f, 1.0f);
+    m_random_distribution_no = std::uniform_real_distribution<float>(-1.0f, 1.0f);
+
     load_sphere_mesh();
     create_descriptor_sets();
     create_pipelines();
@@ -91,14 +115,14 @@ void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VisualizeProbeGridPushConstants push_constants;
 
-        push_constants.grid_start_position = m_grid_start_position;
-        push_constants.grid_step           = glm::vec3(m_probe_distance);
-        push_constants.probe_counts        = m_probe_counts;
+        push_constants.grid_start_position = m_probe_grid.grid_start_position;
+        push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
+        push_constants.probe_counts        = m_probe_grid.probe_counts;
         push_constants.scale               = m_visualize_probe_grid.scale;
 
         vkCmdPushConstants(cmd_buf->handle(), m_visualize_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
 
-        uint32_t probe_count = m_probe_counts.x * m_probe_counts.y * m_probe_counts.z;
+        uint32_t probe_count = m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z;
 
         // Issue draw call.
         vkCmdDrawIndexed(cmd_buf->handle(), submesh.index_count, probe_count, submesh.base_index, submesh.base_vertex, 0);
@@ -109,13 +133,13 @@ void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void DDGI::gui()
 {
-    ImGui::Text("Grid Size: [%i, %i, %i]", m_probe_counts.x, m_probe_counts.y, m_probe_counts.z);
-    ImGui::Text("Probe Count: %i", m_probe_counts.x * m_probe_counts.y * m_probe_counts.z);
+    ImGui::Text("Grid Size: [%i, %i, %i]", m_probe_grid.probe_counts.x, m_probe_grid.probe_counts.y, m_probe_grid.probe_counts.z);
+    ImGui::Text("Probe Count: %i", m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z);
     ImGui::Checkbox("Visualize Probe Grid", &m_visualize_probe_grid.enabled);
     ImGui::InputFloat("Scale", &m_visualize_probe_grid.scale);
     if (ImGui::InputInt("Rays Per Probe", &m_ray_trace.rays_per_probe))
         recreate_probe_grid_resources();
-    if (ImGui::InputFloat("Probe Distance", &m_probe_distance))
+    if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
         initialize_probe_grid();
 }
 
@@ -147,8 +171,8 @@ void DDGI::initialize_probe_grid()
 
     // Compute the number of probes along each axis.
     // Add 2 more probes to fully cover scene.
-    m_probe_counts        = glm::ivec3(scene_length / m_probe_distance) + glm::ivec3(2);
-    m_grid_start_position = min_extents;
+    m_probe_grid.probe_counts        = glm::ivec3(scene_length / m_probe_grid.probe_distance) + glm::ivec3(2);
+    m_probe_grid.grid_start_position = min_extents;
 
     // Assign current scene ID
     m_last_scene_id = m_common_resources->current_scene->id();
@@ -162,21 +186,46 @@ void DDGI::create_images()
 {
     auto backend = m_backend.lock();
 
+    uint32_t total_probes = m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z;
+
     // Ray Trace
     {
-        uint32_t total_probes = m_probe_counts.x * m_probe_counts.y * m_probe_counts.z;
-
-        m_ray_trace.radiance_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, total_probes, m_ray_trace.rays_per_probe, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.radiance_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_ray_trace.rays_per_probe, total_probes, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_ray_trace.radiance_image->set_name("DDGI Ray Trace Radiance");
 
         m_ray_trace.radiance_view = dw::vk::ImageView::create(backend, m_ray_trace.radiance_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_ray_trace.radiance_view->set_name("DDGI Ray Trace Radiance");
 
-        m_ray_trace.direction_depth_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, total_probes, m_ray_trace.rays_per_probe, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.direction_depth_image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_ray_trace.rays_per_probe, total_probes, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_ray_trace.direction_depth_image->set_name("DDGI Ray Trace Direction Depth");
 
         m_ray_trace.direction_depth_view = dw::vk::ImageView::create(backend, m_ray_trace.direction_depth_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_ray_trace.direction_depth_view->set_name("DDGI Ray Trace Direction Depth");
+    }
+
+    // Probe Grid
+    {
+        // 1-pixel of padding surrounding each probe, 1-pixel padding surrounding entire texture for alignment.
+        const int irradiance_width  = (m_probe_grid.irradiance_oct_size + 2) * m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y + 2;
+        const int irradiance_height = (m_probe_grid.irradiance_oct_size + 2) * m_probe_grid.probe_counts.z + 2;
+
+        const int depth_width  = (m_probe_grid.depth_oct_size + 2) * m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y + 2;
+        const int depth_height = (m_probe_grid.depth_oct_size + 2) * m_probe_grid.probe_counts.z + 2;
+
+        for (int i = 0; i < 2; i++)
+        {
+            m_probe_grid.radiance_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, irradiance_width, irradiance_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_probe_grid.radiance_image[i]->set_name("DDGI Irradiance Probe Grid");
+
+            m_probe_grid.radiance_view[i] = dw::vk::ImageView::create(backend, m_probe_grid.radiance_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+            m_probe_grid.radiance_view[i]->set_name("DDGI Irradiance Probe Grid");
+
+            m_probe_grid.depth_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, depth_width, depth_height, 1, 1, 1, VK_FORMAT_R16G16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+            m_probe_grid.depth_image[i]->set_name("DDGI Depth Probe Grid");
+
+            m_probe_grid.depth_view[i] = dw::vk::ImageView::create(backend, m_probe_grid.depth_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+            m_probe_grid.depth_view[i]->set_name("DDGI Depth Probe Grid");
+        }
     }
 }
 
@@ -199,8 +248,8 @@ void DDGI::create_descriptor_sets()
     {
         dw::vk::DescriptorSetLayout::Desc desc;
 
-        desc.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
 
         m_ray_trace.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -208,6 +257,13 @@ void DDGI::create_descriptor_sets()
     {
         m_ray_trace.write_ds = backend->allocate_descriptor_set(m_ray_trace.write_ds_layout);
         m_ray_trace.read_ds  = backend->allocate_descriptor_set(m_ray_trace.read_ds_layout);
+    }
+
+    // Probe Grid
+    for (int i = 0; i < 2; i++)
+    {
+        m_probe_grid.write_ds[i] = backend->allocate_descriptor_set(m_ray_trace.write_ds_layout);
+        m_probe_grid.read_ds[i] = backend->allocate_descriptor_set(m_ray_trace.read_ds_layout);
     }
 }
 
@@ -324,6 +380,116 @@ void DDGI::write_descriptor_sets()
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
+
+    // Probe Grid Write
+    for (int i = 0; i < 2; i++)
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
+        {
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_probe_grid.radiance_view[i]->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            image_infos.push_back(storage_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_probe_grid.write_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorImageInfo storage_image_info;
+
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_probe_grid.depth_view[i]->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            image_infos.push_back(storage_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_probe_grid.write_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
+    // Probe Grid Read
+    for (int i = 0; i < 2; i++)
+    {
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
+
+        image_infos.reserve(2);
+        write_datas.reserve(2);
+
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
+            sampler_image_info.imageView   = m_probe_grid.radiance_view[i]->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_probe_grid.read_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorImageInfo sampler_image_info;
+
+            sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
+            sampler_image_info.imageView   = m_ray_trace.direction_depth_view->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            image_infos.push_back(sampler_image_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &image_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_probe_grid.read_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -374,133 +540,157 @@ void DDGI::create_pipelines()
         m_ray_trace.pipeline = dw::vk::RayTracingPipeline::create(vk_backend, desc);
     }
 
+    // Probe Update
+    {
+        dw::vk::PipelineLayout::Desc desc;
 
-    // ---------------------------------------------------------------------------
-    // Create shader modules
-    // ---------------------------------------------------------------------------
+        desc.add_descriptor_set_layout(m_ray_trace.write_ds_layout);
+        desc.add_descriptor_set_layout(m_ray_trace.read_ds_layout);
 
-    dw::vk::ShaderModule::Ptr vs = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/gi_probe_visualization.vert.spv");
-    dw::vk::ShaderModule::Ptr fs = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/gi_probe_visualization.frag.spv");
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ProbeUpdatePushConstants));
 
-    dw::vk::GraphicsPipeline::Desc pso_desc;
+        m_probe_update.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
+        m_probe_update.pipeline_layout->set_name("Probe Update Pipeline Layout");
 
-    pso_desc.add_shader_stage(VK_SHADER_STAGE_VERTEX_BIT, vs, "main")
-        .add_shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main");
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/gi_probe_update.comp.spv");
 
-    // ---------------------------------------------------------------------------
-    // Create vertex input state
-    // ---------------------------------------------------------------------------
+        dw::vk::ComputePipeline::Desc comp_desc;
 
-    pso_desc.set_vertex_input_state(m_common_resources->meshes[0]->vertex_input_state_desc());
+        comp_desc.set_pipeline_layout(m_probe_update.pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
 
-    // ---------------------------------------------------------------------------
-    // Create pipeline input assembly state
-    // ---------------------------------------------------------------------------
+        m_probe_update.pipeline = dw::vk::ComputePipeline::create(vk_backend, comp_desc);
+    }
 
-    dw::vk::InputAssemblyStateDesc input_assembly_state_desc;
+    // Probe Visualization
+    {
+        // ---------------------------------------------------------------------------
+        // Create shader modules
+        // ---------------------------------------------------------------------------
 
-    input_assembly_state_desc.set_primitive_restart_enable(false)
-        .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        dw::vk::ShaderModule::Ptr vs = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/gi_probe_visualization.vert.spv");
+        dw::vk::ShaderModule::Ptr fs = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/gi_probe_visualization.frag.spv");
 
-    pso_desc.set_input_assembly_state(input_assembly_state_desc);
+        dw::vk::GraphicsPipeline::Desc pso_desc;
 
-    // ---------------------------------------------------------------------------
-    // Create viewport state
-    // ---------------------------------------------------------------------------
+        pso_desc.add_shader_stage(VK_SHADER_STAGE_VERTEX_BIT, vs, "main")
+            .add_shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main");
 
-    dw::vk::ViewportStateDesc vp_desc;
+        // ---------------------------------------------------------------------------
+        // Create vertex input state
+        // ---------------------------------------------------------------------------
 
-    vp_desc.add_viewport(0.0f, 0.0f, vk_backend->swap_chain_extents().width, vk_backend->swap_chain_extents().height, 0.0f, 1.0f)
-        .add_scissor(0, 0, vk_backend->swap_chain_extents().width, vk_backend->swap_chain_extents().height);
+        pso_desc.set_vertex_input_state(m_common_resources->meshes[0]->vertex_input_state_desc());
 
-    pso_desc.set_viewport_state(vp_desc);
+        // ---------------------------------------------------------------------------
+        // Create pipeline input assembly state
+        // ---------------------------------------------------------------------------
 
-    // ---------------------------------------------------------------------------
-    // Create rasterization state
-    // ---------------------------------------------------------------------------
+        dw::vk::InputAssemblyStateDesc input_assembly_state_desc;
 
-    dw::vk::RasterizationStateDesc rs_state;
+        input_assembly_state_desc.set_primitive_restart_enable(false)
+            .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
-    rs_state.set_depth_clamp(VK_FALSE)
-        .set_rasterizer_discard_enable(VK_FALSE)
-        .set_polygon_mode(VK_POLYGON_MODE_FILL)
-        .set_line_width(1.0f)
-        .set_cull_mode(VK_CULL_MODE_BACK_BIT)
-        .set_front_face(VK_FRONT_FACE_CLOCKWISE)
-        .set_depth_bias(VK_FALSE);
+        pso_desc.set_input_assembly_state(input_assembly_state_desc);
 
-    pso_desc.set_rasterization_state(rs_state);
+        // ---------------------------------------------------------------------------
+        // Create viewport state
+        // ---------------------------------------------------------------------------
 
-    // ---------------------------------------------------------------------------
-    // Create multisample state
-    // ---------------------------------------------------------------------------
+        dw::vk::ViewportStateDesc vp_desc;
 
-    dw::vk::MultisampleStateDesc ms_state;
+        vp_desc.add_viewport(0.0f, 0.0f, vk_backend->swap_chain_extents().width, vk_backend->swap_chain_extents().height, 0.0f, 1.0f)
+            .add_scissor(0, 0, vk_backend->swap_chain_extents().width, vk_backend->swap_chain_extents().height);
 
-    ms_state.set_sample_shading_enable(VK_FALSE)
-        .set_rasterization_samples(VK_SAMPLE_COUNT_1_BIT);
+        pso_desc.set_viewport_state(vp_desc);
 
-    pso_desc.set_multisample_state(ms_state);
+        // ---------------------------------------------------------------------------
+        // Create rasterization state
+        // ---------------------------------------------------------------------------
 
-    // ---------------------------------------------------------------------------
-    // Create depth stencil state
-    // ---------------------------------------------------------------------------
+        dw::vk::RasterizationStateDesc rs_state;
 
-    dw::vk::DepthStencilStateDesc ds_state;
+        rs_state.set_depth_clamp(VK_FALSE)
+            .set_rasterizer_discard_enable(VK_FALSE)
+            .set_polygon_mode(VK_POLYGON_MODE_FILL)
+            .set_line_width(1.0f)
+            .set_cull_mode(VK_CULL_MODE_BACK_BIT)
+            .set_front_face(VK_FRONT_FACE_CLOCKWISE)
+            .set_depth_bias(VK_FALSE);
 
-    ds_state.set_depth_test_enable(VK_TRUE)
-        .set_depth_write_enable(VK_TRUE)
-        .set_depth_compare_op(VK_COMPARE_OP_LESS)
-        .set_depth_bounds_test_enable(VK_FALSE)
-        .set_stencil_test_enable(VK_FALSE);
+        pso_desc.set_rasterization_state(rs_state);
 
-    pso_desc.set_depth_stencil_state(ds_state);
+        // ---------------------------------------------------------------------------
+        // Create multisample state
+        // ---------------------------------------------------------------------------
 
-    // ---------------------------------------------------------------------------
-    // Create color blend state
-    // ---------------------------------------------------------------------------
+        dw::vk::MultisampleStateDesc ms_state;
 
-    dw::vk::ColorBlendAttachmentStateDesc blend_att_desc;
+        ms_state.set_sample_shading_enable(VK_FALSE)
+            .set_rasterization_samples(VK_SAMPLE_COUNT_1_BIT);
 
-    blend_att_desc.set_color_write_mask(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
-        .set_blend_enable(VK_FALSE);
+        pso_desc.set_multisample_state(ms_state);
 
-    dw::vk::ColorBlendStateDesc blend_state;
+        // ---------------------------------------------------------------------------
+        // Create depth stencil state
+        // ---------------------------------------------------------------------------
 
-    blend_state.set_logic_op_enable(VK_FALSE)
-        .set_logic_op(VK_LOGIC_OP_COPY)
-        .set_blend_constants(0.0f, 0.0f, 0.0f, 0.0f)
-        .add_attachment(blend_att_desc);
+        dw::vk::DepthStencilStateDesc ds_state;
 
-    pso_desc.set_color_blend_state(blend_state);
+        ds_state.set_depth_test_enable(VK_TRUE)
+            .set_depth_write_enable(VK_TRUE)
+            .set_depth_compare_op(VK_COMPARE_OP_LESS)
+            .set_depth_bounds_test_enable(VK_FALSE)
+            .set_stencil_test_enable(VK_FALSE);
 
-    // ---------------------------------------------------------------------------
-    // Create pipeline layout
-    // ---------------------------------------------------------------------------
+        pso_desc.set_depth_stencil_state(ds_state);
 
-    dw::vk::PipelineLayout::Desc pl_desc;
+        // ---------------------------------------------------------------------------
+        // Create color blend state
+        // ---------------------------------------------------------------------------
 
-    pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout)
-        .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VisualizeProbeGridPushConstants));
+        dw::vk::ColorBlendAttachmentStateDesc blend_att_desc;
 
-    m_visualize_probe_grid.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, pl_desc);
+        blend_att_desc.set_color_write_mask(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
+            .set_blend_enable(VK_FALSE);
 
-    pso_desc.set_pipeline_layout(m_visualize_probe_grid.pipeline_layout);
+        dw::vk::ColorBlendStateDesc blend_state;
 
-    // ---------------------------------------------------------------------------
-    // Create dynamic state
-    // ---------------------------------------------------------------------------
+        blend_state.set_logic_op_enable(VK_FALSE)
+            .set_logic_op(VK_LOGIC_OP_COPY)
+            .set_blend_constants(0.0f, 0.0f, 0.0f, 0.0f)
+            .add_attachment(blend_att_desc);
 
-    pso_desc.add_dynamic_state(VK_DYNAMIC_STATE_VIEWPORT)
-        .add_dynamic_state(VK_DYNAMIC_STATE_SCISSOR);
+        pso_desc.set_color_blend_state(blend_state);
 
-    // ---------------------------------------------------------------------------
-    // Create pipeline
-    // ---------------------------------------------------------------------------
+        // ---------------------------------------------------------------------------
+        // Create pipeline layout
+        // ---------------------------------------------------------------------------
 
-    pso_desc.set_render_pass(m_common_resources->skybox_rp);
+        dw::vk::PipelineLayout::Desc pl_desc;
 
-    m_visualize_probe_grid.pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
+        pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout)
+            .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VisualizeProbeGridPushConstants));
+
+        m_visualize_probe_grid.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, pl_desc);
+
+        pso_desc.set_pipeline_layout(m_visualize_probe_grid.pipeline_layout);
+
+        // ---------------------------------------------------------------------------
+        // Create dynamic state
+        // ---------------------------------------------------------------------------
+
+        pso_desc.add_dynamic_state(VK_DYNAMIC_STATE_VIEWPORT)
+            .add_dynamic_state(VK_DYNAMIC_STATE_SCISSOR);
+
+        // ---------------------------------------------------------------------------
+        // Create pipeline
+        // ---------------------------------------------------------------------------
+
+        pso_desc.set_render_pass(m_common_resources->skybox_rp);
+
+        m_visualize_probe_grid.pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -540,10 +730,10 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
-    push_constants.random_orientation = glm::mat3(1.0f);
-    push_constants.grid_start_position = m_grid_start_position;
-    push_constants.grid_step           = glm::vec3(m_probe_distance);
-    push_constants.probe_counts        = m_probe_counts;
+    push_constants.random_orientation  = glm::mat3_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
+    push_constants.grid_start_position = m_probe_grid.grid_start_position;
+    push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
+    push_constants.probe_counts        = m_probe_grid.probe_counts;
     push_constants.num_frames          = m_common_resources->num_frames;
     push_constants.rays_per_probe      = m_ray_trace.rays_per_probe;
 
@@ -570,7 +760,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_ray_trace.pipeline->shader_binding_table_buffer()->device_address() + m_ray_trace.sbt->hit_group_offset(), group_stride, group_size };
     const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
-    uint32_t num_total_probes = m_probe_counts.x * m_probe_counts.y * m_probe_counts.z;
+    uint32_t num_total_probes = m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z;
 
     vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_ray_trace.rays_per_probe, num_total_probes, 1);
 
@@ -584,6 +774,50 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     dw::vk::utilities::set_image_layout(
         cmd_buf->handle(),
         m_ray_trace.direction_depth_image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Probe Update", cmd_buf);
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_upsample.image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.pipeline->handle());
+
+    UpsamplePushConstants push_constants;
+
+    push_constants.g_buffer_mip = m_g_buffer_mip;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_upsample.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_upsample.write_ds->handle(),
+        m_a_trous.read_ds[m_a_trous.read_idx]->handle(),
+        m_g_buffer->output_ds()->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_upsample.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_upsample.image->height()) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_upsample.image->handle(),
         VK_IMAGE_LAYOUT_GENERAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         subresource_range);

@@ -1,0 +1,129 @@
+#version 450
+
+// ------------------------------------------------------------------
+// DEFINES ----------------------------------------------------------
+// ------------------------------------------------------------------
+
+#define NUM_THREADS_X 32
+#define NUM_THREADS_Y 32
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D i_OutputIrradiance;
+layout(set = 0, binding = 1, rg16f) uniform image2D i_OutputDepth;
+
+layout(set = 1, binding = 0) uniform sampler2D s_InputIrradiance;
+layout(set = 1, binding = 1) uniform sampler2D s_InputDepth;
+
+// ------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    vec3  grid_start_position;
+    vec3  grid_step;
+    ivec3 probe_counts;
+    float probe_side_length;
+    int   texture_width;
+    int   texture_height;
+    int   rays_per_probe;
+    int   is_irradiance;
+}
+u_PushConstants;
+
+// ------------------------------------------------------------------
+// CONSTANTS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+const float FLT_EPS = 0.00000001;
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+int probe_id(vec2 texel_xy) 
+{
+    int probe_with_border_side = u_PushConstants.probe_side_length + 2;
+    int probes_per_side = (u_PushConstants.texture_width - 2) / probe_with_border_side;
+    return int(texel_xy.x / probe_with_border_side) + probes_per_side * int(texel_xy.y / probe_with_border_side);
+}
+
+// ------------------------------------------------------------------
+
+// Compute normalized oct coord, mapping top left of top left pixel to (-1,-1)
+vec2 normalized_oct_coord(ivec2 frag_coord) 
+{
+    int probe_with_border_side = u_PushConstants.probe_side_length + 2;
+
+    vec2 oct_frag_coord = ivec2((frag_coord.x - 2) % probe_with_border_side, (frag_coord.y - 2) % probe_with_border_side);
+    // Add back the half pixel to get pixel center normalized coordinates
+    return (vec2(oct_frag_coord) + vec2(0.5f))*(2.0f / float(u_PushConstants.probe_side_length)) - vec2(1.0f, 1.0f);
+}
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const int relative_probe_id = probe_id(current_coord);
+    const float energy_conservation = 0.95;
+
+    // For each ray
+	for (int r = 0; r < u_PushConstants.rays_per_probe; ++r) 
+    {
+		ivec2 C = ivec2(r, relative_probe_id);
+
+		vec3 rayDirection    = texelFetch(rayDirections, C, 0).xyz;
+        vec3  rayHitRadiance  = texelFetch(rayHitRadiance, C, 0).xyz * energy_conservation;
+		vec3  rayHitLocation  = texelFetch(rayHitLocations, C, 0).xyz;
+
+        vec3 probeLocation = texelFetch(rayOrigins, C, 0).xyz;
+        // Will be zero on a miss
+		vec3 rayHitNormal    = texelFetch(rayHitNormals, C, 0).xyz;
+
+        rayHitLocation += rayHitNormal * 0.01f;
+
+		float rayProbeDistance = min(maxDistance, length(probeLocation - rayHitLocation));
+        
+        // Detect misses and force depth
+		if (dot(rayHitNormal, rayHitNormal) < epsilon)
+            rayProbeDistance = maxDistance;
+
+        vec3 texelDirection = octDecode(normalizedOctCoord(ivec2(gl_FragCoord.xy)));
+
+#if OUTPUT_IRRADIANCE
+        float weight = max(0.0, dot(texelDirection, rayDirection));
+#else
+        float weight = pow(max(0.0, dot(texelDirection, rayDirection)), depthSharpness);
+#endif
+        if (weight >= epsilon) 
+        {
+            // Storing the sum of the weights in alpha temporarily
+#               if OUTPUT_IRRADIANCE
+            result += vec4(rayHitRadiance * weight, weight);
+#               else
+            result += vec4(rayProbeDistance * weight, square(rayProbeDistance) * weight, 0.0, weight);
+#               endif
+        }
+		
+	}
+
+    if (result.w > epsilon) 
+    {
+        result.xyz /= result.w;
+        result.w = 1.0f - hysteresis;
+    } // if nonzero
+}
+
+// ------------------------------------------------------------------

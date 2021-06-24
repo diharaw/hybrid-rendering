@@ -2,6 +2,8 @@
 
 #include "common_resources.h"
 
+#include <random>
+
 class DDGI
 {
 public:
@@ -12,9 +14,9 @@ public:
     void render_probes(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gui();
 
-    inline void  set_probe_distance(float value) { m_probe_distance = value; }
+    inline void  set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
     inline void  set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
-    inline float probe_distance() { return m_probe_distance; }
+    inline float probe_distance() { return m_probe_grid.probe_distance; }
     inline float probe_visualization_scale() { return m_visualize_probe_grid.scale; }
 
 private:
@@ -26,6 +28,7 @@ private:
     void create_pipelines();
     void recreate_probe_grid_resources();
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     struct RayTrace
@@ -44,6 +47,33 @@ private:
         dw::vk::ShaderBindingTable::Ptr sbt;
     };
 
+    struct ProbeGrid
+    {
+        bool ping_pong                                      = false;
+        float                      probe_distance      = 1.0f;
+        uint32_t                   irradiance_oct_size = 8;
+        uint32_t                   depth_oct_size      = 16;
+        glm::vec3                  grid_start_position;
+        glm::ivec3                 probe_counts;
+        dw::vk::DescriptorSet::Ptr write_ds[2];
+        dw::vk::DescriptorSet::Ptr read_ds[2];
+        dw::vk::Image::Ptr         radiance_image[2];
+        dw::vk::Image::Ptr         depth_image[2];
+        dw::vk::ImageView::Ptr     radiance_view[2];
+        dw::vk::ImageView::Ptr     depth_view[2];
+    };
+
+    struct ProbeUpdate
+    {
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+    };
+
+    struct BorderUpdate
+    {
+    
+    };
+
     struct VisualizeProbeGrid
     {
         bool                          enabled = false;
@@ -56,9 +86,13 @@ private:
     uint32_t                       m_last_scene_id = UINT32_MAX;
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
-    float                          m_probe_distance = 1.0f;
-    glm::vec3                      m_grid_start_position;
-    glm::ivec3                     m_probe_counts;
+    std::random_device               m_random_device;        
+    std::mt19937                     m_random_generator; 
+    std::uniform_real_distribution<float> m_random_distribution_zo;
+    std::uniform_real_distribution<float> m_random_distribution_no;
     RayTrace                       m_ray_trace;
+    ProbeGrid                             m_probe_grid;
+    ProbeUpdate                    m_probe_update;
+    BorderUpdate                   m_border_update;
     VisualizeProbeGrid             m_visualize_probe_grid;
 };
