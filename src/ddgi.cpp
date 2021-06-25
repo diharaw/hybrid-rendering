@@ -14,11 +14,11 @@
 struct RayTracePushConstants
 {
     DW_ALIGNED(16)
-    glm::mat3  random_orientation;
+    glm::mat3 random_orientation;
     DW_ALIGNED(16)
-    glm::vec3  grid_start_position;
+    glm::vec3 grid_start_position;
     DW_ALIGNED(16)
-    glm::vec3  grid_step;
+    glm::vec3 grid_step;
     DW_ALIGNED(16)
     glm::ivec3 probe_counts;
     uint32_t   num_frames;
@@ -35,14 +35,14 @@ struct ProbeUpdatePushConstants
     glm::vec3 grid_step;
     DW_ALIGNED(16)
     glm::ivec3 probe_counts;
-    float max_distance;
-    float depth_sharpness;
-    float hysteresis;
-    int   probe_side_length;
-    int   texture_width;
-    int   texture_height;
-    int   rays_per_probe;
-    int   is_irradiance;
+    float      max_distance;
+    float      depth_sharpness;
+    float      hysteresis;
+    int        probe_side_length;
+    int        texture_width;
+    int        texture_height;
+    int        rays_per_probe;
+    int        is_irradiance;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -50,9 +50,9 @@ struct ProbeUpdatePushConstants
 struct VisualizeProbeGridPushConstants
 {
     DW_ALIGNED(16)
-    glm::vec3  grid_start_position;
+    glm::vec3 grid_start_position;
     DW_ALIGNED(16)
-    glm::vec3  grid_step;
+    glm::vec3 grid_step;
     DW_ALIGNED(16)
     glm::ivec3 probe_counts;
     float      scale;
@@ -63,7 +63,7 @@ struct VisualizeProbeGridPushConstants
 DDGI::DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources) :
     m_backend(backend), m_common_resources(common_resources)
 {
-    m_random_generator = std::mt19937(m_random_device());
+    m_random_generator       = std::mt19937(m_random_device());
     m_random_distribution_zo = std::uniform_real_distribution<float>(0.0f, 1.0f);
     m_random_distribution_no = std::uniform_real_distribution<float>(-1.0f, 1.0f);
 
@@ -76,7 +76,6 @@ DDGI::DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resou
 
 DDGI::~DDGI()
 {
-
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -104,7 +103,7 @@ void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("DDGI Visualize Probe Grid", cmd_buf);
 
-        auto        vk_backend = m_backend.lock();
+        auto vk_backend = m_backend.lock();
 
         const auto& submeshes = m_visualize_probe_grid.sphere_mesh->sub_meshes();
 
@@ -160,7 +159,7 @@ void DDGI::gui()
 
 void DDGI::load_sphere_mesh()
 {
-    auto vk_backend                    = m_backend.lock();
+    auto vk_backend = m_backend.lock();
 
     m_visualize_probe_grid.sphere_mesh = dw::Mesh::load(vk_backend, "mesh/sphere.obj");
 
@@ -276,7 +275,7 @@ void DDGI::create_descriptor_sets()
     for (int i = 0; i < 2; i++)
     {
         m_probe_grid.write_ds[i] = backend->allocate_descriptor_set(m_ray_trace.write_ds_layout);
-        m_probe_grid.read_ds[i] = backend->allocate_descriptor_set(m_ray_trace.read_ds_layout);
+        m_probe_grid.read_ds[i]  = backend->allocate_descriptor_set(m_ray_trace.read_ds_layout);
     }
 }
 
@@ -734,7 +733,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     std::vector<VkMemoryBarrier> memory_barriers = {
         memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
     };
-    
+
     std::vector<VkImageMemoryBarrier> image_barriers = {
         image_memory_barrier(m_ray_trace.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
         image_memory_barrier(m_ray_trace.direction_depth_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
@@ -862,7 +861,7 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
 void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
 {
     DW_SCOPED_SAMPLE(is_irradiance ? "Irradiance" : "Depth", cmd_buf);
-    
+
     ProbeUpdatePushConstants push_constants;
 
     push_constants.grid_start_position = m_probe_grid.grid_start_position;

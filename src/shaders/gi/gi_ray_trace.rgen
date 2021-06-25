@@ -53,50 +53,50 @@ layout(location = 0) rayPayloadEXT GIPayload p_GIPayload;
 // FUNCTIONS --------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-vec3 spherical_fibonacci(float i, float n) 
+vec3 spherical_fibonacci(float i, float n)
 {
     const float PHI = sqrt(5) * 0.5 + 0.5;
-#   define madfrac(A, B) ((A)*(B)-floor((A)*(B)))
-    float phi = 2.0 * M_PI * madfrac(i, PHI - 1);
+#define madfrac(A, B) ((A) * (B)-floor((A) * (B)))
+    float phi       = 2.0 * M_PI * madfrac(i, PHI - 1);
     float cos_theta = 1.0 - (2.0 * i + 1.0) * (1.0 / n);
     float sin_theta = sqrt(clamp(1.0 - cos_theta * cos_theta, 0.0f, 1.0f));
 
     return vec3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
 
-#   undef madfrac
+#undef madfrac
 }
 
 // ------------------------------------------------------------------------
 
-vec3 grid_coord_to_position(ivec3 c) 
+vec3 grid_coord_to_position(ivec3 c)
 {
     return u_PushConstants.grid_step * vec3(c) + u_PushConstants.grid_start_position;
 }
 
 // ------------------------------------------------------------------------
 
-ivec3 probe_index_to_grid_coord(int index) 
+ivec3 probe_index_to_grid_coord(int index)
 {
     ivec3 i_pos;
-    
+
     // Slow, but works for any # of probes
     i_pos.x = index % u_PushConstants.probe_counts.x;
     i_pos.y = (index % (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y)) / u_PushConstants.probe_counts.x;
     i_pos.z = index / (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
-    
+
     // Assumes probeCounts are powers of two.
     // Saves ~10ms compared to the divisions above
     // Precomputing the MSB actually slows this code down substantially
-//    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
-//    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
-//    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
+    //    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
+    //    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
+    //    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
 
     return i_pos;
 }
 
 // ------------------------------------------------------------------------
 
-vec3 probe_location(int index) 
+vec3 probe_location(int index)
 {
     // Compute grid coord from instance ID.
     ivec3 grid_coord = probe_index_to_grid_coord(index);
@@ -112,12 +112,12 @@ vec3 probe_location(int index)
 void main()
 {
     const ivec2 pixel_coord = ivec2(gl_LaunchIDEXT.xy);
-    const int probe_id = pixel_coord.y;
-    const int ray_id = pixel_coord.x;
+    const int   probe_id    = pixel_coord.y;
+    const int   ray_id      = pixel_coord.x;
 
-    p_GIPayload.rng = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
-    p_GIPayload.L     = vec3(0.0f);
-    p_GIPayload.T     = vec3(1.0f);
+    p_GIPayload.rng          = rng_init(gl_LaunchIDEXT.xy, u_PushConstants.num_frames);
+    p_GIPayload.L            = vec3(0.0f);
+    p_GIPayload.T            = vec3(1.0f);
     p_GIPayload.hit_distance = -1.0f;
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
@@ -125,7 +125,7 @@ void main()
     float tmin       = 0.001;
     float tmax       = 10000.0;
     vec3  ray_origin = probe_location(probe_id);
-    vec3  direction = u_PushConstants.random_orientation * spherical_fibonacci(ray_id, u_PushConstants.rays_per_probe);
+    vec3  direction  = u_PushConstants.random_orientation * spherical_fibonacci(ray_id, u_PushConstants.rays_per_probe);
 
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, direction, tmax, 0);
 

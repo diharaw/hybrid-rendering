@@ -180,8 +180,8 @@ vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
 
 vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float depth, float ray_length)
 {
-    const vec2 tex_coord    = current_coord / vec2(size);
-    vec3       ray_origin   = world_position_from_depth(tex_coord, depth);
+    const vec2 tex_coord  = current_coord / vec2(size);
+    vec3       ray_origin = world_position_from_depth(tex_coord, depth);
 
     vec3 camera_ray = ray_origin - u_GlobalUBO.cam_pos.xyz;
 
@@ -208,7 +208,7 @@ vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 mo
     vec2 history_coord = surface_history_coord;
 
     if (ray_length > 0.0f && curvature == 0.0f)
-       history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length);
+        history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length);
 
     return history_coord;
 }

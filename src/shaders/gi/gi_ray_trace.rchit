@@ -306,7 +306,7 @@ void main()
 
     Li += indirect_lighting(Wo, N, vertex.position.xyz, R, F0, albedo);
 
-    p_GIPayload.L = Li;
+    p_GIPayload.L            = Li;
     p_GIPayload.hit_distance = gl_RayTminEXT + gl_HitTEXT;
 }
 

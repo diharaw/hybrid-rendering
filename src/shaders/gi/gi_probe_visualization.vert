@@ -60,28 +60,28 @@ u_PushConstants;
 // FUNCTION ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-vec3 grid_coord_to_position(ivec3 c) 
+vec3 grid_coord_to_position(ivec3 c)
 {
     return u_PushConstants.grid_step * vec3(c) + u_PushConstants.grid_start_position;
 }
 
 // ------------------------------------------------------------------------
 
-ivec3 probe_index_to_grid_coord(int index) 
+ivec3 probe_index_to_grid_coord(int index)
 {
     ivec3 i_pos;
-    
+
     // Slow, but works for any # of probes
     i_pos.x = index % u_PushConstants.probe_counts.x;
     i_pos.y = (index % (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y)) / u_PushConstants.probe_counts.x;
     i_pos.z = index / (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
-    
+
     // Assumes probeCounts are powers of two.
     // Saves ~10ms compared to the divisions above
     // Precomputing the MSB actually slows this code down substantially
-//    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
-//    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
-//    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
+    //    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
+    //    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
+    //    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
 
     return i_pos;
 }

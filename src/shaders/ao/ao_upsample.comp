@@ -34,7 +34,7 @@ layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(push_constant) uniform PushConstants
 {
-    int  g_buffer_mip;
+    int g_buffer_mip;
 }
 u_PushConstants;
 
@@ -98,7 +98,7 @@ void main()
         return;
     }
 
-    vec3  hi_res_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, 0).rg);
+    vec3 hi_res_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, 0).rg);
 
     float upsampled = 0.0f;
     float total_w   = 0.0f;
@@ -108,11 +108,11 @@ void main()
         vec2  coarse_tex_coord = tex_coord + g_kernel[i] * texel_size;
         float coarse_depth     = textureLod(s_GBuffer3, coarse_tex_coord, u_PushConstants.g_buffer_mip).a;
 
-        // If depth belongs to skybox, skip        
+        // If depth belongs to skybox, skip
         if (coarse_depth == -1.0f)
             continue;
-        
-        vec3  coarse_normal    = octohedral_to_direction(textureLod(s_GBuffer2, coarse_tex_coord, u_PushConstants.g_buffer_mip).rg);
+
+        vec3 coarse_normal = octohedral_to_direction(textureLod(s_GBuffer2, coarse_tex_coord, u_PushConstants.g_buffer_mip).rg);
 
         float w_depth  = depth_edge_stopping_weight(hi_res_depth, coarse_depth);
         float w_normal = normal_edge_stopping_weight(hi_res_normal, coarse_normal);

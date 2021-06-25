@@ -241,9 +241,9 @@ void RayTracedReflections::create_descriptor_sets()
 
     for (int i = 0; i < 2; i++)
     {
-        m_temporal_accumulation.current_write_ds[i] = backend->allocate_descriptor_set(m_temporal_accumulation.write_ds_layout);
-        m_temporal_accumulation.current_read_ds[i]  = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
-        m_temporal_accumulation.prev_read_ds[i]     = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
+        m_temporal_accumulation.current_write_ds[i]    = backend->allocate_descriptor_set(m_temporal_accumulation.write_ds_layout);
+        m_temporal_accumulation.current_read_ds[i]     = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
+        m_temporal_accumulation.prev_read_ds[i]        = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
         m_temporal_accumulation.output_only_read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     }
 

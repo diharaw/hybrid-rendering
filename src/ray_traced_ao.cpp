@@ -21,7 +21,7 @@ struct RayTracePushConstants
 
 struct TemporalReprojectionPushConstants
 {
-    float alpha;
+    float   alpha;
     int32_t g_buffer_mip;
 };
 
@@ -152,7 +152,7 @@ dw::vk::DescriptorSet::Ptr RayTracedAO::output_ds()
             if (m_scale == RAY_TRACE_SCALE_FULL_RES)
                 return m_disocclusion_blur.read_ds;
             else
-                return m_upsample.read_ds;                
+                return m_upsample.read_ds;
         }
     }
     else
@@ -901,11 +901,11 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
-    push_constants.num_frames = m_common_resources->num_frames;
-    push_constants.num_rays   = m_ray_trace.num_rays;
-    push_constants.ray_length = m_ray_trace.ray_length;
-    push_constants.power      = m_ray_trace.power;
-    push_constants.bias       = m_ray_trace.bias;
+    push_constants.num_frames   = m_common_resources->num_frames;
+    push_constants.num_rays     = m_ray_trace.num_rays;
+    push_constants.ray_length   = m_ray_trace.ray_length;
+    push_constants.power        = m_ray_trace.power;
+    push_constants.bias         = m_ray_trace.bias;
     push_constants.g_buffer_mip = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -1017,7 +1017,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     TemporalReprojectionPushConstants push_constants;
 
-    push_constants.alpha = m_temporal_accumulation.alpha;
+    push_constants.alpha        = m_temporal_accumulation.alpha;
     push_constants.g_buffer_mip = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);

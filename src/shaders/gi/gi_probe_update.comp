@@ -38,7 +38,7 @@ layout(push_constant) uniform PushConstants
     float max_distance;
     float depth_sharpness;
     float hysteresis;
-    int probe_side_length;
+    int   probe_side_length;
     int   texture_width;
     int   texture_height;
     int   rays_per_probe;
@@ -56,48 +56,48 @@ const float FLT_EPS = 0.00000001;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-int probe_id(vec2 texel_xy) 
+int probe_id(vec2 texel_xy)
 {
     int probe_with_border_side = u_PushConstants.probe_side_length + 2;
-    int probes_per_side = (u_PushConstants.texture_width - 2) / probe_with_border_side;
+    int probes_per_side        = (u_PushConstants.texture_width - 2) / probe_with_border_side;
     return int(texel_xy.x / probe_with_border_side) + probes_per_side * int(texel_xy.y / probe_with_border_side);
 }
 
 // ------------------------------------------------------------------
 
 // Compute normalized oct coord, mapping top left of top left pixel to (-1,-1)
-vec2 normalized_oct_coord(ivec2 frag_coord) 
+vec2 normalized_oct_coord(ivec2 frag_coord)
 {
     int probe_with_border_side = u_PushConstants.probe_side_length + 2;
 
     vec2 oct_frag_coord = ivec2((frag_coord.x - 2) % probe_with_border_side, (frag_coord.y - 2) % probe_with_border_side);
     // Add back the half pixel to get pixel center normalized coordinates
-    return (vec2(oct_frag_coord) + vec2(0.5f))*(2.0f / float(u_PushConstants.probe_side_length)) - vec2(1.0f, 1.0f);
+    return (vec2(oct_frag_coord) + vec2(0.5f)) * (2.0f / float(u_PushConstants.probe_side_length)) - vec2(1.0f, 1.0f);
 }
 
 // ------------------------------------------------------------------
 
-float sign_not_zero(in float k) 
+float sign_not_zero(in float k)
 {
     return (k >= 0.0) ? 1.0 : -1.0;
 }
 
 // ------------------------------------------------------------------
 
-vec2 sign_not_zero(in vec2 v) 
+vec2 sign_not_zero(in vec2 v)
 {
     return vec2(sign_not_zero(v.x), sign_not_zero(v.y));
 }
 
 // ------------------------------------------------------------------
 
-vec3 oct_decode(vec2 o) 
+vec3 oct_decode(vec2 o)
 {
     vec3 v = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
 
     if (v.z < 0.0)
         v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy);
-    
+
     return normalize(v);
 }
 
@@ -114,26 +114,26 @@ float square(float v)
 
 void main()
 {
-    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
-    const int relative_probe_id = probe_id(current_coord);
+    const ivec2 current_coord       = ivec2(gl_GlobalInvocationID.xy);
+    const int   relative_probe_id   = probe_id(current_coord);
     const float energy_conservation = 0.95f;
 
-    vec3 result = vec3(0.0f);
+    vec3  result       = vec3(0.0f);
     float total_weight = 0.0f;
 
     // For each ray
-	for (int r = 0; r < u_PushConstants.rays_per_probe; ++r) 
+    for (int r = 0; r < u_PushConstants.rays_per_probe; ++r)
     {
-		ivec2 C = ivec2(r, relative_probe_id);
+        ivec2 C = ivec2(r, relative_probe_id);
 
-		vec4 ray_direction_depth = texelFetch(s_InputDirectionDepth, C, 0);
+        vec4 ray_direction_depth = texelFetch(s_InputDirectionDepth, C, 0);
 
-        vec3 ray_direction = ray_direction_depth.xyz;
+        vec3  ray_direction      = ray_direction_depth.xyz;
         float ray_probe_distance = min(u_PushConstants.max_distance, ray_direction_depth.w - 0.01f);
-        vec3 ray_hit_radiance  = texelFetch(s_InputRadiance, C, 0).xyz * energy_conservation;
+        vec3  ray_hit_radiance   = texelFetch(s_InputRadiance, C, 0).xyz * energy_conservation;
 
         // Detect misses and force depth
-		if (ray_probe_distance == -1.0f)
+        if (ray_probe_distance == -1.0f)
             ray_probe_distance = u_PushConstants.max_distance;
 
         vec3 texel_direction = oct_decode(normalized_oct_coord(current_coord));
@@ -145,7 +145,7 @@ void main()
         else
             weight = pow(max(0.0, dot(texel_direction, ray_direction)), u_PushConstants.depth_sharpness);
 
-        if (weight >= FLT_EPS) 
+        if (weight >= FLT_EPS)
         {
             if (u_PushConstants.is_irradiance == 1)
                 result += vec3(ray_hit_radiance * weight);
@@ -154,12 +154,12 @@ void main()
 
             total_weight += weight;
         }
-	}
+    }
 
-    if (total_weight > FLT_EPS) 
+    if (total_weight > FLT_EPS)
         result /= total_weight;
 
-    // Temporal Accumulation 
+    // Temporal Accumulation
     vec3 prev_result;
 
     if (u_PushConstants.is_irradiance == 1)
@@ -167,7 +167,7 @@ void main()
     else
         prev_result = texelFetch(s_InputDepth, current_coord, 0).rgb;
 
-    result = mix(result, prev_result, u_PushConstants.hysteresis);       
+    result = mix(result, prev_result, u_PushConstants.hysteresis);
 
     if (u_PushConstants.is_irradiance == 1)
         imageStore(i_OutputIrradiance, current_coord, vec4(result, 1.0));

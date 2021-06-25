@@ -34,18 +34,18 @@ private:
 private:
     struct RayTrace
     {
-        int32_t                         rays_per_probe = 64;
-        dw::vk::DescriptorSet::Ptr      write_ds;
-        dw::vk::DescriptorSet::Ptr      read_ds;
+        int32_t                          rays_per_probe = 64;
+        dw::vk::DescriptorSet::Ptr       write_ds;
+        dw::vk::DescriptorSet::Ptr       read_ds;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
-        dw::vk::RayTracingPipeline::Ptr pipeline;
-        dw::vk::PipelineLayout::Ptr     pipeline_layout;
-        dw::vk::Image::Ptr              radiance_image;
-        dw::vk::Image::Ptr              direction_depth_image;
-        dw::vk::ImageView::Ptr          radiance_view;
-        dw::vk::ImageView::Ptr          direction_depth_view;
-        dw::vk::ShaderBindingTable::Ptr sbt;
+        dw::vk::RayTracingPipeline::Ptr  pipeline;
+        dw::vk::PipelineLayout::Ptr      pipeline_layout;
+        dw::vk::Image::Ptr               radiance_image;
+        dw::vk::Image::Ptr               direction_depth_image;
+        dw::vk::ImageView::Ptr           radiance_view;
+        dw::vk::ImageView::Ptr           direction_depth_view;
+        dw::vk::ShaderBindingTable::Ptr  sbt;
     };
 
     struct ProbeGrid
@@ -74,30 +74,29 @@ private:
 
     struct BorderUpdate
     {
-    
     };
 
     struct VisualizeProbeGrid
     {
         bool                          enabled = false;
-        float                         scale = 1.0f;
+        float                         scale   = 1.0f;
         dw::Mesh::Ptr                 sphere_mesh;
         dw::vk::GraphicsPipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr   pipeline_layout;
     };
 
-    uint32_t                       m_last_scene_id = UINT32_MAX;
-    std::weak_ptr<dw::vk::Backend> m_backend;
-    CommonResources*               m_common_resources;
+    uint32_t                              m_last_scene_id = UINT32_MAX;
+    std::weak_ptr<dw::vk::Backend>        m_backend;
+    CommonResources*                      m_common_resources;
     bool                                  m_first_frame = true;
-    bool                                  m_ping_pong     = false;
-    std::random_device               m_random_device;        
-    std::mt19937                     m_random_generator; 
+    bool                                  m_ping_pong   = false;
+    std::random_device                    m_random_device;
+    std::mt19937                          m_random_generator;
     std::uniform_real_distribution<float> m_random_distribution_zo;
     std::uniform_real_distribution<float> m_random_distribution_no;
-    RayTrace                       m_ray_trace;
+    RayTrace                              m_ray_trace;
     ProbeGrid                             m_probe_grid;
-    ProbeUpdate                    m_probe_update;
-    BorderUpdate                   m_border_update;
-    VisualizeProbeGrid             m_visualize_probe_grid;
+    ProbeUpdate                           m_probe_update;
+    BorderUpdate                          m_border_update;
+    VisualizeProbeGrid                    m_visualize_probe_grid;
 };

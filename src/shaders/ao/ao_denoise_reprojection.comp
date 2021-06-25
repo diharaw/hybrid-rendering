@@ -67,7 +67,7 @@ u_GlobalUBO;
 layout(push_constant) uniform PushConstants
 {
     float alpha;
-    int g_buffer_mip;
+    int   g_buffer_mip;
 }
 u_PushConstants;
 

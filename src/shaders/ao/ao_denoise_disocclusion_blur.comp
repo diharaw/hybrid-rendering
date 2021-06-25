@@ -40,7 +40,7 @@ layout(push_constant) uniform PushConstants
     float threshold;
     int   blur_radius;
     uint  enabled;
-    int g_buffer_mip;
+    int   g_buffer_mip;
 }
 u_PushConstants;
 

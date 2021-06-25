@@ -63,7 +63,7 @@ layout(push_constant) uniform PushConstants
     float ray_length;
     float power;
     float bias;
-    int g_buffer_mip;
+    int   g_buffer_mip;
 }
 u_PushConstants;
 
