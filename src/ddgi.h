@@ -28,6 +28,7 @@ private:
     void create_pipelines();
     void recreate_probe_grid_resources();
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance);
 
 private:
@@ -64,7 +65,6 @@ private:
 
     struct ProbeUpdate
     {
-        bool                         ping_pong       = false;
         float                        hysteresis      = 0.98f;
         float                        depth_sharpness = 50.0f;
         float                        max_distance    = 4.0f;
@@ -90,6 +90,7 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     bool                                  m_first_frame = true;
+    bool                                  m_ping_pong     = false;
     std::random_device               m_random_device;        
     std::mt19937                     m_random_generator; 
     std::uniform_real_distribution<float> m_random_distribution_zo;
