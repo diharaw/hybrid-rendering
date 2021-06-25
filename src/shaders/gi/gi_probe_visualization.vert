@@ -20,6 +20,7 @@ layout(location = 4) in vec3 VS_IN_Bitangent;
 
 layout(location = 0) out vec3 FS_IN_FragPos;
 layout(location = 1) out vec3 FS_IN_Normal;
+layout(location = 2) out flat int FS_IN_ProbeIdx;
 
 out gl_PerVertex
 {
@@ -53,6 +54,9 @@ layout(push_constant) uniform PushConstants
     vec3  grid_step;
     ivec3 probe_counts;
     float scale;
+    int   probe_side_length;
+    int   texture_width;
+    int   texture_height;
 }
 u_PushConstants;
 
@@ -101,8 +105,9 @@ void main()
     // Scale and offset the vertex position.
     gl_Position = u_GlobalUBO.view_proj * vec4((VS_IN_Position * u_PushConstants.scale) + probe_position, 1.0f);
 
-    // Pass normal into the fragment shader.
+    // Pass normal and probe index into the fragment shader.
     FS_IN_Normal = VS_IN_Normal;
+    FS_IN_ProbeIdx = gl_InstanceIndex;
 }
 
 // ------------------------------------------------------------------------

@@ -56,6 +56,9 @@ struct VisualizeProbeGridPushConstants
     DW_ALIGNED(16)
     glm::ivec3 probe_counts;
     float      scale;
+    int        probe_side_length;
+    int        texture_width;
+    int        texture_height;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -112,10 +115,11 @@ void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
         const uint32_t dynamic_offset = m_common_resources->ubo_size * vk_backend->current_frame_idx();
 
         VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->per_frame_ds->handle()
+            m_common_resources->per_frame_ds->handle(),
+            m_probe_grid.read_ds[static_cast<uint32_t>(!m_ping_pong)]->handle(),
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_visualize_probe_grid.pipeline_layout->handle(), 0, 1, descriptor_sets, 1, &dynamic_offset);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_visualize_probe_grid.pipeline_layout->handle(), 0, 2, descriptor_sets, 1, &dynamic_offset);
 
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &m_visualize_probe_grid.sphere_mesh->vertex_buffer()->handle(), &offset);
@@ -129,8 +133,11 @@ void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
         push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
         push_constants.probe_counts        = m_probe_grid.probe_counts;
         push_constants.scale               = m_visualize_probe_grid.scale;
+        push_constants.probe_side_length   = m_probe_grid.irradiance_oct_size;
+        push_constants.texture_width       = m_probe_grid.irradiance_image[0]->width();
+        push_constants.texture_height      = m_probe_grid.irradiance_image[0]->height();
 
-        vkCmdPushConstants(cmd_buf->handle(), m_visualize_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
+        vkCmdPushConstants(cmd_buf->handle(), m_visualize_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
         uint32_t probe_count = m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z;
 
@@ -251,8 +258,8 @@ void DDGI::create_descriptor_sets()
     {
         dw::vk::DescriptorSetLayout::Desc desc;
 
-        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
         m_ray_trace.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -260,8 +267,8 @@ void DDGI::create_descriptor_sets()
     {
         dw::vk::DescriptorSetLayout::Desc desc;
 
-        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
         m_ray_trace.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -483,7 +490,7 @@ void DDGI::write_descriptor_sets()
             VkDescriptorImageInfo sampler_image_info;
 
             sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
-            sampler_image_info.imageView   = m_ray_trace.direction_depth_view->handle();
+            sampler_image_info.imageView   = m_probe_grid.depth_view[i]->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             image_infos.push_back(sampler_image_info);
@@ -683,7 +690,8 @@ void DDGI::create_pipelines()
         dw::vk::PipelineLayout::Desc pl_desc;
 
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout)
-            .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VisualizeProbeGridPushConstants));
+            .add_descriptor_set_layout(m_ray_trace.read_ds_layout)
+            .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VisualizeProbeGridPushConstants));
 
         m_visualize_probe_grid.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, pl_desc);
 
