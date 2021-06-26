@@ -468,7 +468,7 @@ void DDGI::write_descriptor_sets()
         {
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+            sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
             sampler_image_info.imageView   = m_probe_grid.irradiance_view[i]->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -489,7 +489,7 @@ void DDGI::write_descriptor_sets()
         {
             VkDescriptorImageInfo sampler_image_info;
 
-            sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+            sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
             sampler_image_info.imageView   = m_probe_grid.depth_view[i]->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 

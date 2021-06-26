@@ -210,9 +210,9 @@ void main()
             const ivec2 border_texel = column_start_coord + ivec2((u_PushConstants.probe_side_length - probe_coord_without_border.x), -1);
 
             if (u_PushConstants.is_irradiance == 1)
-                imageStore(i_OutputIrradiance, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
             else
-                imageStore(i_OutputDepth, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
         }
 
         // Bottom row
@@ -222,9 +222,9 @@ void main()
             const ivec2 border_texel = column_start_coord + ivec2((u_PushConstants.probe_side_length - probe_coord_without_border.x), 1);
 
             if (u_PushConstants.is_irradiance == 1)
-                imageStore(i_OutputIrradiance, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
             else
-                imageStore(i_OutputDepth, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
         }
 
         // Left column
@@ -234,9 +234,9 @@ void main()
             const ivec2 border_texel = column_start_coord + ivec2(-1, (u_PushConstants.probe_side_length - probe_coord_without_border.y));
 
             if (u_PushConstants.is_irradiance == 1)
-                imageStore(i_OutputIrradiance, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
             else
-                imageStore(i_OutputDepth, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
         }
 
         // Right column
@@ -246,9 +246,9 @@ void main()
             const ivec2 border_texel = column_start_coord + ivec2(1, (u_PushConstants.probe_side_length - probe_coord_without_border.y));
 
             if (u_PushConstants.is_irradiance == 1)
-                imageStore(i_OutputIrradiance, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
             else
-                imageStore(i_OutputDepth, border_texel, vec4(1.0, 0.0f, 0.0f, 0.0f));
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
         }
     }
 }
