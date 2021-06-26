@@ -23,7 +23,7 @@ layout(location = 0) rayPayloadInEXT GIPayload p_GIPayload;
 
 void main()
 {
-    p_GIPayload.L = vec3(0.0f);
+    p_GIPayload.L = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
 }
 
 // ------------------------------------------------------------------------

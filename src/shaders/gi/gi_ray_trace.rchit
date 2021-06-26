@@ -15,8 +15,6 @@
 
 layout(location = 0) rayPayloadInEXT GIPayload p_GIPayload;
 
-layout(location = 1) rayPayloadEXT GIPayload p_IndirectGIPayload;
-
 // ------------------------------------------------------------------------
 // HIT ATTRIBUTE ----------------------------------------------------------
 // ------------------------------------------------------------------------
