@@ -250,6 +250,50 @@ void main()
             else
                 imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
         }
+
+        // Top left corners
+        if (probe_coord_without_border.x == 0 && probe_coord_without_border.y == 0)
+        {
+            const ivec2 border_texel = current_coord + ivec2(u_PushConstants.probe_side_length);
+
+            if (u_PushConstants.is_irradiance == 1)
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
+            else
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
+        }
+
+        // Top right corner
+        if (probe_coord_without_border.x == (u_PushConstants.probe_side_length - 1) && probe_coord_without_border.y == 0)
+        {
+            const ivec2 border_texel = current_coord + ivec2(-u_PushConstants.probe_side_length, u_PushConstants.probe_side_length);
+
+            if (u_PushConstants.is_irradiance == 1)
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
+            else
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
+        }
+
+        // Bottom left corner
+        if (probe_coord_without_border.x == 0 && probe_coord_without_border.y == (u_PushConstants.probe_side_length - 1))
+        {
+            const ivec2 border_texel = current_coord + ivec2(u_PushConstants.probe_side_length, -u_PushConstants.probe_side_length);
+
+            if (u_PushConstants.is_irradiance == 1)
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
+            else
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
+        }
+
+        // Bottom right corner
+        if (probe_coord_without_border.x == (u_PushConstants.probe_side_length - 1) && probe_coord_without_border.y == (u_PushConstants.probe_side_length - 1))
+        {
+            const ivec2 border_texel = current_coord + ivec2(-u_PushConstants.probe_side_length);
+
+            if (u_PushConstants.is_irradiance == 1)
+                imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
+            else
+                imageStore(i_OutputDepth, border_texel, vec4(result, 1.0));
+        }
     }
 }
 
