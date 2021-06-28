@@ -115,7 +115,7 @@ bool is_border_texel()
     if (gl_GlobalInvocationID.x == 0 || gl_GlobalInvocationID.y == 0)
         return true;
 
-    if (gl_GlobalInvocationID.x == (u_PushConstants.texture_width  - 1) || gl_GlobalInvocationID.y == (u_PushConstants.texture_height - 1))
+    if (gl_GlobalInvocationID.x == (u_PushConstants.texture_width - 1) || gl_GlobalInvocationID.y == (u_PushConstants.texture_height - 1))
         return true;
 
     int probe_with_border_side = u_PushConstants.probe_side_length + 2;
@@ -125,7 +125,7 @@ bool is_border_texel()
 
     if ((gl_GlobalInvocationID.y % probe_with_border_side) == 0 || (gl_GlobalInvocationID.y % probe_with_border_side) == 1)
         return true;
-   
+
     return false;
 }
 
@@ -200,14 +200,14 @@ void main()
 
         // Update borders
         const ivec2 coord_without_outer_border = current_coord - ivec2(1);
-        const ivec2 probe_coord = coord_without_outer_border % ivec2(u_PushConstants.probe_side_length + 2);
+        const ivec2 probe_coord                = coord_without_outer_border % ivec2(u_PushConstants.probe_side_length + 2);
         const ivec2 probe_coord_without_border = probe_coord - ivec2(1);
 
         // Top row
         if (probe_coord_without_border.y == 0)
         {
             const ivec2 column_start_coord = current_coord - probe_coord_without_border - ivec2(1, 0);
-            const ivec2 border_texel = column_start_coord + ivec2((u_PushConstants.probe_side_length - probe_coord_without_border.x), -1);
+            const ivec2 border_texel       = column_start_coord + ivec2((u_PushConstants.probe_side_length - probe_coord_without_border.x), -1);
 
             if (u_PushConstants.is_irradiance == 1)
                 imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
@@ -218,8 +218,8 @@ void main()
         // Bottom row
         if (probe_coord_without_border.y == (u_PushConstants.probe_side_length - 1))
         {
-            const ivec2 column_start_coord = current_coord - probe_coord_without_border + ivec2(0, u_PushConstants.probe_side_length - 1)  - ivec2(1, 0);
-            const ivec2 border_texel = column_start_coord + ivec2((u_PushConstants.probe_side_length - probe_coord_without_border.x), 1);
+            const ivec2 column_start_coord = current_coord - probe_coord_without_border + ivec2(0, u_PushConstants.probe_side_length - 1) - ivec2(1, 0);
+            const ivec2 border_texel       = column_start_coord + ivec2((u_PushConstants.probe_side_length - probe_coord_without_border.x), 1);
 
             if (u_PushConstants.is_irradiance == 1)
                 imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
@@ -231,7 +231,7 @@ void main()
         if (probe_coord_without_border.x == 0)
         {
             const ivec2 column_start_coord = current_coord - probe_coord_without_border - ivec2(0, 1);
-            const ivec2 border_texel = column_start_coord + ivec2(-1, (u_PushConstants.probe_side_length - probe_coord_without_border.y));
+            const ivec2 border_texel       = column_start_coord + ivec2(-1, (u_PushConstants.probe_side_length - probe_coord_without_border.y));
 
             if (u_PushConstants.is_irradiance == 1)
                 imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));
@@ -243,7 +243,7 @@ void main()
         if (probe_coord_without_border.x == (u_PushConstants.probe_side_length - 1))
         {
             const ivec2 column_start_coord = current_coord - probe_coord_without_border + ivec2(u_PushConstants.probe_side_length - 1, 0) - ivec2(0, 1);
-            const ivec2 border_texel = column_start_coord + ivec2(1, (u_PushConstants.probe_side_length - probe_coord_without_border.y));
+            const ivec2 border_texel       = column_start_coord + ivec2(1, (u_PushConstants.probe_side_length - probe_coord_without_border.y));
 
             if (u_PushConstants.is_irradiance == 1)
                 imageStore(i_OutputIrradiance, border_texel, vec4(result, 1.0));

@@ -12,8 +12,8 @@
 
 struct DDGIUniforms
 {
-    glm::vec3 grid_start_position;
-    glm::vec3 grid_step;
+    glm::vec3  grid_start_position;
+    glm::vec3  grid_step;
     glm::ivec3 probe_counts;
     float      max_distance;
     float      depth_sharpness;
@@ -240,7 +240,7 @@ void DDGI::create_images()
 
 void DDGI::create_buffers()
 {
-    auto backend                = m_backend.lock();
+    auto backend = m_backend.lock();
 
     m_probe_grid.properties_ubo = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_common_resources->ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
 }
@@ -730,26 +730,26 @@ void DDGI::recreate_probe_grid_resources()
 
 void DDGI::update_properties_ubo()
 {
-    auto     backend = m_backend.lock();
+    auto backend = m_backend.lock();
 
     DDGIUniforms ubo;
 
-    ubo.grid_start_position = m_probe_grid.grid_start_position;
-    ubo.grid_step           = glm::vec3(m_probe_grid.probe_distance);
-    ubo.probe_counts        = m_probe_grid.probe_counts;
-    ubo.max_distance                   = m_probe_update.max_distance;
-    ubo.depth_sharpness                = m_probe_update.depth_sharpness;
-    ubo.hysteresis                     = m_probe_update.hysteresis;
-    ubo.normal_bias                    = m_probe_update.normal_bias;
-    ubo.energy_preservation            = m_probe_grid.recursive_energy_preservation;
-    ubo.irradiance_probe_side_length   = m_probe_grid.irradiance_oct_size;
+    ubo.grid_start_position          = m_probe_grid.grid_start_position;
+    ubo.grid_step                    = glm::vec3(m_probe_grid.probe_distance);
+    ubo.probe_counts                 = m_probe_grid.probe_counts;
+    ubo.max_distance                 = m_probe_update.max_distance;
+    ubo.depth_sharpness              = m_probe_update.depth_sharpness;
+    ubo.hysteresis                   = m_probe_update.hysteresis;
+    ubo.normal_bias                  = m_probe_update.normal_bias;
+    ubo.energy_preservation          = m_probe_grid.recursive_energy_preservation;
+    ubo.irradiance_probe_side_length = m_probe_grid.irradiance_oct_size;
     ubo.irradiance_texture_width     = m_probe_grid.irradiance_image[0]->width();
-    ubo.irradiance_texture_height      = m_probe_grid.irradiance_image[0]->height();
-    ubo.depth_probe_side_length   = m_probe_grid.depth_oct_size;
-    ubo.depth_texture_width       = m_probe_grid.depth_image[0]->width();
-    ubo.depth_texture_height      = m_probe_grid.depth_image[0]->height();
-    ubo.rays_per_probe = m_ray_trace.rays_per_probe;
-    ubo.visibility_test                = (int32_t)m_probe_grid.visibility_test;
+    ubo.irradiance_texture_height    = m_probe_grid.irradiance_image[0]->height();
+    ubo.depth_probe_side_length      = m_probe_grid.depth_oct_size;
+    ubo.depth_texture_width          = m_probe_grid.depth_image[0]->width();
+    ubo.depth_texture_height         = m_probe_grid.depth_image[0]->height();
+    ubo.rays_per_probe               = m_ray_trace.rays_per_probe;
+    ubo.visibility_test              = (int32_t)m_probe_grid.visibility_test;
 
     uint8_t* ptr = (uint8_t*)m_probe_grid.properties_ubo->mapped_ptr();
     memcpy(ptr + m_common_resources->ubo_size * backend->current_frame_idx(), &ubo, sizeof(DDGIUniforms));
@@ -780,7 +780,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
-    push_constants.random_orientation  = glm::mat3_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
+    push_constants.random_orientation = glm::mat3_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 

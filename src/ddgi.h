@@ -53,10 +53,10 @@ private:
     struct ProbeGrid
     {
         bool                       visibility_test               = true;
-        float                      probe_distance      = 1.0f;
+        float                      probe_distance                = 1.0f;
         float                      recursive_energy_preservation = 0.85f;
-        uint32_t                   irradiance_oct_size = 8;
-        uint32_t                   depth_oct_size      = 16;
+        uint32_t                   irradiance_oct_size           = 8;
+        uint32_t                   depth_oct_size                = 16;
         glm::vec3                  grid_start_position;
         glm::ivec3                 probe_counts;
         dw::vk::DescriptorSet::Ptr write_ds[2];

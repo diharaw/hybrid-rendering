@@ -106,7 +106,7 @@ void main()
     gl_Position = u_GlobalUBO.view_proj * vec4((VS_IN_Position * u_PushConstants.scale) + probe_position, 1.0f);
 
     // Pass normal and probe index into the fragment shader.
-    FS_IN_Normal = VS_IN_Normal;
+    FS_IN_Normal   = VS_IN_Normal;
     FS_IN_ProbeIdx = gl_InstanceIndex;
 }
 
