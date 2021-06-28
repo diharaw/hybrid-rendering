@@ -23,10 +23,12 @@ private:
     void load_sphere_mesh();
     void initialize_probe_grid();
     void create_images();
+    void create_buffers();
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipelines();
     void recreate_probe_grid_resources();
+    void update_properties_ubo();
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance);
@@ -50,7 +52,9 @@ private:
 
     struct ProbeGrid
     {
+        bool                       visibility_test               = true;
         float                      probe_distance      = 1.0f;
+        float                      recursive_energy_preservation = 0.85f;
         uint32_t                   irradiance_oct_size = 8;
         uint32_t                   depth_oct_size      = 16;
         glm::vec3                  grid_start_position;
@@ -61,6 +65,7 @@ private:
         dw::vk::Image::Ptr         depth_image[2];
         dw::vk::ImageView::Ptr     irradiance_view[2];
         dw::vk::ImageView::Ptr     depth_view[2];
+        dw::vk::Buffer::Ptr        properties_ubo;
     };
 
     struct ProbeUpdate
@@ -68,6 +73,7 @@ private:
         float                        hysteresis      = 0.98f;
         float                        depth_sharpness = 50.0f;
         float                        max_distance    = 4.0f;
+        float                        normal_bias     = 0.25f;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
     };

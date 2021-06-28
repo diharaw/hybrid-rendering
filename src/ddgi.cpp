@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <logger.h>
 #include <profiler.h>
-#include <macros.h>
 #include <imgui.h>
 #include <gtc/quaternion.hpp>
 #define _USE_MATH_DEFINES
@@ -11,54 +10,46 @@
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+struct DDGIUniforms
+{
+    glm::vec3 grid_start_position;
+    glm::vec3 grid_step;
+    glm::ivec3 probe_counts;
+    float      max_distance;
+    float      depth_sharpness;
+    float      hysteresis;
+    float      normal_bias;
+    float      energy_preservation;
+    int        irradiance_probe_side_length;
+    int        irradiance_texture_width;
+    int        irradiance_texture_height;
+    int        depth_probe_side_length;
+    int        depth_texture_width;
+    int        depth_texture_height;
+    int        rays_per_probe;
+    int        visibility_test;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct RayTracePushConstants
 {
     DW_ALIGNED(16)
     glm::mat3 random_orientation;
-    DW_ALIGNED(16)
-    glm::vec3 grid_start_position;
-    DW_ALIGNED(16)
-    glm::vec3 grid_step;
-    DW_ALIGNED(16)
-    glm::ivec3 probe_counts;
-    uint32_t   num_frames;
-    uint32_t   rays_per_probe;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct ProbeUpdatePushConstants
 {
-    DW_ALIGNED(16)
-    glm::vec3 grid_start_position;
-    DW_ALIGNED(16)
-    glm::vec3 grid_step;
-    DW_ALIGNED(16)
-    glm::ivec3 probe_counts;
-    float      max_distance;
-    float      depth_sharpness;
-    float      hysteresis;
-    int        probe_side_length;
-    int        texture_width;
-    int        texture_height;
-    int        rays_per_probe;
-    int        is_irradiance;
+    int is_irradiance;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct VisualizeProbeGridPushConstants
 {
-    DW_ALIGNED(16)
-    glm::vec3 grid_start_position;
-    DW_ALIGNED(16)
-    glm::vec3 grid_step;
-    DW_ALIGNED(16)
-    glm::ivec3 probe_counts;
-    float      scale;
-    int        probe_side_length;
-    int        texture_width;
-    int        texture_height;
+    float scale;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -91,6 +82,7 @@ void DDGI::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     if (m_last_scene_id != m_common_resources->current_scene->id())
         initialize_probe_grid();
 
+    update_properties_ubo();
     ray_trace(cmd_buf);
     probe_update(cmd_buf);
 
@@ -129,13 +121,7 @@ void DDGI::render_probes(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VisualizeProbeGridPushConstants push_constants;
 
-        push_constants.grid_start_position = m_probe_grid.grid_start_position;
-        push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
-        push_constants.probe_counts        = m_probe_grid.probe_counts;
-        push_constants.scale               = m_visualize_probe_grid.scale;
-        push_constants.probe_side_length   = m_probe_grid.irradiance_oct_size;
-        push_constants.texture_width       = m_probe_grid.irradiance_image[0]->width();
-        push_constants.texture_height      = m_probe_grid.irradiance_image[0]->height();
+        push_constants.scale = m_visualize_probe_grid.scale;
 
         vkCmdPushConstants(cmd_buf->handle(), m_visualize_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -153,12 +139,14 @@ void DDGI::gui()
     ImGui::Text("Grid Size: [%i, %i, %i]", m_probe_grid.probe_counts.x, m_probe_grid.probe_counts.y, m_probe_grid.probe_counts.z);
     ImGui::Text("Probe Count: %i", m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z);
     ImGui::Checkbox("Visualize Probe Grid", &m_visualize_probe_grid.enabled);
+    ImGui::Checkbox("Visibility Test", &m_probe_grid.visibility_test);
     ImGui::InputFloat("Scale", &m_visualize_probe_grid.scale);
     if (ImGui::InputInt("Rays Per Probe", &m_ray_trace.rays_per_probe))
         recreate_probe_grid_resources();
     if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
         initialize_probe_grid();
     ImGui::InputFloat("Hysteresis", &m_probe_update.hysteresis);
+    ImGui::InputFloat("Normal Bias", &m_probe_update.normal_bias);
     ImGui::InputFloat("Depth Sharpness", &m_probe_update.depth_sharpness);
 }
 
@@ -246,6 +234,15 @@ void DDGI::create_images()
             m_probe_grid.depth_view[i]->set_name("DDGI Depth Probe Grid " + std::to_string(i));
         }
     }
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::create_buffers()
+{
+    auto backend                = m_backend.lock();
+
+    m_probe_grid.properties_ubo = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_common_resources->ubo_size * dw::vk::Backend::kMaxFramesInFlight, VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -725,7 +722,37 @@ void DDGI::recreate_probe_grid_resources()
     m_first_frame = true;
 
     create_images();
+    create_buffers();
     write_descriptor_sets();
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::update_properties_ubo()
+{
+    auto     backend = m_backend.lock();
+
+    DDGIUniforms ubo;
+
+    ubo.grid_start_position = m_probe_grid.grid_start_position;
+    ubo.grid_step           = glm::vec3(m_probe_grid.probe_distance);
+    ubo.probe_counts        = m_probe_grid.probe_counts;
+    ubo.max_distance                   = m_probe_update.max_distance;
+    ubo.depth_sharpness                = m_probe_update.depth_sharpness;
+    ubo.hysteresis                     = m_probe_update.hysteresis;
+    ubo.normal_bias                    = m_probe_update.normal_bias;
+    ubo.energy_preservation            = m_probe_grid.recursive_energy_preservation;
+    ubo.irradiance_probe_side_length   = m_probe_grid.irradiance_oct_size;
+    ubo.irradiance_texture_width     = m_probe_grid.irradiance_image[0]->width();
+    ubo.irradiance_texture_height      = m_probe_grid.irradiance_image[0]->height();
+    ubo.depth_probe_side_length   = m_probe_grid.depth_oct_size;
+    ubo.depth_texture_width       = m_probe_grid.depth_image[0]->width();
+    ubo.depth_texture_height      = m_probe_grid.depth_image[0]->height();
+    ubo.rays_per_probe = m_ray_trace.rays_per_probe;
+    ubo.visibility_test                = (int32_t)m_probe_grid.visibility_test;
+
+    uint8_t* ptr = (uint8_t*)m_probe_grid.properties_ubo->mapped_ptr();
+    memcpy(ptr + m_common_resources->ubo_size * backend->current_frame_idx(), &ubo, sizeof(DDGIUniforms));
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -754,11 +781,6 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     RayTracePushConstants push_constants;
 
     push_constants.random_orientation  = glm::mat3_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
-    push_constants.grid_start_position = m_probe_grid.grid_start_position;
-    push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
-    push_constants.probe_counts        = m_probe_grid.probe_counts;
-    push_constants.num_frames          = m_common_resources->num_frames;
-    push_constants.rays_per_probe      = m_ray_trace.rays_per_probe;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
@@ -872,17 +894,7 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
 
     ProbeUpdatePushConstants push_constants;
 
-    push_constants.grid_start_position = m_probe_grid.grid_start_position;
-    push_constants.grid_step           = glm::vec3(m_probe_grid.probe_distance);
-    push_constants.probe_counts        = m_probe_grid.probe_counts;
-    push_constants.max_distance        = m_probe_update.max_distance;
-    push_constants.depth_sharpness     = m_probe_update.depth_sharpness;
-    push_constants.hysteresis          = m_first_frame ? 0.0f : m_probe_update.hysteresis;
-    push_constants.probe_side_length   = is_irradiance ? m_probe_grid.irradiance_oct_size : m_probe_grid.depth_oct_size;
-    push_constants.texture_width       = is_irradiance ? m_probe_grid.irradiance_image[0]->width() : m_probe_grid.depth_image[0]->width();
-    push_constants.texture_height      = is_irradiance ? m_probe_grid.irradiance_image[0]->height() : m_probe_grid.depth_image[0]->height();
-    push_constants.rays_per_probe      = m_ray_trace.rays_per_probe;
-    push_constants.is_irradiance       = (uint32_t)is_irradiance;
+    push_constants.is_irradiance = (uint32_t)is_irradiance;
 
     vkCmdPushConstants(cmd_buf->handle(), m_probe_update.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

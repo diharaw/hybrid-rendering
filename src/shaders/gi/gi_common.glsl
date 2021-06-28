@@ -24,6 +24,7 @@ struct DDGIUniforms
     int   depth_texture_width;
     int   depth_texture_height;
     int   rays_per_probe;
+    int   visibility_test;
 };
 
 // ------------------------------------------------------------------------
@@ -212,6 +213,7 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, sampler2D irradianc
         }
 
         // Moment visibility test
+        if (ddgi.visibility_test == 1)
         {
             vec2 tex_coord = texture_coord_from_direction(-dir, p, ddgi.depth_texture_width, ddgi.depth_texture_height, ddgi.depth_probe_side_length);
 
