@@ -15,7 +15,7 @@
 
 layout(set = 1, binding = 0, rgba16f) uniform image2D i_Radiance;
 layout(set = 1, binding = 1, rgba16f) uniform image2D i_DirectionDistance;
-layout(set = 1, binding = 2, std140) uniform DDGIUBO
+layout(set = 1, binding = 2) uniform DDGIUBO
 {
     DDGIUniforms ddgi; 
 };

@@ -46,7 +46,7 @@ layout(set = 0, binding = 0) uniform PerFrameUBO
 }
 u_GlobalUBO;
 
-layout(set = 1, binding = 2, std140) uniform DDGIUBO
+layout(set = 1, binding = 2) uniform DDGIUBO
 {
     DDGIUniforms ddgi; 
 };
