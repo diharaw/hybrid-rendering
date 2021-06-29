@@ -29,7 +29,7 @@ layout(set = 0, binding = 1, rg16f) uniform image2D i_OutputDepth;
 
 layout(set = 1, binding = 0) uniform sampler2D s_InputIrradiance;
 layout(set = 1, binding = 1) uniform sampler2D s_InputDepth;
-layout(set = 1, binding = 2, scalar) uniform DDGIUBO
+layout(set = 1, binding = 2) uniform DDGIUBO
 {
     DDGIUniforms ddgi; 
 };

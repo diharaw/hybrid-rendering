@@ -13,8 +13,11 @@
 
 struct DDGIUniforms
 {
+    DW_ALIGNED(16)
     glm::vec3  grid_start_position;
+    DW_ALIGNED(16)
     glm::vec3  grid_step;
+    DW_ALIGNED(16)
     glm::ivec3 probe_counts;
     float      max_distance;
     float      depth_sharpness;
