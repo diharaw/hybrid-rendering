@@ -80,14 +80,21 @@ vec3 probe_location(in DDGIUniforms ddgi, int index)
     return grid_coord_to_position(ddgi, grid_coord);
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
 float square(float v)
 {
     return v * v;
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
+
+vec3 square(vec3 v)
+{
+    return v * v;
+}
+
+// ------------------------------------------------------------------------
 
 float pow3(float x) 
 { 
@@ -101,14 +108,14 @@ float sign_not_zero(in float k)
     return (k >= 0.0) ? 1.0 : -1.0;
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
 vec2 sign_not_zero(in vec2 v)
 {
     return vec2(sign_not_zero(v.x), sign_not_zero(v.y));
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
 vec2 oct_encode(in vec3 v) 
 {
@@ -120,6 +127,39 @@ vec2 oct_encode(in vec3 v)
 }
 
 // ------------------------------------------------------------------
+
+vec3 oct_decode(vec2 o)
+{
+    vec3 v = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
+
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy);
+
+    return normalize(v);
+}
+
+// ------------------------------------------------------------------------
+
+int probe_id(vec2 texel_xy, int full_texture_width, int probe_side_length)
+{
+    int probe_with_border_side = probe_side_length + 2;
+    int probes_per_side        = (full_texture_width - 2) / probe_with_border_side;
+    return int(texel_xy.x / probe_with_border_side) + probes_per_side * int(texel_xy.y / probe_with_border_side);
+}
+
+// ------------------------------------------------------------------------
+
+// Compute normalized oct coord, mapping top left of top left pixel to (-1,-1)
+vec2 normalized_oct_coord(ivec2 frag_coord, int probe_side_length)
+{
+    int probe_with_border_side = probe_side_length + 2;
+
+    vec2 oct_frag_coord = ivec2((frag_coord.x - 2) % probe_with_border_side, (frag_coord.y - 2) % probe_with_border_side);
+    // Add back the half pixel to get pixel center normalized coordinates
+    return (vec2(oct_frag_coord) + vec2(0.5f)) * (2.0f / float(probe_side_length)) - vec2(1.0f, 1.0f);
+}
+
+// ------------------------------------------------------------------------
 
 vec2 texture_coord_from_direction(vec3 dir, int probe_index, int full_texture_width, int full_texture_height, int probe_side_length) 
 {
@@ -145,10 +185,10 @@ vec2 texture_coord_from_direction(vec3 dir, int probe_index, int full_texture_wi
 
 // ------------------------------------------------------------------------
 
-vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, sampler2D irradiance_texture, sampler2D depth_texture)
+vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, vec3 Wo, sampler2D irradiance_texture, sampler2D depth_texture)
 {
     ivec3 base_grid_coord = base_grid_coord(ddgi, P);
-    ivec3 base_probe_pos = grid_coord_to_position(ddgi, base_grid_coord);
+    vec3 base_probe_pos = grid_coord_to_position(ddgi, base_grid_coord);
     
     vec3  sum_irradiance = vec3(0.0f);
     float sum_weight = 0.0f;
@@ -168,7 +208,7 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, sampler2D irradianc
         // Make cosine falloff in tangent plane with respect to the angle from the surface to the probe so that we never
         // test a probe that is *behind* the surface.
         // It doesn't have to be cosine, but that is efficient to compute and we must clip to the tangent plane.
-        ivec3 probe_pos = grid_coord_to_position(ddgi, probe_grid_coord);
+        vec3 probe_pos = grid_coord_to_position(ddgi, probe_grid_coord);
 
         // Bias the position at which visibility is computed; this
         // avoids performing a shadow test *at* a surface, which is a
@@ -178,14 +218,14 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, sampler2D irradianc
         // then samples can pass through thin occluders to the other
         // side (this can only happen if there are MULTIPLE occluders
         // near each other, a wall surface won't pass through itself.)
-        vec3 probe_to_point = P - probe_pos + (N + 3.0 * w_o) * ddgi.normal_bias;
+        vec3 probe_to_point = P - probe_pos + (N + 3.0 * Wo) * ddgi.normal_bias;
         vec3 dir = normalize(-probe_to_point);
 
         // Compute the trilinear weights based on the grid cell vertex to smoothly
         // transition between probes. Avoid ever going entirely to zero because that
         // will cause problems at the border probes. This isn't really a lerp. 
         // We're using 1-a when offset = 0 and a when offset = 1.
-        vec3 trilinear = lerp(1.0 - alpha, alpha, offset);
+        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
         float weight = 1.0;
 
         // Clamp all of the multiplies. We can't let the weight go to zero because then it would be 
@@ -219,7 +259,7 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, sampler2D irradianc
 
             float dist_to_probe = length(probe_to_point);
 
-            vec2 temp = texture(depth_texture, tex_coord, 0).rg;
+            vec2 temp = textureLod(depth_texture, tex_coord, 0.0f).rg;
             float mean = temp.x;
             float variance = abs(square(temp.x) - temp.y);
 
@@ -240,7 +280,7 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, sampler2D irradianc
 
         vec2 tex_coord = texture_coord_from_direction(normalize(irradiance_dir), p, ddgi.irradiance_texture_width, ddgi.irradiance_texture_height, ddgi.irradiance_probe_side_length);
 
-        vec3 probe_irradiance = texture(irradiance_texture, tex_coord).rgb;
+        vec3 probe_irradiance = textureLod(irradiance_texture, tex_coord, 0.0f).rgb;
 
         // A tiny bit of light is really visible due to log perception, so
         // crush tiny weights but keep the curve continuous. This must be done

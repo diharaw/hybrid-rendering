@@ -1,7 +1,9 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
+#extension GL_GOOGLE_include_directive : require
 
+#include "gi_common.glsl"
 #include "../common.glsl"
 
 // ------------------------------------------------------------------------
@@ -44,51 +46,20 @@ layout(set = 0, binding = 0) uniform PerFrameUBO
 }
 u_GlobalUBO;
 
+layout(set = 1, binding = 2, std140) uniform DDGIUBO
+{
+    DDGIUniforms ddgi; 
+};
+
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
 // ------------------------------------------------------------------------
 
 layout(push_constant) uniform PushConstants
 {
-    vec3  grid_start_position;
-    vec3  grid_step;
-    ivec3 probe_counts;
     float scale;
-    int   probe_side_length;
-    int   texture_width;
-    int   texture_height;
 }
 u_PushConstants;
-
-// ------------------------------------------------------------------------
-// FUNCTION ---------------------------------------------------------------
-// ------------------------------------------------------------------------
-
-vec3 grid_coord_to_position(ivec3 c)
-{
-    return u_PushConstants.grid_step * vec3(c) + u_PushConstants.grid_start_position;
-}
-
-// ------------------------------------------------------------------------
-
-ivec3 probe_index_to_grid_coord(int index)
-{
-    ivec3 i_pos;
-
-    // Slow, but works for any # of probes
-    i_pos.x = index % u_PushConstants.probe_counts.x;
-    i_pos.y = (index % (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y)) / u_PushConstants.probe_counts.x;
-    i_pos.z = index / (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
-
-    // Assumes probeCounts are powers of two.
-    // Saves ~10ms compared to the divisions above
-    // Precomputing the MSB actually slows this code down substantially
-    //    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
-    //    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
-    //    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
-
-    return i_pos;
-}
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -97,10 +68,10 @@ ivec3 probe_index_to_grid_coord(int index)
 void main()
 {
     // Compute grid coord from instance ID.
-    ivec3 grid_coord = probe_index_to_grid_coord(gl_InstanceIndex);
+    ivec3 grid_coord = probe_index_to_grid_coord(ddgi, gl_InstanceIndex);
 
     // Compute probe position from grid coord.
-    vec3 probe_position = grid_coord_to_position(grid_coord);
+    vec3 probe_position = grid_coord_to_position(ddgi, grid_coord);
 
     // Scale and offset the vertex position.
     gl_Position = u_GlobalUBO.view_proj * vec4((VS_IN_Position * u_PushConstants.scale) + probe_position, 1.0f);

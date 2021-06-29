@@ -7,6 +7,7 @@
 #define RAY_TRACING
 #include "../common.glsl"
 #include "../scene_descriptor_set.glsl"
+#include "gi_common.glsl"
 
 // ------------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------------
@@ -14,6 +15,10 @@
 
 layout(set = 1, binding = 0, rgba16f) uniform image2D i_Radiance;
 layout(set = 1, binding = 1, rgba16f) uniform image2D i_DirectionDistance;
+layout(set = 1, binding = 2, std140) uniform DDGIUBO
+{
+    DDGIUniforms ddgi; 
+};
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
@@ -35,11 +40,7 @@ ubo;
 layout(push_constant) uniform PushConstants
 {
     mat3  random_orientation;
-    vec3  grid_start_position;
-    vec3  grid_step;
-    ivec3 probe_counts;
     uint  num_frames;
-    uint  rays_per_probe;
 }
 u_PushConstants;
 
@@ -67,45 +68,6 @@ vec3 spherical_fibonacci(float i, float n)
 }
 
 // ------------------------------------------------------------------------
-
-vec3 grid_coord_to_position(ivec3 c)
-{
-    return u_PushConstants.grid_step * vec3(c) + u_PushConstants.grid_start_position;
-}
-
-// ------------------------------------------------------------------------
-
-ivec3 probe_index_to_grid_coord(int index)
-{
-    ivec3 i_pos;
-
-    // Slow, but works for any # of probes
-    i_pos.x = index % u_PushConstants.probe_counts.x;
-    i_pos.y = (index % (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y)) / u_PushConstants.probe_counts.x;
-    i_pos.z = index / (u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
-
-    // Assumes probeCounts are powers of two.
-    // Saves ~10ms compared to the divisions above
-    // Precomputing the MSB actually slows this code down substantially
-    //    i_pos.x = index & (u_PushConstants.probe_counts.x - 1);
-    //    i_pos.y = (index & ((u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y) - 1)) >> findMSB(u_PushConstants.probe_counts.x);
-    //    i_pos.z = index >> findMSB(u_PushConstants.probe_counts.x * u_PushConstants.probe_counts.y);
-
-    return i_pos;
-}
-
-// ------------------------------------------------------------------------
-
-vec3 probe_location(int index)
-{
-    // Compute grid coord from instance ID.
-    ivec3 grid_coord = probe_index_to_grid_coord(index);
-
-    // Compute probe position from grid coord.
-    return grid_coord_to_position(grid_coord);
-}
-
-// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -119,8 +81,8 @@ void main()
     uint  cull_mask  = 0xff;
     float tmin       = 0.001;
     float tmax       = 10000.0;
-    vec3  ray_origin = probe_location(probe_id);
-    vec3  direction  = normalize(u_PushConstants.random_orientation * spherical_fibonacci(ray_id, u_PushConstants.rays_per_probe));
+    vec3  ray_origin = probe_location(ddgi, probe_id);
+    vec3  direction  = normalize(u_PushConstants.random_orientation * spherical_fibonacci(ray_id, ddgi.rays_per_probe));
 
     p_GIPayload.rng          = rng_init(pixel_coord, u_PushConstants.num_frames);
     p_GIPayload.L            = vec3(0.0f);

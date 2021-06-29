@@ -47,11 +47,7 @@ layout(set = 3, binding = 0) uniform samplerCube s_Cubemap;
 layout(push_constant) uniform PushConstants
 {
     mat3  random_orientation;
-    vec3  grid_start_position;
-    vec3  grid_step;
-    ivec3 probe_counts;
     uint  num_frames;
-    uint  rays_per_probe;
 }
 u_PushConstants;
 

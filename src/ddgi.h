@@ -61,11 +61,14 @@ private:
         glm::ivec3                 probe_counts;
         dw::vk::DescriptorSet::Ptr write_ds[2];
         dw::vk::DescriptorSet::Ptr read_ds[2];
+        dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
         dw::vk::Image::Ptr         irradiance_image[2];
         dw::vk::Image::Ptr         depth_image[2];
         dw::vk::ImageView::Ptr     irradiance_view[2];
         dw::vk::ImageView::Ptr     depth_view[2];
         dw::vk::Buffer::Ptr        properties_ubo;
+        size_t                     properties_ubo_size;
     };
 
     struct ProbeUpdate
@@ -74,7 +77,7 @@ private:
         float                        depth_sharpness = 50.0f;
         float                        max_distance    = 4.0f;
         float                        normal_bias     = 0.25f;
-        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::ComputePipeline::Ptr pipeline[2];
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
     };
 

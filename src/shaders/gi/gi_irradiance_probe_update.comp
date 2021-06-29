@@ -1,0 +1,6 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+#include "gi_common.glsl"
+#include "gi_probe_update.glsl"
