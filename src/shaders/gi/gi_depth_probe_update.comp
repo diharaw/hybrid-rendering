@@ -1,5 +1,6 @@
 #version 450
 
+#extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
 
 #define DEPTH_PROBE_UPDATE

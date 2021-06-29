@@ -1,6 +1,6 @@
 #version 460
 
-#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
 
 #include "gi_common.glsl"
@@ -46,7 +46,7 @@ layout(set = 0, binding = 0) uniform PerFrameUBO
 }
 u_GlobalUBO;
 
-layout(set = 1, binding = 2) uniform DDGIUBO
+layout(set = 1, binding = 2, scalar) uniform DDGIUBO
 {
     DDGIUniforms ddgi; 
 };

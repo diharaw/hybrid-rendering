@@ -1,5 +1,6 @@
 #version 460
 
+#extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
 
 #include "gi_common.glsl"
@@ -24,7 +25,7 @@ layout(location = 0) out vec4 FS_OUT_Color;
 
 layout(set = 1, binding = 0) uniform sampler2D s_Irradiance;
 layout(set = 1, binding = 1) uniform sampler2D s_Depth;
-layout(set = 1, binding = 2) uniform DDGIUBO
+layout(set = 1, binding = 2, scalar) uniform DDGIUBO
 {
     DDGIUniforms ddgi; 
 };
