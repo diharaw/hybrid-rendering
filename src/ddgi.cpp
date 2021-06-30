@@ -35,9 +35,7 @@ struct DDGIUniforms
 
 struct RayTracePushConstants
 {
-    DW_ALIGNED(16)
-    glm::mat3 random_orientation;
-    DW_ALIGNED(16)
+    glm::mat4 random_orientation;
     int       num_frames;
 };
 
@@ -860,7 +858,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     RayTracePushConstants push_constants;
 
-    push_constants.random_orientation = glm::mat3_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
+    push_constants.random_orientation = glm::mat4_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
     push_constants.num_frames         = m_common_resources->num_frames;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);

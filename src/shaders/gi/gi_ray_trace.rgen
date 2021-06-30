@@ -40,7 +40,7 @@ ubo;
 
 layout(push_constant) uniform PushConstants
 {
-    mat3  random_orientation;
+    mat4  random_orientation;
     uint  num_frames;
 }
 u_PushConstants;
@@ -83,7 +83,7 @@ void main()
     float tmin       = 0.001;
     float tmax       = 10000.0;
     vec3  ray_origin = probe_location(ddgi, probe_id);
-    vec3  direction  = normalize(u_PushConstants.random_orientation * spherical_fibonacci(ray_id, ddgi.rays_per_probe));
+    vec3  direction  = normalize(mat3(u_PushConstants.random_orientation) * spherical_fibonacci(ray_id, ddgi.rays_per_probe));
 
     p_GIPayload.rng          = rng_init(pixel_coord, u_PushConstants.num_frames);
     p_GIPayload.L            = vec3(0.0f);
