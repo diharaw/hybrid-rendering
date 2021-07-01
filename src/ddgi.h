@@ -4,16 +4,22 @@
 
 #include <random>
 
+class GBuffer;
+
 class DDGI
 {
 public:
-    DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources);
+    DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_FULL_RES);
     ~DDGI();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf);
     void render_probes(dw::vk::CommandBuffer::Ptr cmd_buf);
     void gui();
+    dw::vk::DescriptorSet::Ptr output_ds();
 
+    inline uint32_t      width() { return m_width; }
+    inline uint32_t      height() { return m_height; }
+    inline RayTraceScale scale() { return m_scale; }
     inline void  set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
     inline void  set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
     inline float probe_distance() { return m_probe_grid.probe_distance; }
@@ -32,6 +38,7 @@ private:
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance);
+    void sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
     struct RayTrace
@@ -81,6 +88,16 @@ private:
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
     };
 
+    struct SampleProbeGrid
+    {
+        dw::vk::Image::Ptr     image;
+        dw::vk::ImageView::Ptr image_view;
+        dw::vk::ComputePipeline::Ptr pipeline;
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::DescriptorSet::Ptr   write_ds;
+        dw::vk::DescriptorSet::Ptr   read_ds;
+    };
+
     struct BorderUpdate
     {
     };
@@ -97,6 +114,11 @@ private:
     uint32_t                              m_last_scene_id = UINT32_MAX;
     std::weak_ptr<dw::vk::Backend>        m_backend;
     CommonResources*                      m_common_resources;
+    GBuffer*                              m_g_buffer;
+    RayTraceScale                         m_scale;
+    uint32_t                              m_g_buffer_mip = 0;
+    uint32_t                              m_width;
+    uint32_t                              m_height;
     bool                                  m_first_frame = true;
     bool                                  m_ping_pong   = false;
     std::random_device                    m_random_device;
@@ -107,5 +129,6 @@ private:
     ProbeGrid                             m_probe_grid;
     ProbeUpdate                           m_probe_update;
     BorderUpdate                          m_border_update;
+    SampleProbeGrid                       m_sample_probe_grid;
     VisualizeProbeGrid                    m_visualize_probe_grid;
 };

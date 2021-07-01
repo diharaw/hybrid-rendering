@@ -1,5 +1,6 @@
 #include "ddgi.h"
 #include "utilities.h"
+#include "g_buffer.h"
 #include <stdexcept>
 #include <logger.h>
 #include <profiler.h>
@@ -48,6 +49,13 @@ struct ProbeUpdatePushConstants
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+struct SampleProbeGridPushConstants
+{
+    int g_buffer_mip;
+};
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct VisualizeProbeGridPushConstants
 {
     float scale;
@@ -55,9 +63,18 @@ struct VisualizeProbeGridPushConstants
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-DDGI::DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources) :
-    m_backend(backend), m_common_resources(common_resources)
+DDGI::DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
+    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
 {
+    auto vk_backend = m_backend.lock();
+
+    float scale_divisor = powf(2.0f, float(scale));
+
+    m_width  = vk_backend->swap_chain_extents().width / scale_divisor;
+    m_height = vk_backend->swap_chain_extents().height / scale_divisor;
+
+    m_g_buffer_mip = static_cast<uint32_t>(scale);
+
     m_random_generator       = std::mt19937(m_random_device());
     m_random_distribution_zo = std::uniform_real_distribution<float>(0.0f, 1.0f);
     m_random_distribution_no = std::uniform_real_distribution<float>(-1.0f, 1.0f);
@@ -86,6 +103,7 @@ void DDGI::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     update_properties_ubo();
     ray_trace(cmd_buf);
     probe_update(cmd_buf);
+    sample_probe_grid(cmd_buf);
 
     m_first_frame = false;
     m_ping_pong   = !m_ping_pong;
@@ -152,6 +170,13 @@ void DDGI::gui()
     ImGui::InputFloat("Hysteresis", &m_probe_update.hysteresis);
     ImGui::InputFloat("Normal Bias", &m_probe_update.normal_bias);
     ImGui::InputFloat("Depth Sharpness", &m_probe_update.depth_sharpness);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+dw::vk::DescriptorSet::Ptr DDGI::output_ds()
+{
+    return m_sample_probe_grid.read_ds;
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -238,6 +263,15 @@ void DDGI::create_images()
             m_probe_grid.depth_view[i]->set_name("DDGI Depth Probe Grid " + std::to_string(i));
         }
     }
+
+    // Sample Probe Grid
+    {
+        m_sample_probe_grid.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_sample_probe_grid.image->set_name("DDGI Sample Probe Grid");
+
+        m_sample_probe_grid.image_view = dw::vk::ImageView::create(backend, m_sample_probe_grid.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_sample_probe_grid.image_view->set_name("DDGI Sample Probe Grid");
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -305,6 +339,15 @@ void DDGI::create_descriptor_sets()
     {
         m_probe_grid.write_ds[i] = backend->allocate_descriptor_set(m_probe_grid.write_ds_layout);
         m_probe_grid.read_ds[i]  = backend->allocate_descriptor_set(m_probe_grid.read_ds_layout);
+    }
+
+    // Sample Probe Grid
+    {
+        m_sample_probe_grid.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+        m_sample_probe_grid.write_ds->set_name("DDGI Sample Probe Grid");
+
+        m_sample_probe_grid.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_sample_probe_grid.read_ds->set_name("DDGI Sample Probe Grid");
     }
 }
 
@@ -575,6 +618,50 @@ void DDGI::write_descriptor_sets()
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
+
+    // Sample Probe Grid write
+    {
+        VkDescriptorImageInfo storage_image_info;
+
+        storage_image_info.sampler     = VK_NULL_HANDLE;
+        storage_image_info.imageView   = m_sample_probe_grid.image_view->handle();
+        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_data.pImageInfo      = &storage_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_sample_probe_grid.write_ds->handle();
+
+        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+    }
+
+    // Sample Probe Grid read
+    {
+        VkDescriptorImageInfo sampler_image_info;
+
+        sampler_image_info.sampler     = backend->bilinear_sampler()->handle();
+        sampler_image_info.imageView   = m_sample_probe_grid.image_view->handle();
+        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write_data;
+
+        DW_ZERO_MEMORY(write_data);
+
+        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_data.descriptorCount = 1;
+        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_data.pImageInfo      = &sampler_image_info;
+        write_data.dstBinding      = 0;
+        write_data.dstSet          = m_sample_probe_grid.read_ds->handle();
+
+        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -655,6 +742,31 @@ void DDGI::create_pipelines()
 
             m_probe_update.pipeline[i] = dw::vk::ComputePipeline::create(vk_backend, comp_desc);
         }
+    }
+
+    // Sample Probe Grid Update
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_probe_grid.read_ds_layout);
+        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+        desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
+
+        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SampleProbeGridPushConstants));
+
+        m_sample_probe_grid.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
+        m_sample_probe_grid.pipeline_layout->set_name("Sample Probe Grid Pipeline Layout");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_sample_probe_grid.pipeline_layout);
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(vk_backend, "shaders/gi_sample_probe_grid.comp.spv");
+
+        comp_desc.set_shader_stage(module, "main");
+
+        m_sample_probe_grid.pipeline = dw::vk::ComputePipeline::create(vk_backend, comp_desc);
     }
 
     // Probe Visualization
@@ -1009,6 +1121,58 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
     const uint32_t dispatch_y = static_cast<uint32_t>(ceil(float(is_irradiance ? m_probe_grid.irradiance_image[0]->height() : m_probe_grid.depth_image[0]->height()) / float(NUM_THREADS_Y)));
 
     vkCmdDispatch(cmd_buf->handle(), dispatch_x, dispatch_y, 1);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Sample Probe Grid", cmd_buf);
+
+    auto backend = m_backend.lock();
+
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_sample_probe_grid.image->handle(),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        subresource_range);
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_sample_probe_grid.pipeline->handle());
+
+    SampleProbeGridPushConstants push_constants;
+
+    push_constants.g_buffer_mip = m_g_buffer_mip;
+
+    vkCmdPushConstants(cmd_buf->handle(), m_sample_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+    const uint32_t dynamic_offsets[] = {
+        m_probe_grid.properties_ubo_size * backend->current_frame_idx(),
+        m_common_resources->ubo_size * backend->current_frame_idx()
+    };
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_sample_probe_grid.write_ds->handle(),
+        m_probe_grid.read_ds[static_cast<uint32_t>(!m_ping_pong)]->handle(),
+        m_g_buffer->output_ds()->handle(),
+        m_common_resources->per_frame_ds->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_sample_probe_grid.pipeline_layout->handle(), 0, 4, descriptor_sets, 2, dynamic_offsets);
+
+    const int NUM_THREADS_X = 32;
+    const int NUM_THREADS_Y = 32;
+
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_sample_probe_grid.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_sample_probe_grid.image->height()) / float(NUM_THREADS_Y))), 1);
+
+    dw::vk::utilities::set_image_layout(
+        cmd_buf->handle(),
+        m_sample_probe_grid.image->handle(),
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        subresource_range);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

@@ -85,7 +85,8 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_ray_trace.rmiss
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_ray_trace.rchit
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_depth_probe_update.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_irradiance_probe_update.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_irradiance_probe_update.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_sample_probe_grid.comp)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})

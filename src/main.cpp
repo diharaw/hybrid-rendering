@@ -200,7 +200,7 @@ protected:
         m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get()));
+        m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
         create_framebuffers();
         create_deferred_pipeline();
@@ -415,7 +415,31 @@ protected:
                     if (ImGui::CollapsingHeader("DDGI", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("DDGI");
+
+                        RayTraceScale scale = m_ddgi->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ddgi.reset();
+                                    m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        ImGui::Checkbox("Enabled", &m_ddgi_enabled);
                         m_ddgi->gui();
+
                         ImGui::PopID();
                     }
                     //if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
@@ -2157,7 +2181,7 @@ private:
         push_constants.shadows     = (float)m_rt_shadows_enabled;
         push_constants.ao          = (float)m_rtao_enabled;
         push_constants.reflections = (float)m_rt_reflections_enabled;
-        push_constants.gi          = 0; //(float)m_rtgi_enabled;
+        push_constants.gi          = (float)m_ddgi_enabled;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -2168,7 +2192,7 @@ private:
             m_ray_traced_ao->output_ds()->handle(),
             m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections->output_ds()->handle(),
-            m_common_resources->rtgi_read_ds->handle(),
+            m_ddgi->output_ds()->handle(),
             /*
             
             
@@ -2240,7 +2264,7 @@ private:
         else if (m_current_visualization == VISUALIZATION_REFLECTIONS)
             read_ds = m_ray_traced_reflections->output_ds()->handle();
         else
-            read_ds = m_common_resources->svgf_gi_denoiser->output_ds()->handle();
+            read_ds = m_ddgi->output_ds()->handle();
 
         VkDescriptorSet descriptor_sets[] = {
             m_common_resources->taa_write_ds[write_idx]->handle(),
@@ -2328,7 +2352,7 @@ private:
             else if (m_current_visualization == VISUALIZATION_REFLECTIONS)
                 read_ds = m_ray_traced_reflections->output_ds()->handle();
             else
-                read_ds = m_common_resources->svgf_gi_denoiser->output_ds()->handle();
+                read_ds = m_ddgi->output_ds()->handle();
         }
 
         VkDescriptorSet descriptor_sets[] = {
@@ -2536,6 +2560,8 @@ private:
 
     bool m_rt_shadows_enabled     = true;
     bool m_rt_reflections_enabled = true;
+
+    bool m_ddgi_enabled = true;
 
     // Ray Traced Global Illumination
     bool    m_rtgi_enabled                  = true;
