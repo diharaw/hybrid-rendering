@@ -2491,18 +2491,21 @@ private:
         if (m_current_scene == SCENE_PILLARS)
         {
             m_common_resources->current_scene = m_common_resources->pillars_scene;
+            m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
             m_ddgi->set_probe_visualization_scale(0.5f);
         }
         else if (m_current_scene == SCENE_SPONZA)
         {
             m_common_resources->current_scene = m_common_resources->sponza_scene;
+            m_ddgi->set_normal_bias(0.1f);
             m_ddgi->set_probe_distance(50.0f);
             m_ddgi->set_probe_visualization_scale(5.0f);
         }
         else if (m_current_scene == SCENE_PICA_PICA)
         {
             m_common_resources->current_scene = m_common_resources->pica_pica_scene;
+            m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
             m_ddgi->set_probe_visualization_scale(0.5f);
         }

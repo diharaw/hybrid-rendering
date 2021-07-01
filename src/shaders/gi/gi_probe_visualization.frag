@@ -27,7 +27,7 @@ layout(set = 1, binding = 0) uniform sampler2D s_Irradiance;
 layout(set = 1, binding = 1) uniform sampler2D s_Depth;
 layout(set = 1, binding = 2, scalar) uniform DDGIUBO
 {
-    DDGIUniforms ddgi; 
+    DDGIUniforms ddgi;
 };
 
 // ------------------------------------------------------------------------

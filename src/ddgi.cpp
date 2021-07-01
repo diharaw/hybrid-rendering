@@ -168,7 +168,7 @@ void DDGI::gui()
     if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
         initialize_probe_grid();
     ImGui::InputFloat("Hysteresis", &m_probe_update.hysteresis);
-    ImGui::InputFloat("Normal Bias", &m_probe_update.normal_bias);
+    ImGui::SliderFloat("Normal Bias", &m_probe_update.normal_bias, 0.0f, 5.0f);
     ImGui::InputFloat("Depth Sharpness", &m_probe_update.depth_sharpness);
 }
 
@@ -209,6 +209,7 @@ void DDGI::initialize_probe_grid()
     // Add 2 more probes to fully cover scene.
     m_probe_grid.probe_counts        = glm::ivec3(scene_length / m_probe_grid.probe_distance) + glm::ivec3(2);
     m_probe_grid.grid_start_position = min_extents;
+    m_probe_update.max_distance = m_probe_grid.probe_distance * 1.5f;
 
     // Assign current scene ID
     m_last_scene_id = m_common_resources->current_scene->id();
@@ -319,9 +320,9 @@ void DDGI::create_descriptor_sets()
     {
         dw::vk::DescriptorSetLayout::Desc desc;
 
-        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR| VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-        
+
         m_probe_grid.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
 
@@ -332,9 +333,9 @@ void DDGI::create_descriptor_sets()
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
         desc.add_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
-       m_probe_grid.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
+        m_probe_grid.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
-    
+
     for (int i = 0; i < 2; i++)
     {
         m_probe_grid.write_ds[i] = backend->allocate_descriptor_set(m_probe_grid.write_ds_layout);
@@ -360,9 +361,9 @@ void DDGI::write_descriptor_sets()
     // Ray Trace Write
     {
         std::vector<VkDescriptorBufferInfo> buffer_infos;
-        std::vector<VkDescriptorImageInfo> image_infos;
-        std::vector<VkWriteDescriptorSet>  write_datas;
-        VkWriteDescriptorSet               write_data;
+        std::vector<VkDescriptorImageInfo>  image_infos;
+        std::vector<VkWriteDescriptorSet>   write_datas;
+        VkWriteDescriptorSet                write_data;
 
         image_infos.reserve(2);
         write_datas.reserve(3);
@@ -423,7 +424,7 @@ void DDGI::write_descriptor_sets()
             write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data.descriptorCount = 1;
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-            write_data.pBufferInfo      = &buffer_infos.back();
+            write_data.pBufferInfo     = &buffer_infos.back();
             write_data.dstBinding      = 2;
             write_data.dstSet          = m_ray_trace.write_ds->handle();
 
@@ -546,9 +547,9 @@ void DDGI::write_descriptor_sets()
     for (int i = 0; i < 2; i++)
     {
         std::vector<VkDescriptorBufferInfo> buffer_infos;
-        std::vector<VkDescriptorImageInfo> image_infos;
-        std::vector<VkWriteDescriptorSet>  write_datas;
-        VkWriteDescriptorSet               write_data;
+        std::vector<VkDescriptorImageInfo>  image_infos;
+        std::vector<VkWriteDescriptorSet>   write_datas;
+        VkWriteDescriptorSet                write_data;
 
         image_infos.reserve(2);
         write_datas.reserve(3);
@@ -719,7 +720,7 @@ void DDGI::create_pipelines()
         desc.add_descriptor_set_layout(m_probe_grid.write_ds_layout);
         desc.add_descriptor_set_layout(m_probe_grid.read_ds_layout);
         desc.add_descriptor_set_layout(m_ray_trace.read_ds_layout);
-        
+
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ProbeUpdatePushConstants));
 
         m_probe_update.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
@@ -1084,13 +1085,13 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
 {
     DW_SCOPED_SAMPLE(is_irradiance ? "Irradiance" : "Depth", cmd_buf);
 
-    auto       backend  = m_backend.lock();
+    auto backend = m_backend.lock();
 
     VkPipeline pipeline = m_probe_update.pipeline[1]->handle();
 
     if (is_irradiance)
         pipeline = m_probe_update.pipeline[0]->handle();
-    
+
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
 
     ProbeUpdatePushConstants push_constants;
@@ -1155,7 +1156,7 @@ void DDGI::sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkDescriptorSet descriptor_sets[] = {
         m_sample_probe_grid.write_ds->handle(),
-        m_probe_grid.read_ds[static_cast<uint32_t>(!m_ping_pong)]->handle(),
+        m_probe_grid.read_ds[static_cast<uint32_t>(m_ping_pong)]->handle(),
         m_g_buffer->output_ds()->handle(),
         m_common_resources->per_frame_ds->handle()
     };

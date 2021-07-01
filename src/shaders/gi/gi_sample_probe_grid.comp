@@ -29,7 +29,7 @@ layout(set = 1, binding = 0) uniform sampler2D s_Irradiance;
 layout(set = 1, binding = 1) uniform sampler2D s_Depth;
 layout(set = 1, binding = 2, scalar) uniform DDGIUBO
 {
-    DDGIUniforms ddgi; 
+    DDGIUniforms ddgi;
 };
 
 // Current G-buffer DS
@@ -118,7 +118,7 @@ void main()
         return;
     }
 
-    const vec3 P = world_position_from_depth(tex_coord, depth);
+    const vec3 P  = world_position_from_depth(tex_coord, depth);
     const vec3 N  = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - P);
 

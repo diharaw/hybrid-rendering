@@ -46,8 +46,8 @@ layout(set = 3, binding = 0) uniform samplerCube s_Cubemap;
 
 layout(push_constant) uniform PushConstants
 {
-    mat3  random_orientation;
-    uint  num_frames;
+    mat3 random_orientation;
+    uint num_frames;
 }
 u_PushConstants;
 

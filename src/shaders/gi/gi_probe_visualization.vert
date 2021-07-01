@@ -48,7 +48,7 @@ u_GlobalUBO;
 
 layout(set = 1, binding = 2, scalar) uniform DDGIUBO
 {
-    DDGIUniforms ddgi; 
+    DDGIUniforms ddgi;
 };
 
 // ------------------------------------------------------------------------

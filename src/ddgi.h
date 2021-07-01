@@ -12,18 +12,20 @@ public:
     DDGI(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_FULL_RES);
     ~DDGI();
 
-    void render(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void render_probes(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void gui();
+    void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void                       render_probes(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
     inline uint32_t      width() { return m_width; }
     inline uint32_t      height() { return m_height; }
     inline RayTraceScale scale() { return m_scale; }
-    inline void  set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
-    inline void  set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
-    inline float probe_distance() { return m_probe_grid.probe_distance; }
-    inline float probe_visualization_scale() { return m_visualize_probe_grid.scale; }
+    inline void          set_normal_bias(float value) { m_probe_update.normal_bias = value; }
+    inline void          set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
+    inline void          set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
+    inline float         normal_bias() { return m_probe_update.normal_bias; }
+    inline float         probe_distance() { return m_probe_grid.probe_distance; }
+    inline float         probe_visualization_scale() { return m_visualize_probe_grid.scale; }
 
 private:
     void load_sphere_mesh();
@@ -59,23 +61,23 @@ private:
 
     struct ProbeGrid
     {
-        bool                       visibility_test               = true;
-        float                      probe_distance                = 1.0f;
-        float                      recursive_energy_preservation = 0.85f;
-        uint32_t                   irradiance_oct_size           = 8;
-        uint32_t                   depth_oct_size                = 16;
-        glm::vec3                  grid_start_position;
-        glm::ivec3                 probe_counts;
-        dw::vk::DescriptorSet::Ptr write_ds[2];
-        dw::vk::DescriptorSet::Ptr read_ds[2];
+        bool                             visibility_test               = true;
+        float                            probe_distance                = 1.0f;
+        float                            recursive_energy_preservation = 0.85f;
+        uint32_t                         irradiance_oct_size           = 8;
+        uint32_t                         depth_oct_size                = 16;
+        glm::vec3                        grid_start_position;
+        glm::ivec3                       probe_counts;
+        dw::vk::DescriptorSet::Ptr       write_ds[2];
+        dw::vk::DescriptorSet::Ptr       read_ds[2];
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
-        dw::vk::Image::Ptr         irradiance_image[2];
-        dw::vk::Image::Ptr         depth_image[2];
-        dw::vk::ImageView::Ptr     irradiance_view[2];
-        dw::vk::ImageView::Ptr     depth_view[2];
-        dw::vk::Buffer::Ptr        properties_ubo;
-        size_t                     properties_ubo_size;
+        dw::vk::Image::Ptr               irradiance_image[2];
+        dw::vk::Image::Ptr               depth_image[2];
+        dw::vk::ImageView::Ptr           irradiance_view[2];
+        dw::vk::ImageView::Ptr           depth_view[2];
+        dw::vk::Buffer::Ptr              properties_ubo;
+        size_t                           properties_ubo_size;
     };
 
     struct ProbeUpdate
@@ -90,8 +92,8 @@ private:
 
     struct SampleProbeGrid
     {
-        dw::vk::Image::Ptr     image;
-        dw::vk::ImageView::Ptr image_view;
+        dw::vk::Image::Ptr           image;
+        dw::vk::ImageView::Ptr       image_view;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::DescriptorSet::Ptr   write_ds;
