@@ -95,6 +95,8 @@ struct CommonResources
     dw::vk::DescriptorSet::Ptr    skybox_ds;
     dw::vk::RenderPass::Ptr       skybox_rp;
     dw::vk::Framebuffer::Ptr      skybox_fbo[2];
+    std::shared_ptr<dw::vk::Image>     black_cubemap_image;
+    std::shared_ptr<dw::vk::ImageView> black_cubemap_image_view;
 
     // PBR resources
     dw::vk::DescriptorSetLayout::Ptr pbr_ds_layout;
