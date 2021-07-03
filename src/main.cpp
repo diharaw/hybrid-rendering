@@ -264,14 +264,17 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        if (ImGui::BeginCombo("Environment", environment_types[m_common_resources->current_environment_type].c_str()))
+                        if (ImGui::BeginCombo("Environment", environment_types[m_current_environment_type].c_str()))
                         {
                             for (uint32_t i = 0; i < environment_types.size(); i++)
                             {
-                                const bool is_selected = (i == m_common_resources->current_environment_type);
+                                const bool is_selected = (i == m_current_environment_type);
 
                                 if (ImGui::Selectable(environment_types[i].c_str(), is_selected))
-                                    m_common_resources->current_environment_type = (EnvironmentType)i;
+                                {
+                                    m_current_environment_type = (EnvironmentType)i;
+                                    m_common_resources->current_skybox_ds = m_common_resources->skybox_ds[m_current_environment_type];
+                                }
 
                                 if (is_selected)
                                     ImGui::SetItemDefaultFocus();
@@ -880,9 +883,10 @@ private:
             desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
             desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
             desc.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
+            desc.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
 
-            m_common_resources->pbr_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
-            m_common_resources->pbr_ds_layout->set_name("PBR DS Layout");
+            m_common_resources->skybox_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+            m_common_resources->skybox_ds_layout->set_name("Skybox DS Layout");
         }
 
         {
@@ -924,14 +928,10 @@ private:
 
         int num_environment_map_images = environment_map_images.size() + 2;
 
-        m_common_resources->pbr_ds.resize(num_environment_map_images);
         m_common_resources->skybox_ds.resize(num_environment_map_images);
 
         for (int i = 0; i < num_environment_map_images; i++)
-        {
-            m_common_resources->pbr_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->pbr_ds_layout);
-            m_common_resources->skybox_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        }
+            m_common_resources->skybox_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->skybox_ds_layout);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1005,63 +1005,82 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
         }
 
-        // PBR resources
+        // Skybox resources
         int num_environment_map_images = environment_map_images.size() + 2;
 
         for (int i = 0; i < num_environment_map_images; i++)
         {
-            VkDescriptorImageInfo image_info[3];
+            VkDescriptorImageInfo image_info[4];
 
-            image_info[0].sampler = m_vk_backend->trilinear_sampler()->handle();    
+            image_info[0].sampler = m_vk_backend->bilinear_sampler()->handle();
             if (i == ENVIRONMENT_TYPE_NONE)
                 image_info[0].imageView = m_common_resources->blank_cubemap_image_view->handle();
             else if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
-                image_info[0].imageView = m_common_resources->sky_environment->cubemap_sh_projection->image_view()->handle();
+                image_info[0].imageView = m_common_resources->sky_environment->hosek_wilkie_sky_model->image_view()->handle();
             else
-                image_info[0].imageView = m_common_resources->hdr_environments[i - 2]->cubemap_sh_projection->image_view()->handle();
+                image_info[0].imageView = m_common_resources->hdr_environments[i - 2]->image_view->handle();
             image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[1].sampler     = m_vk_backend->trilinear_sampler()->handle();
+            image_info[1].sampler = m_vk_backend->trilinear_sampler()->handle();    
             if (i == ENVIRONMENT_TYPE_NONE)
-                image_info[1].imageView = m_common_resources->blank_cubemap_image_view->handle();
+                image_info[1].imageView = m_common_resources->blank_sh_image_view->handle();
             else if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
-                image_info[1].imageView = m_common_resources->sky_environment->cubemap_prefilter->image_view()->handle();
+                image_info[1].imageView = m_common_resources->sky_environment->cubemap_sh_projection->image_view()->handle();
             else
-                image_info[1].imageView = m_common_resources->hdr_environments[i - 2]->cubemap_prefilter->image_view()->handle();
+                image_info[1].imageView = m_common_resources->hdr_environments[i - 2]->cubemap_sh_projection->image_view()->handle();
             image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[2].sampler     = m_vk_backend->bilinear_sampler()->handle();
-            image_info[2].imageView   = m_common_resources->brdf_preintegrate_lut->image_view()->handle();
+            image_info[2].sampler     = m_vk_backend->trilinear_sampler()->handle();
+            if (i == ENVIRONMENT_TYPE_NONE)
+                image_info[2].imageView = m_common_resources->blank_cubemap_image_view->handle();
+            else if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
+                image_info[2].imageView = m_common_resources->sky_environment->cubemap_prefilter->image_view()->handle();
+            else
+                image_info[2].imageView = m_common_resources->hdr_environments[i - 2]->cubemap_prefilter->image_view()->handle();
             image_info[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            VkWriteDescriptorSet write_data[3];
+            image_info[3].sampler     = m_vk_backend->bilinear_sampler()->handle();
+            image_info[3].imageView   = m_common_resources->brdf_preintegrate_lut->image_view()->handle();
+            image_info[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet write_data[4];
             DW_ZERO_MEMORY(write_data[0]);
             DW_ZERO_MEMORY(write_data[1]);
             DW_ZERO_MEMORY(write_data[2]);
+            DW_ZERO_MEMORY(write_data[3]);
 
             write_data[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[0].descriptorCount = 1;
             write_data[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[0].pImageInfo      = &image_info[0];
             write_data[0].dstBinding      = 0;
-            write_data[0].dstSet          = m_common_resources->pbr_ds[i]->handle();
+            write_data[0].dstSet          = m_common_resources->skybox_ds[i]->handle();
 
             write_data[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[1].descriptorCount = 1;
             write_data[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[1].pImageInfo      = &image_info[1];
             write_data[1].dstBinding      = 1;
-            write_data[1].dstSet          = m_common_resources->pbr_ds[i]->handle();
+            write_data[1].dstSet          = m_common_resources->skybox_ds[i]->handle();
 
             write_data[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[2].descriptorCount = 1;
             write_data[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data[2].pImageInfo      = &image_info[2];
             write_data[2].dstBinding      = 2;
-            write_data[2].dstSet          = m_common_resources->pbr_ds[i]->handle();
+            write_data[2].dstSet          = m_common_resources->skybox_ds[i]->handle();
+            
+            write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data[3].descriptorCount = 1;
+            write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data[3].pImageInfo      = &image_info[3];
+            write_data[3].dstBinding      = 3;
+            write_data[3].dstSet          = m_common_resources->skybox_ds[i]->handle();
 
-            vkUpdateDescriptorSets(m_vk_backend->device(), 3, &write_data[0], 0, nullptr);
+            vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
         }
+
+        m_common_resources->current_skybox_ds = m_common_resources->skybox_ds[m_current_environment_type];
 
         // Blue Noise
         {
@@ -1097,35 +1116,6 @@ private:
 
                 vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
             }
-        }
-
-        // Skybox
-        for (int i = 0; i < num_environment_map_images; i++)
-        {
-            VkDescriptorImageInfo cubemap_image;
-
-            cubemap_image.sampler     = m_vk_backend->bilinear_sampler()->handle();
-
-            if (i == ENVIRONMENT_TYPE_NONE)
-                cubemap_image.imageView = m_common_resources->blank_cubemap_image_view->handle();
-            else if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
-                cubemap_image.imageView = m_common_resources->sky_environment->hosek_wilkie_sky_model->image_view()->handle();
-            else
-                cubemap_image.imageView = m_common_resources->hdr_environments[i - 2]->image_view->handle();
-
-            cubemap_image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &cubemap_image;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->skybox_ds[i]->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
 
         // Deferred Read
@@ -1274,7 +1264,7 @@ private:
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredShadingPushConstants));
 
         m_common_resources->deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
@@ -1292,52 +1282,6 @@ private:
 
         m_common_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_common_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_common_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_gi_ray_tracing_pipeline()
-    {
-        // ---------------------------------------------------------------------------
-        // Create shader modules
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ShaderModule::Ptr rgen  = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rgen.spv");
-        dw::vk::ShaderModule::Ptr rchit = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rchit.spv");
-        dw::vk::ShaderModule::Ptr rmiss = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/indirect_diffuse.rmiss.spv");
-
-        dw::vk::ShaderBindingTable::Desc sbt_desc;
-
-        sbt_desc.add_ray_gen_group(rgen, "main");
-        sbt_desc.add_hit_group(rchit, "main");
-        sbt_desc.add_miss_group(rmiss, "main");
-
-        m_common_resources->rtgi_sbt = dw::vk::ShaderBindingTable::create(m_vk_backend, sbt_desc);
-
-        dw::vk::RayTracingPipeline::Desc desc;
-
-        desc.set_max_pipeline_ray_recursion_depth(2);
-        desc.set_shader_binding_table(m_common_resources->rtgi_sbt);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline layout
-        // ---------------------------------------------------------------------------
-
-        dw::vk::PipelineLayout::Desc pl_desc;
-
-        pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(GIPushConstants));
-
-        m_common_resources->rtgi_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
-
-        desc.set_pipeline_layout(m_common_resources->rtgi_pipeline_layout);
-
-        m_common_resources->rtgi_pipeline = dw::vk::RayTracingPipeline::create(m_vk_backend, desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1464,7 +1408,7 @@ private:
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout)
+        pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout)
             .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SkyboxPushConstants));
 
         m_common_resources->skybox_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
@@ -1819,33 +1763,60 @@ private:
     void create_environment_resources()
     {
         // Create procedural sky 
-        m_common_resources->sky_environment                         = std::unique_ptr<SkyEnvironment>(new SkyEnvironment());
-        m_common_resources->sky_environment->hosek_wilkie_sky_model = std::unique_ptr<dw::HosekWilkieSkyModel>(new dw::HosekWilkieSkyModel(m_vk_backend));
-        m_common_resources->sky_environment->cubemap_sh_projection  = std::unique_ptr<dw::CubemapSHProjection>(new dw::CubemapSHProjection(m_vk_backend, m_common_resources->sky_environment->hosek_wilkie_sky_model->image()));
-        m_common_resources->sky_environment->cubemap_prefilter      = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, m_common_resources->sky_environment->hosek_wilkie_sky_model->image()));
-
-        // Create blank environment map
-        m_common_resources->blank_cubemap_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, 2, 2, 1, 1, 6, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, 0, nullptr, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
-        m_common_resources->blank_cubemap_image_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blank_cubemap_image, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
-
-        std::vector<glm::vec4> cubemap_data(2 * 2 * 6);
-        std::vector<size_t>    cubemap_sizes(6);
-
-        int idx = 0;
-
-        for (int layer = 0; layer < 6; layer++)
         {
-            cubemap_sizes[layer] = sizeof(glm::vec4) * 4;
-
-            for (int i = 0; i < 4; i++)
-                cubemap_data[idx++] = glm::vec4(0.0f);
+            m_common_resources->sky_environment                         = std::unique_ptr<SkyEnvironment>(new SkyEnvironment());
+            m_common_resources->sky_environment->hosek_wilkie_sky_model = std::unique_ptr<dw::HosekWilkieSkyModel>(new dw::HosekWilkieSkyModel(m_vk_backend));
+            m_common_resources->sky_environment->cubemap_sh_projection  = std::unique_ptr<dw::CubemapSHProjection>(new dw::CubemapSHProjection(m_vk_backend, m_common_resources->sky_environment->hosek_wilkie_sky_model->image()));
+            m_common_resources->sky_environment->cubemap_prefilter      = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, m_common_resources->sky_environment->hosek_wilkie_sky_model->image()));
         }
 
-        dw::vk::BatchUploader uploader(m_vk_backend);
+        // Create blank SH image 
+        {
+            m_common_resources->blank_sh_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, 9, 1, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED);
+            m_common_resources->blank_sh_image->set_name("Blank SH Projection Image");
 
-        uploader.upload_image_data(m_common_resources->blank_cubemap_image, cubemap_data.data(), cubemap_sizes);
+            m_common_resources->blank_sh_image_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blank_sh_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+            m_common_resources->blank_sh_image_view->set_name("Blank SH Projection Image View");
 
-        uploader.submit();
+            std::vector<glm::vec4> sh_data(9);
+            std::vector<size_t>    sh_sizes(1);
+
+            for (int i = 0; i < 9; i++)
+                sh_data[i] = glm::vec4(0.0f);
+
+            sh_sizes[0] = sizeof(glm::vec4) * 9;
+
+            dw::vk::BatchUploader uploader(m_vk_backend);
+
+            uploader.upload_image_data(m_common_resources->blank_sh_image, sh_data.data(), sh_sizes);
+
+            uploader.submit();
+        }
+
+        // Create blank environment map
+        {
+            m_common_resources->blank_cubemap_image      = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, 2, 2, 1, 1, 6, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, 0, nullptr, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
+            m_common_resources->blank_cubemap_image_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blank_cubemap_image, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
+
+            std::vector<glm::vec4> cubemap_data(2 * 2 * 6);
+            std::vector<size_t>    cubemap_sizes(6);
+
+            int idx = 0;
+
+            for (int layer = 0; layer < 6; layer++)
+            {
+                cubemap_sizes[layer] = sizeof(glm::vec4) * 4;
+
+                for (int i = 0; i < 4; i++)
+                    cubemap_data[idx++] = glm::vec4(0.0f);
+            }
+
+            dw::vk::BatchUploader uploader(m_vk_backend);
+
+            uploader.upload_image_data(m_common_resources->blank_cubemap_image, cubemap_data.data(), cubemap_sizes);
+
+            uploader.submit();
+        }
 
         // Load environment maps
         std::unique_ptr<dw::EquirectangularToCubemap> equirectangular_to_cubemap = std::unique_ptr<dw::EquirectangularToCubemap>(new dw::EquirectangularToCubemap(m_vk_backend, VK_FORMAT_R32G32B32A32_SFLOAT));
@@ -2037,69 +2008,6 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void ray_trace_gi(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
-
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        // Transition ray tracing output image back to general layout
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->rtgi_image->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->rtgi_pipeline->handle());
-
-        GIPushConstants push_constants;
-
-        push_constants.bias          = 0.5f;
-        push_constants.num_frames    = m_common_resources->num_frames;
-        push_constants.max_ray_depth = m_ray_traced_gi_max_ray_bounces - 1;
-        push_constants.sample_sky    = static_cast<uint32_t>(m_ray_traced_gi_sample_sky);
-
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->rtgi_pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
-
-        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
-
-        VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->current_scene->descriptor_set()->handle(),
-            m_common_resources->rtgi_write_ds->handle(),
-            m_common_resources->per_frame_ds->handle(),
-            m_g_buffer->output_ds()->handle(),
-            m_common_resources->pbr_ds[m_common_resources->current_environment_type]->handle(),
-            m_common_resources->skybox_ds[m_common_resources->current_environment_type]->handle()
-        };
-
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_common_resources->rtgi_pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
-
-        auto& rt_pipeline_props = m_vk_backend->ray_tracing_pipeline_properties();
-
-        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-        VkDeviceSize group_stride = group_size;
-
-        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->miss_group_offset(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_common_resources->rtgi_pipeline->shader_binding_table_buffer()->device_address() + m_common_resources->rtgi_sbt->hit_group_offset(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
-
-        uint32_t rt_image_width  = m_downscaled_rt ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_downscaled_rt ? m_height / 2 : m_height;
-
-        vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->rtgi_image->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
                      dw::vk::Image::Ptr         src,
                      dw::vk::Image::Ptr         dst,
@@ -2212,7 +2120,7 @@ private:
             DW_SCOPED_SAMPLE("Skybox", cmd_buf);
 
             vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline->handle());
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline_layout->handle(), 0, 1, &m_common_resources->skybox_ds[m_common_resources->current_environment_type]->handle(), 0, nullptr);
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline_layout->handle(), 0, 1, &m_common_resources->current_skybox_ds->handle(), 0, nullptr);
 
             SkyboxPushConstants push_constants;
 
@@ -2304,12 +2212,8 @@ private:
             m_ray_traced_shadows->output_ds()->handle(),
             m_ray_traced_reflections->output_ds()->handle(),
             m_ddgi->output_ds()->handle(),
-            /*
-            
-            
-            m_common_resources->svgf_gi_denoiser->output_ds()->handle(),*/
             m_common_resources->per_frame_ds->handle(),
-            m_common_resources->pbr_ds[m_common_resources->current_environment_type]->handle()
+            m_common_resources->current_skybox_ds->handle()
         };
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->deferred_pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
@@ -2519,7 +2423,7 @@ private:
 
     void update_ibl(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        if (m_common_resources->current_environment_type == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
+        if (m_current_environment_type == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
         {
             m_common_resources->sky_environment->hosek_wilkie_sky_model->update(cmd_buf, m_light_direction);
 
@@ -2693,7 +2597,8 @@ private:
     UBO               m_ubo_data;
     float             m_exposure              = 1.0f;
     SceneType         m_current_scene         = SCENE_PILLARS;
-    VisualizationType m_current_visualization = VISUALIZATION_FINAL;    
+    VisualizationType m_current_visualization = VISUALIZATION_FINAL;
+    EnvironmentType   m_current_environment_type = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
 };
 
 DW_DECLARE_MAIN(HybridRendering)

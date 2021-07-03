@@ -683,8 +683,7 @@ void RayTracedReflections::create_pipelines()
         pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-        pl_desc.add_descriptor_set_layout(m_common_resources->pbr_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
@@ -871,12 +870,11 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
         m_g_buffer->output_ds()->handle(),
-        m_common_resources->pbr_ds[m_common_resources->current_environment_type]->handle(),
-        m_common_resources->skybox_ds[m_common_resources->current_environment_type]->handle(),
+        m_common_resources->current_skybox_ds->handle(),
         m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
 
     auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
 

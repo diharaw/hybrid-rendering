@@ -706,7 +706,7 @@ void DDGI::create_pipelines()
         pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_ray_trace.write_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
         m_ray_trace.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, pl_desc);
@@ -988,7 +988,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_common_resources->current_scene->descriptor_set()->handle(),
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
-        m_common_resources->skybox_ds[m_common_resources->current_environment_type]->handle()
+        m_common_resources->current_skybox_ds->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 4, descriptor_sets, 2, dynamic_offsets);

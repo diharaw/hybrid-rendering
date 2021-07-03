@@ -62,8 +62,7 @@ struct CommonResources
     dw::RayTracedScene::Ptr    sponza_scene;
     dw::RayTracedScene::Ptr    pica_pica_scene;
     dw::RayTracedScene::Ptr    current_scene;
-    EnvironmentType            current_environment_type = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
-
+    
     // Common
     dw::vk::DescriptorSet::Ptr       per_frame_ds;
     dw::vk::DescriptorSet::Ptr       blue_noise_ds[9];
@@ -118,13 +117,13 @@ struct CommonResources
     dw::vk::Buffer::Ptr           cube_vbo;
     dw::vk::GraphicsPipeline::Ptr skybox_pipeline;
     dw::vk::PipelineLayout::Ptr   skybox_pipeline_layout;
+    dw::vk::DescriptorSetLayout::Ptr        skybox_ds_layout;
     std::vector<dw::vk::DescriptorSet::Ptr> skybox_ds;
+    dw::vk::DescriptorSet::Ptr current_skybox_ds;
     dw::vk::RenderPass::Ptr       skybox_rp;
     dw::vk::Framebuffer::Ptr      skybox_fbo[2];
-
-    // PBR resources
-    dw::vk::DescriptorSetLayout::Ptr                      pbr_ds_layout;
-    std::vector<dw::vk::DescriptorSet::Ptr>               pbr_ds;
+    dw::vk::Image::Ptr                                    blank_sh_image;
+    dw::vk::ImageView::Ptr                                blank_sh_image_view;
     dw::vk::Image::Ptr                       blank_cubemap_image;
     dw::vk::ImageView::Ptr                   blank_cubemap_image_view;
     std::unique_ptr<SkyEnvironment>                       sky_environment;

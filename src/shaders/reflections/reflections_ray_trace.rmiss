@@ -8,11 +8,10 @@
 // DESCRIPTOR SETS --------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(set = 4, binding = 0) uniform sampler2D s_IrradianceSH;
-layout(set = 4, binding = 1) uniform samplerCube s_Prefiltered;
-layout(set = 4, binding = 2) uniform sampler2D s_BRDF;
-
-layout(set = 5, binding = 0) uniform samplerCube s_Cubemap;
+layout(set = 4, binding = 0) uniform samplerCube s_Cubemap;
+layout(set = 4, binding = 1) uniform sampler2D s_IrradianceSH;
+layout(set = 4, binding = 2) uniform samplerCube s_Prefiltered;
+layout(set = 4, binding = 3) uniform sampler2D s_BRDF;
 
 // ------------------------------------------------------------------------
 // PAYLOADS ---------------------------------------------------------------

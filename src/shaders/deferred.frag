@@ -56,9 +56,9 @@ layout(set = 5, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
-layout(set = 6, binding = 0) uniform sampler2D s_IrradianceSH;
-layout(set = 6, binding = 1) uniform samplerCube s_Prefiltered;
-layout(set = 6, binding = 2) uniform sampler2D s_BRDF;
+layout(set = 6, binding = 1) uniform sampler2D s_IrradianceSH;
+layout(set = 6, binding = 2) uniform samplerCube s_Prefiltered;
+layout(set = 6, binding = 3) uniform sampler2D s_BRDF;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
