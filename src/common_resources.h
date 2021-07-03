@@ -62,7 +62,7 @@ struct CommonResources
     dw::RayTracedScene::Ptr    sponza_scene;
     dw::RayTracedScene::Ptr    pica_pica_scene;
     dw::RayTracedScene::Ptr    current_scene;
-    EnvironmentType            current_environment_type = ENVIRONMENT_TYPE_ARCHES_PINE_TREE;
+    EnvironmentType            current_environment_type = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
 
     // Common
     dw::vk::DescriptorSet::Ptr       per_frame_ds;
