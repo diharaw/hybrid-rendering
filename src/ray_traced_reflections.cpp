@@ -871,8 +871,8 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
         m_g_buffer->output_ds()->handle(),
-        m_common_resources->pbr_ds->handle(),
-        m_common_resources->skybox_ds->handle(),
+        m_common_resources->pbr_ds[m_common_resources->current_environment_type]->handle(),
+        m_common_resources->skybox_ds[m_common_resources->current_environment_type]->handle(),
         m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle()
     };
 

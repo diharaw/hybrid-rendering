@@ -21,6 +21,31 @@ enum RayTraceScale
     RAY_TRACE_SCALE_QUARTER_RES
 };
 
+enum EnvironmentType
+{
+    ENVIRONMENT_TYPE_NONE,
+    ENVIRONMENT_TYPE_PROCEDURAL_SKY,
+    ENVIRONMENT_TYPE_ARCHES_PINE_TREE,
+    ENVIRONMENT_TYPE_BASKETBALL_COURT,
+    ENVIRONMENT_TYPE_ETNIES_PART_CENTRAL,
+    ENVIRONMENT_TYPE_LA_DOWNTOWN_HELIPAD
+};
+
+struct SkyEnvironment
+{
+    std::unique_ptr<dw::CubemapSHProjection> cubemap_sh_projection;
+    std::unique_ptr<dw::CubemapPrefiler>     cubemap_prefilter;
+    std::unique_ptr<dw::HosekWilkieSkyModel> hosek_wilkie_sky_model;
+};
+
+struct HDREnvironment
+{
+    dw::vk::Image::Ptr                       image;
+    dw::vk::ImageView::Ptr                   image_view;
+    std::unique_ptr<dw::CubemapSHProjection> cubemap_sh_projection;
+    std::unique_ptr<dw::CubemapPrefiler>     cubemap_prefilter;
+};
+
 struct CommonResources
 {
     bool      first_frame = true;
@@ -37,6 +62,7 @@ struct CommonResources
     dw::RayTracedScene::Ptr    sponza_scene;
     dw::RayTracedScene::Ptr    pica_pica_scene;
     dw::RayTracedScene::Ptr    current_scene;
+    EnvironmentType            current_environment_type = ENVIRONMENT_TYPE_ARCHES_PINE_TREE;
 
     // Common
     dw::vk::DescriptorSet::Ptr       per_frame_ds;
@@ -92,19 +118,18 @@ struct CommonResources
     dw::vk::Buffer::Ptr           cube_vbo;
     dw::vk::GraphicsPipeline::Ptr skybox_pipeline;
     dw::vk::PipelineLayout::Ptr   skybox_pipeline_layout;
-    dw::vk::DescriptorSet::Ptr    skybox_ds;
+    std::vector<dw::vk::DescriptorSet::Ptr> skybox_ds;
     dw::vk::RenderPass::Ptr       skybox_rp;
     dw::vk::Framebuffer::Ptr      skybox_fbo[2];
-    std::shared_ptr<dw::vk::Image>     black_cubemap_image;
-    std::shared_ptr<dw::vk::ImageView> black_cubemap_image_view;
 
     // PBR resources
-    dw::vk::DescriptorSetLayout::Ptr pbr_ds_layout;
-    dw::vk::DescriptorSet::Ptr       pbr_ds;
-
+    dw::vk::DescriptorSetLayout::Ptr                      pbr_ds_layout;
+    std::vector<dw::vk::DescriptorSet::Ptr>               pbr_ds;
+    dw::vk::Image::Ptr                       blank_cubemap_image;
+    dw::vk::ImageView::Ptr                   blank_cubemap_image_view;
+    std::unique_ptr<SkyEnvironment>                       sky_environment;
+    std::vector<std::shared_ptr<HDREnvironment>>          hdr_environments;
+   
     // Helpers
     std::unique_ptr<dw::BRDFIntegrateLUT>    brdf_preintegrate_lut;
-    std::unique_ptr<dw::HosekWilkieSkyModel> hosek_wilkie_sky_model;
-    std::unique_ptr<dw::CubemapSHProjection> cubemap_sh_projection;
-    std::unique_ptr<dw::CubemapPrefiler>     cubemap_prefilter;
 };

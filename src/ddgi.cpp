@@ -162,7 +162,10 @@ void DDGI::gui()
     ImGui::Text("Probe Count: %i", m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z);
     ImGui::Checkbox("Visualize Probe Grid", &m_visualize_probe_grid.enabled);
     ImGui::Checkbox("Visibility Test", &m_probe_grid.visibility_test);
-    ImGui::InputFloat("Scale", &m_visualize_probe_grid.scale);
+
+    if (m_visualize_probe_grid.enabled)
+        ImGui::InputFloat("Probe Visualization Scale", &m_visualize_probe_grid.scale);
+    
     if (ImGui::InputInt("Rays Per Probe", &m_ray_trace.rays_per_probe))
         recreate_probe_grid_resources();
     if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
@@ -985,7 +988,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_common_resources->current_scene->descriptor_set()->handle(),
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
-        m_common_resources->skybox_ds->handle()
+        m_common_resources->skybox_ds[m_common_resources->current_environment_type]->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 4, descriptor_sets, 2, dynamic_offsets);
