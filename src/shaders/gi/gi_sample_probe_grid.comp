@@ -58,6 +58,7 @@ ubo;
 layout(push_constant) uniform PushConstants
 {
     int g_buffer_mip;
+    float gi_intensity;
 }
 u_PushConstants;
 
@@ -122,7 +123,7 @@ void main()
     const vec3 N  = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - P);
 
-    vec3 irradiance = sample_irradiance(ddgi, P, N, Wo, s_Irradiance, s_Depth);
+    vec3 irradiance = u_PushConstants.gi_intensity * sample_irradiance(ddgi, P, N, Wo, s_Irradiance, s_Depth);
 
     // Store
     imageStore(i_Output, current_coord, vec4(irradiance, 1.0f));

@@ -16,10 +16,6 @@
 
 layout(set = 1, binding = 0, rgba16f) uniform image2D i_Radiance;
 layout(set = 1, binding = 1, rgba16f) uniform image2D i_DirectionDistance;
-layout(set = 1, binding = 2, scalar) uniform DDGIUBO
-{
-    DDGIUniforms ddgi;
-};
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
@@ -34,6 +30,11 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
 }
 ubo;
 
+layout(set = 4, binding = 2, scalar) uniform DDGIUBO
+{
+    DDGIUniforms ddgi;
+};
+
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -42,6 +43,8 @@ layout(push_constant) uniform PushConstants
 {
     mat4 random_orientation;
     uint num_frames;
+    uint infinite_bounces;
+    float gi_intensity;
 }
 u_PushConstants;
 

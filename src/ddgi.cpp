@@ -37,7 +37,9 @@ struct DDGIUniforms
 struct RayTracePushConstants
 {
     glm::mat4 random_orientation;
-    int       num_frames;
+    uint32_t  num_frames;
+    uint32_t  infinite_bounces;
+    float     gi_intensity;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -52,6 +54,7 @@ struct ProbeUpdatePushConstants
 struct SampleProbeGridPushConstants
 {
     int g_buffer_mip;
+    float gi_intensity;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -162,6 +165,7 @@ void DDGI::gui()
     ImGui::Text("Probe Count: %i", m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y * m_probe_grid.probe_counts.z);
     ImGui::Checkbox("Visualize Probe Grid", &m_visualize_probe_grid.enabled);
     ImGui::Checkbox("Visibility Test", &m_probe_grid.visibility_test);
+    ImGui::Checkbox("Infinite Bounces", &m_ray_trace.infinite_bounces);
 
     if (m_visualize_probe_grid.enabled)
         ImGui::InputFloat("Probe Visualization Scale", &m_visualize_probe_grid.scale);
@@ -171,7 +175,9 @@ void DDGI::gui()
     if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
         initialize_probe_grid();
     ImGui::InputFloat("Hysteresis", &m_probe_update.hysteresis);
-    ImGui::SliderFloat("Normal Bias", &m_probe_update.normal_bias, 0.0f, 5.0f);
+    ImGui::SliderFloat("Infinite Bounce Intensity", &m_ray_trace.infinite_bounce_intensity, 0.0f, 10.0f);
+    ImGui::SliderFloat("GI Intensity", &m_sample_probe_grid.gi_intensity, 0.0f, 10.0f);
+    ImGui::SliderFloat("Normal Bias", &m_probe_update.normal_bias, 0.0f, 10.0f);
     ImGui::InputFloat("Depth Sharpness", &m_probe_update.depth_sharpness);
 }
 
@@ -300,7 +306,6 @@ void DDGI::create_descriptor_sets()
 
         desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-        desc.add_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
         m_ray_trace.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -334,7 +339,7 @@ void DDGI::create_descriptor_sets()
 
         desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-        desc.add_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        desc.add_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
         m_probe_grid.read_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -363,13 +368,12 @@ void DDGI::write_descriptor_sets()
 
     // Ray Trace Write
     {
-        std::vector<VkDescriptorBufferInfo> buffer_infos;
         std::vector<VkDescriptorImageInfo>  image_infos;
         std::vector<VkWriteDescriptorSet>   write_datas;
         VkWriteDescriptorSet                write_data;
 
         image_infos.reserve(2);
-        write_datas.reserve(3);
+        write_datas.reserve(2);
 
         {
             VkDescriptorImageInfo storage_image_info;
@@ -408,27 +412,6 @@ void DDGI::write_descriptor_sets()
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             write_data.pImageInfo      = &image_infos.back();
             write_data.dstBinding      = 1;
-            write_data.dstSet          = m_ray_trace.write_ds->handle();
-
-            write_datas.push_back(write_data);
-        }
-
-        {
-            VkDescriptorBufferInfo buffer_info;
-
-            buffer_info.range  = sizeof(DDGIUniforms);
-            buffer_info.offset = 0;
-            buffer_info.buffer = m_probe_grid.properties_ubo->handle();
-
-            buffer_infos.push_back(buffer_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-            write_data.pBufferInfo     = &buffer_infos.back();
-            write_data.dstBinding      = 2;
             write_data.dstSet          = m_ray_trace.write_ds->handle();
 
             write_datas.push_back(write_data);
@@ -707,6 +690,7 @@ void DDGI::create_pipelines()
         pl_desc.add_descriptor_set_layout(m_ray_trace.write_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_probe_grid.read_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
         m_ray_trace.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, pl_desc);
@@ -959,6 +943,25 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
+    uint32_t read_idx = static_cast<uint32_t>(!m_ping_pong);
+
+    if (m_first_frame)
+    {
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_probe_grid.irradiance_image[read_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_probe_grid.depth_image[read_idx]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
     std::vector<VkMemoryBarrier> memory_barriers = {
         memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
     };
@@ -976,22 +979,25 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     push_constants.random_orientation = glm::mat4_cast(glm::angleAxis(m_random_distribution_zo(m_random_generator) * (float(M_PI) * 2.0f), glm::normalize(glm::vec3(m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator), m_random_distribution_no(m_random_generator)))));
     push_constants.num_frames         = m_common_resources->num_frames;
+    push_constants.infinite_bounces   = m_ray_trace.infinite_bounces && !m_first_frame ? 1u : 0u;
+    push_constants.gi_intensity       = m_ray_trace.infinite_bounce_intensity;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
     const uint32_t dynamic_offsets[] = {
-        m_probe_grid.properties_ubo_size * backend->current_frame_idx(),
-        m_common_resources->ubo_size * backend->current_frame_idx()
+        m_common_resources->ubo_size * backend->current_frame_idx(),
+        m_probe_grid.properties_ubo_size * backend->current_frame_idx()
     };
 
     VkDescriptorSet descriptor_sets[] = {
         m_common_resources->current_scene->descriptor_set()->handle(),
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
-        m_common_resources->current_skybox_ds->handle()
+        m_common_resources->current_skybox_ds->handle(),
+        m_probe_grid.read_ds[static_cast<uint32_t>(!m_ping_pong)]->handle(),
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 4, descriptor_sets, 2, dynamic_offsets);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 2, dynamic_offsets);
 
     auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
 
@@ -1030,7 +1036,6 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    uint32_t read_idx  = static_cast<uint32_t>(!m_ping_pong);
     uint32_t write_idx = static_cast<uint32_t>(m_ping_pong);
 
     dw::vk::utilities::set_image_layout(
@@ -1046,23 +1051,6 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_GENERAL,
         subresource_range);
-
-    if (m_first_frame)
-    {
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_probe_grid.irradiance_image[read_idx]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_probe_grid.depth_image[read_idx]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-    }
 
     probe_update(cmd_buf, true);
     probe_update(cmd_buf, false);
@@ -1149,6 +1137,7 @@ void DDGI::sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf)
     SampleProbeGridPushConstants push_constants;
 
     push_constants.g_buffer_mip = m_g_buffer_mip;
+    push_constants.gi_intensity = m_sample_probe_grid.gi_intensity;
 
     vkCmdPushConstants(cmd_buf->handle(), m_sample_probe_grid.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

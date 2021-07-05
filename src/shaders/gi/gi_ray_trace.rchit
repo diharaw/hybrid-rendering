@@ -1,5 +1,6 @@
 #version 460
 
+#extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_ray_query : enable
 #extension GL_GOOGLE_include_directive : require
@@ -8,6 +9,7 @@
 #define RAY_TRACING
 #include "../common.glsl"
 #include "../scene_descriptor_set.glsl"
+#include "gi_common.glsl"
 
 // ------------------------------------------------------------------------
 // PAYLOADS ---------------------------------------------------------------
@@ -40,14 +42,23 @@ ubo;
 
 layout(set = 3, binding = 0) uniform samplerCube s_Cubemap;
 
+layout(set = 4, binding = 0) uniform sampler2D s_Irradiance;
+layout(set = 4, binding = 1) uniform sampler2D s_Depth;
+layout(set = 4, binding = 2, scalar) uniform DDGIUBO
+{
+    DDGIUniforms ddgi;
+};
+
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
 // ------------------------------------------------------------------------
 
 layout(push_constant) uniform PushConstants
 {
-    mat3 random_orientation;
+    mat4 random_orientation;
     uint num_frames;
+    uint infinite_bounces;
+    float gi_intensity;
 }
 u_PushConstants;
 
@@ -264,9 +275,22 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
 
 // ----------------------------------------------------------------------------
 
-vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 P, vec3 R, vec3 F0, vec3 albedo)
+vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 {
-    return vec3(0.0f);
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
+}
+
+// ----------------------------------------------------------------------------
+
+vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness, float metallic)
+{
+    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    return u_PushConstants.gi_intensity * kD * albedo * sample_irradiance(ddgi, P, N, Wo, s_Irradiance, s_Depth);
 }
 
 // ------------------------------------------------------------------------
@@ -298,8 +322,9 @@ void main()
 
     vec3 Li = direct_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness);
 
-    Li += indirect_lighting(Wo, N, vertex.position.xyz, R, F0, albedo);
-
+    if (u_PushConstants.infinite_bounces == 1)
+        Li += indirect_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness, metallic);
+        
     p_GIPayload.L            = Li;
     p_GIPayload.hit_distance = gl_RayTminEXT + gl_HitTEXT;
 }

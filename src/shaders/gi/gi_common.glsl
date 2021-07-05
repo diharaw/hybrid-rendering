@@ -312,7 +312,7 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, vec3 Wo, sampler2D 
 #   endif
     net_irradiance *= ddgi.energy_preservation;
 
-    return 1.0f * M_PI * net_irradiance;
+    return 0.5f * M_PI * net_irradiance;
 }
 
 // ------------------------------------------------------------------------

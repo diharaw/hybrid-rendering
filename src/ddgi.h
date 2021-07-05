@@ -45,6 +45,8 @@ private:
 private:
     struct RayTrace
     {
+        bool                             infinite_bounces = false;
+        float                            infinite_bounce_intensity = 1.0f;
         int32_t                          rays_per_probe = 64;
         dw::vk::DescriptorSet::Ptr       write_ds;
         dw::vk::DescriptorSet::Ptr       read_ds;
@@ -92,6 +94,7 @@ private:
 
     struct SampleProbeGrid
     {
+        float                        gi_intensity = 1.0f;
         dw::vk::Image::Ptr           image;
         dw::vk::ImageView::Ptr       image_view;
         dw::vk::ComputePipeline::Ptr pipeline;
