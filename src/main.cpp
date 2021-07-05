@@ -39,11 +39,11 @@ enum VisualizationType
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
 
-const std::vector<std::string> environment_map_images    = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
+const std::vector<std::string> environment_map_images = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
 const std::vector<std::string> environment_types      = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
-const std::vector<std::string> visualization_types = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
-const std::vector<std::string> scene_types         = { "Pillars", "Sponza", "Pica Pica" };
-const std::vector<std::string> ray_trace_scales    = { "Full-Res", "Half-Res", "Quarter-Res" };
+const std::vector<std::string> visualization_types    = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
+const std::vector<std::string> scene_types            = { "Pillars", "Sponza", "Pica Pica" };
+const std::vector<std::string> ray_trace_scales       = { "Full-Res", "Half-Res", "Quarter-Res" };
 
 struct Light
 {
@@ -183,12 +183,12 @@ protected:
             return false;
         }
 
-        m_common_resources->brdf_preintegrate_lut  = std::unique_ptr<dw::BRDFIntegrateLUT>(new dw::BRDFIntegrateLUT(m_vk_backend));
-        m_common_resources->blue_noise_image_1     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
-        m_common_resources->blue_noise_view_1      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->blue_noise_image_2     = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
-        m_common_resources->blue_noise_view_2      = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->blue_noise             = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
+        m_common_resources->brdf_preintegrate_lut = std::unique_ptr<dw::BRDFIntegrateLUT>(new dw::BRDFIntegrateLUT(m_vk_backend));
+        m_common_resources->blue_noise_image_1    = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
+        m_common_resources->blue_noise_view_1     = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_common_resources->blue_noise_image_2    = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
+        m_common_resources->blue_noise_view_2     = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_common_resources->blue_noise            = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
 
         create_output_images();
         create_environment_resources();
@@ -272,7 +272,7 @@ protected:
 
                                 if (ImGui::Selectable(environment_types[i].c_str(), is_selected))
                                 {
-                                    m_current_environment_type = (EnvironmentType)i;
+                                    m_current_environment_type            = (EnvironmentType)i;
                                     m_common_resources->current_skybox_ds = m_common_resources->skybox_ds[m_current_environment_type];
                                 }
 
@@ -1021,7 +1021,7 @@ private:
                 image_info[0].imageView = m_common_resources->hdr_environments[i - 2]->image_view->handle();
             image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[1].sampler = m_vk_backend->trilinear_sampler()->handle();    
+            image_info[1].sampler = m_vk_backend->trilinear_sampler()->handle();
             if (i == ENVIRONMENT_TYPE_NONE)
                 image_info[1].imageView = m_common_resources->blank_sh_image_view->handle();
             else if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
@@ -1030,7 +1030,7 @@ private:
                 image_info[1].imageView = m_common_resources->hdr_environments[i - 2]->cubemap_sh_projection->image_view()->handle();
             image_info[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            image_info[2].sampler     = m_vk_backend->trilinear_sampler()->handle();
+            image_info[2].sampler = m_vk_backend->trilinear_sampler()->handle();
             if (i == ENVIRONMENT_TYPE_NONE)
                 image_info[2].imageView = m_common_resources->blank_cubemap_image_view->handle();
             else if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
@@ -1069,7 +1069,7 @@ private:
             write_data[2].pImageInfo      = &image_info[2];
             write_data[2].dstBinding      = 2;
             write_data[2].dstSet          = m_common_resources->skybox_ds[i]->handle();
-            
+
             write_data[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_data[3].descriptorCount = 1;
             write_data[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -1762,7 +1762,7 @@ private:
 
     void create_environment_resources()
     {
-        // Create procedural sky 
+        // Create procedural sky
         {
             m_common_resources->sky_environment                         = std::unique_ptr<SkyEnvironment>(new SkyEnvironment());
             m_common_resources->sky_environment->hosek_wilkie_sky_model = std::unique_ptr<dw::HosekWilkieSkyModel>(new dw::HosekWilkieSkyModel(m_vk_backend));
@@ -1770,7 +1770,7 @@ private:
             m_common_resources->sky_environment->cubemap_prefilter      = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, m_common_resources->sky_environment->hosek_wilkie_sky_model->image()));
         }
 
-        // Create blank SH image 
+        // Create blank SH image
         {
             m_common_resources->blank_sh_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, 9, 1, 1, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED);
             m_common_resources->blank_sh_image->set_name("Blank SH Projection Image");
@@ -1828,14 +1828,14 @@ private:
             std::shared_ptr<HDREnvironment> environment = std::shared_ptr<HDREnvironment>(new HDREnvironment());
 
             auto input_image = dw::vk::Image::create_from_file(m_vk_backend, environment_map_images[i], true);
-            
+
             environment->image                 = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, 512, 512, 1, 5, 6, VK_FORMAT_R32G32B32A32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, 0, nullptr, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
             environment->image_view            = dw::vk::ImageView::create(m_vk_backend, environment->image, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
             environment->cubemap_sh_projection = std::unique_ptr<dw::CubemapSHProjection>(new dw::CubemapSHProjection(m_vk_backend, environment->image));
             environment->cubemap_prefilter     = std::unique_ptr<dw::CubemapPrefiler>(new dw::CubemapPrefiler(m_vk_backend, environment->image));
 
             equirectangular_to_cubemap->convert(input_image, environment->image);
-            
+
             auto cmd_buf = m_vk_backend->allocate_graphics_command_buffer(true);
 
             environment->image->generate_mipmaps(cmd_buf);
@@ -2595,9 +2595,9 @@ private:
 
     // Uniforms.
     UBO               m_ubo_data;
-    float             m_exposure              = 1.0f;
-    SceneType         m_current_scene         = SCENE_PILLARS;
-    VisualizationType m_current_visualization = VISUALIZATION_FINAL;
+    float             m_exposure                 = 1.0f;
+    SceneType         m_current_scene            = SCENE_PILLARS;
+    VisualizationType m_current_visualization    = VISUALIZATION_FINAL;
     EnvironmentType   m_current_environment_type = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
 };
 

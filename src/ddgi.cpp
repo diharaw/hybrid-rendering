@@ -165,7 +165,7 @@ void DDGI::gui()
 
     if (m_visualize_probe_grid.enabled)
         ImGui::InputFloat("Probe Visualization Scale", &m_visualize_probe_grid.scale);
-    
+
     if (ImGui::InputInt("Rays Per Probe", &m_ray_trace.rays_per_probe))
         recreate_probe_grid_resources();
     if (ImGui::InputFloat("Probe Distance", &m_probe_grid.probe_distance))
@@ -212,7 +212,7 @@ void DDGI::initialize_probe_grid()
     // Add 2 more probes to fully cover scene.
     m_probe_grid.probe_counts        = glm::ivec3(scene_length / m_probe_grid.probe_distance) + glm::ivec3(2);
     m_probe_grid.grid_start_position = min_extents;
-    m_probe_update.max_distance = m_probe_grid.probe_distance * 1.5f;
+    m_probe_update.max_distance      = m_probe_grid.probe_distance * 1.5f;
 
     // Assign current scene ID
     m_last_scene_id = m_common_resources->current_scene->id();
