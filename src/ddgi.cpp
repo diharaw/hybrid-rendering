@@ -53,7 +53,7 @@ struct ProbeUpdatePushConstants
 
 struct SampleProbeGridPushConstants
 {
-    int g_buffer_mip;
+    int   g_buffer_mip;
     float gi_intensity;
 };
 
@@ -368,9 +368,9 @@ void DDGI::write_descriptor_sets()
 
     // Ray Trace Write
     {
-        std::vector<VkDescriptorImageInfo>  image_infos;
-        std::vector<VkWriteDescriptorSet>   write_datas;
-        VkWriteDescriptorSet                write_data;
+        std::vector<VkDescriptorImageInfo> image_infos;
+        std::vector<VkWriteDescriptorSet>  write_datas;
+        VkWriteDescriptorSet               write_data;
 
         image_infos.reserve(2);
         write_datas.reserve(2);

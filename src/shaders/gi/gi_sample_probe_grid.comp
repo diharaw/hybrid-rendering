@@ -57,7 +57,7 @@ ubo;
 
 layout(push_constant) uniform PushConstants
 {
-    int g_buffer_mip;
+    int   g_buffer_mip;
     float gi_intensity;
 }
 u_PushConstants;

@@ -55,9 +55,9 @@ layout(set = 4, binding = 2, scalar) uniform DDGIUBO
 
 layout(push_constant) uniform PushConstants
 {
-    mat4 random_orientation;
-    uint num_frames;
-    uint infinite_bounces;
+    mat4  random_orientation;
+    uint  num_frames;
+    uint  infinite_bounces;
     float gi_intensity;
 }
 u_PushConstants;
@@ -324,7 +324,7 @@ void main()
 
     if (u_PushConstants.infinite_bounces == 1)
         Li += indirect_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness, metallic);
-        
+
     p_GIPayload.L            = Li;
     p_GIPayload.hit_distance = gl_RayTminEXT + gl_HitTEXT;
 }

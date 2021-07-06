@@ -41,9 +41,9 @@ layout(set = 4, binding = 2, scalar) uniform DDGIUBO
 
 layout(push_constant) uniform PushConstants
 {
-    mat4 random_orientation;
-    uint num_frames;
-    uint infinite_bounces;
+    mat4  random_orientation;
+    uint  num_frames;
+    uint  infinite_bounces;
     float gi_intensity;
 }
 u_PushConstants;
