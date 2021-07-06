@@ -23,9 +23,13 @@ public:
     inline void          set_normal_bias(float value) { m_probe_update.normal_bias = value; }
     inline void          set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
     inline void          set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
+    inline void          set_infinite_bounce_intensity(float value) { m_ray_trace.infinite_bounce_intensity = value; }
+    inline void          set_gi_intensity(float value) { m_sample_probe_grid.gi_intensity = value; }
     inline float         normal_bias() { return m_probe_update.normal_bias; }
     inline float         probe_distance() { return m_probe_grid.probe_distance; }
     inline float         probe_visualization_scale() { return m_visualize_probe_grid.scale; }
+    inline float         infinite_bounce_intensity() { return m_ray_trace.infinite_bounce_intensity; }
+    inline float         gi_intensity() { return m_sample_probe_grid.gi_intensity; }
 
 private:
     void load_sphere_mesh();
@@ -45,8 +49,8 @@ private:
 private:
     struct RayTrace
     {
-        bool                             infinite_bounces = false;
-        float                            infinite_bounce_intensity = 1.0f;
+        bool                             infinite_bounces = true;
+        float                            infinite_bounce_intensity = 1.7f;
         int32_t                          rays_per_probe = 64;
         dw::vk::DescriptorSet::Ptr       write_ds;
         dw::vk::DescriptorSet::Ptr       read_ds;
