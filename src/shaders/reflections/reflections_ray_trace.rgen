@@ -48,6 +48,8 @@ layout(push_constant) uniform PushConstants
     float trim;
     uint  num_frames;
     int   g_buffer_mip;
+    int   sample_gi;
+    float gi_intensity;
 }
 u_PushConstants;
 

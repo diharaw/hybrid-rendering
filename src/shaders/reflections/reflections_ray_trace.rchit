@@ -1,5 +1,6 @@
 #version 460
 
+#extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_ray_query : enable
 #extension GL_GOOGLE_include_directive : require
@@ -8,6 +9,7 @@
 #define RAY_TRACING
 #include "../common.glsl"
 #include "../scene_descriptor_set.glsl"
+#include "../gi/gi_common.glsl"
 
 // ------------------------------------------------------------------------
 // CONSTANTS --------------------------------------------------------------
@@ -53,6 +55,13 @@ layout(set = 4, binding = 1) uniform sampler2D s_IrradianceSH;
 layout(set = 4, binding = 2) uniform samplerCube s_Prefiltered;
 layout(set = 4, binding = 3) uniform sampler2D s_BRDF;
 
+layout(set = 6, binding = 0) uniform sampler2D s_Irradiance;
+layout(set = 6, binding = 1) uniform sampler2D s_Depth;
+layout(set = 6, binding = 2, scalar) uniform DDGIUBO
+{
+    DDGIUniforms ddgi;
+};
+
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
 // ------------------------------------------------------------------------
@@ -63,6 +72,8 @@ layout(push_constant) uniform PushConstants
     float trim;
     uint  num_frames;
     int   g_buffer_mip;
+    int   sample_gi;
+    float gi_intensity;
 }
 u_PushConstants;
 
@@ -317,32 +328,27 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         L += brdf * cos_theta * Li;
     }
 
-    // Sky Light
-    {
-        // vec2  rand_value = next_vec2(p_ReflectionPayload.rng);
-        // vec3  Wi         = sample_cosine_lobe(N, rand_value);
-        // vec3  Li         = texture(s_Cubemap, Wi).rgb;
-        // float pdf        = pdf_cosine_lobe(dot(N, Wi));
-        // vec3  Wh         = normalize(Wo + Wi);
-
-        // // fire shadow ray for visiblity
-        // Li *= query_visibility(ray_origin, Wi);
-
-        // vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
-        // float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
-
-        //L += (brdf * cos_theta * Li) / pdf;
-    }
-
     return L;
 }
 
-// ------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
-vec3 indirect_lighting(vec3 N, vec3 albedo)
+vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 {
-    vec3 irradiance = evaluate_sh9_irradiance(N);
-    return irradiance * albedo;
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
+}
+
+// ----------------------------------------------------------------------------
+
+vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness, float metallic)
+{
+    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    return u_PushConstants.gi_intensity * kD * albedo * sample_irradiance(ddgi, P, N, Wo, s_Irradiance, s_Depth);
 }
 
 // ------------------------------------------------------------------------
@@ -374,7 +380,8 @@ void main()
 
     vec3 Li = direct_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness);
 
-    Li += indirect_lighting(N, albedo) * IndirectIntensity;
+    if (u_PushConstants.sample_gi == 1)
+        Li += indirect_lighting(Wo, N, vertex.position.xyz, F0, albedo, roughness, metallic);
 
     p_ReflectionPayload.color      = Li;
     p_ReflectionPayload.ray_length = gl_RayTminEXT + gl_HitTEXT;

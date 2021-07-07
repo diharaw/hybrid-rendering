@@ -1,5 +1,6 @@
 #include "ray_traced_reflections.h"
 #include "g_buffer.h"
+#include "ddgi.h"
 #include "utilities.h"
 #include <profiler.h>
 #include <macros.h>
@@ -13,6 +14,8 @@ struct RayTracePushConstants
     float    trim;
     uint32_t num_frames;
     int32_t  g_buffer_mip;
+    int32_t  sample_gi;
+    float    gi_intensity;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -65,8 +68,8 @@ const std::string RayTracedReflections::kOutputTypeNames[] = {
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
-    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
+RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, DDGI* ddgi, RayTraceScale scale) :
+    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_ddgi(ddgi), m_scale(scale)
 {
     auto vk_backend = m_backend.lock();
 
@@ -114,6 +117,8 @@ void RayTracedReflections::gui()
 {
     ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::Checkbox("Blur as Temporal Input", &m_temporal_accumulation.blur_as_input);
+    ImGui::Checkbox("Sample GI", &m_ray_trace.sample_gi);
+    ImGui::SliderFloat("GI Intensity", &m_ray_trace.gi_intensity, 0.0f, 10.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Lobe Trim", &m_ray_trace.trim, 0.0f, 1.0f);
     ImGui::InputFloat("Alpha", &m_temporal_accumulation.alpha);
@@ -685,6 +690,7 @@ void RayTracedReflections::create_pipelines()
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
+        pl_desc.add_descriptor_set_layout(m_ddgi->read_ds_layout());
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
         m_ray_trace.pipeline_layout = dw::vk::PipelineLayout::create(backend, pl_desc);
@@ -860,10 +866,15 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     push_constants.trim         = m_ray_trace.trim;
     push_constants.num_frames   = m_common_resources->num_frames;
     push_constants.g_buffer_mip = m_g_buffer_mip;
+    push_constants.sample_gi    = m_ray_trace.sample_gi && !m_first_frame ? 1 : 0;
+    push_constants.gi_intensity = m_ray_trace.gi_intensity;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
-    const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
+    const uint32_t dynamic_offsets[] = {
+        m_common_resources->ubo_size * backend->current_frame_idx(),
+        m_ddgi->current_ubo_offset()
+    };
 
     VkDescriptorSet descriptor_sets[] = {
         m_common_resources->current_scene->descriptor_set()->handle(),
@@ -871,10 +882,11 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_common_resources->per_frame_ds->handle(),
         m_g_buffer->output_ds()->handle(),
         m_common_resources->current_skybox_ds->handle(),
-        m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle()
+        m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle(),
+        m_ddgi->current_read_ds()->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 7, descriptor_sets, 2, dynamic_offsets);
 
     auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
 

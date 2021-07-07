@@ -190,6 +190,21 @@ dw::vk::DescriptorSet::Ptr DDGI::output_ds()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+dw::vk::DescriptorSet::Ptr DDGI::current_read_ds()
+{
+    return m_probe_grid.read_ds[static_cast<uint32_t>(!m_ping_pong)];
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+uint32_t DDGI::current_ubo_offset()
+{
+    auto vk_backend = m_backend.lock();
+    return m_probe_grid.properties_ubo_size * vk_backend->current_frame_idx();
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void DDGI::load_sphere_mesh()
 {
     auto vk_backend = m_backend.lock();

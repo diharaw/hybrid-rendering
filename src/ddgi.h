@@ -16,6 +16,8 @@ public:
     void                       render_probes(dw::vk::CommandBuffer::Ptr cmd_buf);
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
+    dw::vk::DescriptorSet::Ptr current_read_ds();
+    uint32_t                   current_ubo_offset();
 
     inline uint32_t      width() { return m_width; }
     inline uint32_t      height() { return m_height; }
@@ -30,6 +32,7 @@ public:
     inline float         probe_visualization_scale() { return m_visualize_probe_grid.scale; }
     inline float         infinite_bounce_intensity() { return m_ray_trace.infinite_bounce_intensity; }
     inline float         gi_intensity() { return m_sample_probe_grid.gi_intensity; }
+    inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_probe_grid.read_ds_layout; }
 
 private:
     void load_sphere_mesh();

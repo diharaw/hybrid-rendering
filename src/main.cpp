@@ -200,9 +200,9 @@ protected:
         m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-
+        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_ddgi.get()));
+        
         create_framebuffers();
         create_deferred_pipeline();
         //create_gi_ray_tracing_pipeline();
@@ -417,7 +417,7 @@ protected:
                                 {
                                     m_vk_backend->wait_idle();
                                     m_ray_traced_reflections.reset();
-                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_ddgi.get(), (RayTraceScale)i));
                                 }
 
                                 if (is_selected)
@@ -448,6 +448,8 @@ protected:
                                     m_vk_backend->wait_idle();
                                     m_ddgi.reset();
                                     m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                    m_ray_traced_reflections.reset();
+                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_ddgi.get(), (RayTraceScale)i));
                                 }
 
                                 if (is_selected)
@@ -536,8 +538,8 @@ protected:
             m_g_buffer->render(cmd_buf);
             m_ray_traced_shadows->render(cmd_buf);
             m_ray_traced_ao->render(cmd_buf);
-            m_ray_traced_reflections->render(cmd_buf);
             m_ddgi->render(cmd_buf);
+            m_ray_traced_reflections->render(cmd_buf);
 
             {
                 //DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
