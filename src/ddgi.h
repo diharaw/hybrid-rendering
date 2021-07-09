@@ -19,19 +19,19 @@ public:
     dw::vk::DescriptorSet::Ptr current_read_ds();
     uint32_t                   current_ubo_offset();
 
-    inline uint32_t      width() { return m_width; }
-    inline uint32_t      height() { return m_height; }
-    inline RayTraceScale scale() { return m_scale; }
-    inline void          set_normal_bias(float value) { m_probe_update.normal_bias = value; }
-    inline void          set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
-    inline void          set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
-    inline void          set_infinite_bounce_intensity(float value) { m_ray_trace.infinite_bounce_intensity = value; }
-    inline void          set_gi_intensity(float value) { m_sample_probe_grid.gi_intensity = value; }
-    inline float         normal_bias() { return m_probe_update.normal_bias; }
-    inline float         probe_distance() { return m_probe_grid.probe_distance; }
-    inline float         probe_visualization_scale() { return m_visualize_probe_grid.scale; }
-    inline float         infinite_bounce_intensity() { return m_ray_trace.infinite_bounce_intensity; }
-    inline float         gi_intensity() { return m_sample_probe_grid.gi_intensity; }
+    inline uint32_t                         width() { return m_width; }
+    inline uint32_t                         height() { return m_height; }
+    inline RayTraceScale                    scale() { return m_scale; }
+    inline void                             set_normal_bias(float value) { m_probe_update.normal_bias = value; }
+    inline void                             set_probe_distance(float value) { m_probe_grid.probe_distance = value; }
+    inline void                             set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
+    inline void                             set_infinite_bounce_intensity(float value) { m_ray_trace.infinite_bounce_intensity = value; }
+    inline void                             set_gi_intensity(float value) { m_sample_probe_grid.gi_intensity = value; }
+    inline float                            normal_bias() { return m_probe_update.normal_bias; }
+    inline float                            probe_distance() { return m_probe_grid.probe_distance; }
+    inline float                            probe_visualization_scale() { return m_visualize_probe_grid.scale; }
+    inline float                            infinite_bounce_intensity() { return m_ray_trace.infinite_bounce_intensity; }
+    inline float                            gi_intensity() { return m_sample_probe_grid.gi_intensity; }
     inline dw::vk::DescriptorSetLayout::Ptr read_ds_layout() { return m_probe_grid.read_ds_layout; }
 
 private:

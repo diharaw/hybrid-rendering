@@ -48,10 +48,10 @@ private:
 private:
     struct RayTrace
     {
-        bool                            sample_gi = true;
+        bool                            sample_gi    = true;
         float                           gi_intensity = 0.5f;
-        float                           bias = 0.5f;
-        float                           trim = 0.8f;
+        float                           bias         = 0.5f;
+        float                           trim         = 0.8f;
         dw::vk::DescriptorSet::Ptr      write_ds;
         dw::vk::DescriptorSet::Ptr      read_ds;
         dw::vk::RayTracingPipeline::Ptr pipeline;
@@ -112,7 +112,7 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
-    DDGI*                          m_ddgi; 
+    DDGI*                          m_ddgi;
     OutputType                     m_current_output = OUTPUT_UPSAMPLE;
     RayTraceScale                  m_scale;
     uint32_t                       m_g_buffer_mip = 0;
