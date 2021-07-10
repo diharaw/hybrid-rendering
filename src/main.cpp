@@ -8,7 +8,6 @@
 #include "ray_traced_ao.h"
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
-#include "svgf_denoiser.h"
 #include "utilities.h"
 
 enum SceneType
@@ -541,13 +540,6 @@ protected:
             m_ddgi->render(cmd_buf);
             m_ray_traced_reflections->render(cmd_buf);
 
-            {
-                //DW_SCOPED_SAMPLE("RT Global Illumination", cmd_buf);
-
-                //ray_trace_gi(cmd_buf);
-                //m_common_resources->svgf_gi_denoiser->denoise(cmd_buf, m_common_resources->rtgi_read_ds);
-            }
-
             deferred_shading(cmd_buf);
             render_skybox(cmd_buf);
             if (m_taa_enabled)
@@ -674,23 +666,11 @@ private:
         m_common_resources->taa_view.clear();
         m_common_resources->taa_image.clear();
 
-        uint32_t rt_image_width  = m_quarter_resolution ? m_width / 2 : m_width;
-        uint32_t rt_image_height = m_quarter_resolution ? m_height / 2 : m_height;
-
-        uint32_t rtgi_image_width  = m_downscaled_rt ? m_width / 2 : m_width;
-        uint32_t rtgi_image_height = m_downscaled_rt ? m_height / 2 : m_height;
-
         m_common_resources->deferred_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_common_resources->deferred_image->set_name("Deferred Image");
 
         m_common_resources->deferred_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->deferred_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_common_resources->deferred_view->set_name("Deferred Image View");
-
-        m_common_resources->rtgi_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, rtgi_image_width, rtgi_image_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_common_resources->rtgi_image->set_name("RTGI Image");
-
-        m_common_resources->rtgi_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->rtgi_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->rtgi_view->set_name("RTGI Image View");
 
         // TAA
         for (int i = 0; i < 2; i++)
@@ -915,8 +895,6 @@ private:
     void create_descriptor_sets()
     {
         m_common_resources->per_frame_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
-        m_common_resources->rtgi_write_ds    = m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_common_resources->rtgi_read_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_common_resources->deferred_read_ds = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
 
         for (int i = 0; i < 9; i++)
@@ -1207,50 +1185,6 @@ private:
             }
 
             vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
-
-        // RTGI write
-        {
-            VkDescriptorImageInfo storage_image_info;
-
-            storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_common_resources->rtgi_view->handle();
-            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkWriteDescriptorSet write_data;
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write_data.pImageInfo      = &storage_image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->rtgi_write_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
-        }
-
-        // RTGI read
-        {
-            VkDescriptorImageInfo sampler_image_info;
-
-            sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
-            sampler_image_info.imageView   = m_common_resources->rtgi_view->handle();
-            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet write_data;
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &sampler_image_info;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->rtgi_read_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
         }
     }
 
@@ -2147,16 +2081,6 @@ private:
     {
         DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        // Transition ray tracing output image back to general layout
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->rtgi_image->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-
         VkClearValue clear_value;
 
         clear_value.color.float32[0] = 0.0f;
@@ -2577,22 +2501,9 @@ private:
     float     m_light_intensity = 1.0f;
     bool      m_light_animation = false;
 
-    // General Ray Tracing Settings
-    bool m_quarter_resolution = true;
-    bool m_downscaled_rt      = true;
-
     bool m_rt_shadows_enabled     = true;
     bool m_rt_reflections_enabled = true;
-
     bool m_ddgi_enabled = true;
-
-    // Ray Traced Global Illumination
-    bool    m_rtgi_enabled                  = true;
-    float   m_ray_traced_gi_bias            = 0.1f;
-    int32_t m_ray_traced_gi_max_ray_bounces = 1;
-    bool    m_ray_traced_gi_sample_sky      = false;
-
-    // Ambient Occlusion
     bool m_rtao_enabled = true;
 
     // Uniforms.

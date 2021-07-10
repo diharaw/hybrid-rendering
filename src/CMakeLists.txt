@@ -18,7 +18,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/ddgi.cpp
                              ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.cpp
-                             ${PROJECT_SOURCE_DIR}/src/path_traced_gi.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.cpp
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_reflections.cpp
@@ -27,12 +26,10 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.cpp
                              ${PROJECT_SOURCE_DIR}/src/tonemap.cpp
                              ${PROJECT_SOURCE_DIR}/src/utilities.cpp
-                             ${PROJECT_SOURCE_DIR}/src/svgf_denoiser.cpp
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.cpp
                              ${PROJECT_SOURCE_DIR}/src/common_resources.h
                              ${PROJECT_SOURCE_DIR}/src/ddgi.h
                              ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.h
-                             ${PROJECT_SOURCE_DIR}/src/path_traced_gi.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_shadows.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_reflections.h
@@ -41,7 +38,6 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.h
                              ${PROJECT_SOURCE_DIR}/src/tonemap.h
                              ${PROJECT_SOURCE_DIR}/src/utilities.h
-                             ${PROJECT_SOURCE_DIR}/src/svgf_denoiser.h
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.h
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/brdf_preintegrate_lut.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_prefilter.cpp
@@ -55,13 +51,7 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/copy.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/deferred.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/triangle.vert
-                   ${PROJECT_SOURCE_DIR}/src/shaders/indirect_diffuse.rgen
-                   ${PROJECT_SOURCE_DIR}/src/shaders/indirect_diffuse.rmiss
-                   ${PROJECT_SOURCE_DIR}/src/shaders/indirect_diffuse.rchit
                    ${PROJECT_SOURCE_DIR}/src/shaders/tone_map.frag
-                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_reprojection.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_filter_moments.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/svgf_a_trous_filter.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/skybox.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/taa.comp

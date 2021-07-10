@@ -80,18 +80,6 @@ struct CommonResources
     dw::vk::Buffer::Ptr              bnd_ranking_tile_buffer;
     std::unique_ptr<BlueNoise>       blue_noise;
 
-    // Denoisers
-    std::unique_ptr<SVGFDenoiser> svgf_gi_denoiser;
-
-    // Global Illumination Ray Tracing pass
-    dw::vk::DescriptorSet::Ptr      rtgi_write_ds;
-    dw::vk::DescriptorSet::Ptr      rtgi_read_ds;
-    dw::vk::RayTracingPipeline::Ptr rtgi_pipeline;
-    dw::vk::PipelineLayout::Ptr     rtgi_pipeline_layout;
-    dw::vk::Image::Ptr              rtgi_image;
-    dw::vk::ImageView::Ptr          rtgi_view;
-    dw::vk::ShaderBindingTable::Ptr rtgi_sbt;
-
     // Deferred pass
     dw::vk::RenderPass::Ptr       deferred_rp;
     dw::vk::Framebuffer::Ptr      deferred_fbo;
