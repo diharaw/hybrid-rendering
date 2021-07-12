@@ -55,6 +55,10 @@ struct CommonResources
     glm::vec4 z_buffer_params;
     glm::vec3 camera_delta = glm::vec3(0.0f);
     float     frame_time   = 0.0f;
+    glm::vec3 position;
+    glm::mat4 view;
+    glm::mat4 projection;
+    glm::mat4 prev_view_projection;
 
     // Assets.
     std::vector<dw::Mesh::Ptr> meshes;
@@ -79,15 +83,16 @@ struct CommonResources
     dw::vk::Buffer::Ptr              bnd_scrambling_tile_buffer;
     dw::vk::Buffer::Ptr              bnd_ranking_tile_buffer;
     std::unique_ptr<BlueNoise>       blue_noise;
-
-    // Deferred pass
-    dw::vk::RenderPass::Ptr       deferred_rp;
-    dw::vk::Framebuffer::Ptr      deferred_fbo;
-    dw::vk::Image::Ptr            deferred_image;
-    dw::vk::ImageView::Ptr        deferred_view;
-    dw::vk::GraphicsPipeline::Ptr deferred_pipeline;
-    dw::vk::PipelineLayout::Ptr   deferred_pipeline_layout;
-    dw::vk::DescriptorSet::Ptr    deferred_read_ds;
+    dw::vk::DescriptorSetLayout::Ptr             ddgi_read_ds_layout;
+    dw::vk::DescriptorSetLayout::Ptr             skybox_ds_layout;
+    std::vector<dw::vk::DescriptorSet::Ptr>      skybox_ds;
+    dw::vk::DescriptorSet::Ptr                   current_skybox_ds;
+    dw::vk::Image::Ptr                           blank_sh_image;
+    dw::vk::ImageView::Ptr                       blank_sh_image_view;
+    dw::vk::Image::Ptr                           blank_cubemap_image;
+    dw::vk::ImageView::Ptr                       blank_cubemap_image_view;
+    std::unique_ptr<SkyEnvironment>              sky_environment;
+    std::vector<std::shared_ptr<HDREnvironment>> hdr_environments;
 
     // TAA pass
     std::vector<dw::vk::Image::Ptr>         taa_image;
@@ -100,22 +105,6 @@ struct CommonResources
     // Copy pass
     dw::vk::GraphicsPipeline::Ptr copy_pipeline;
     dw::vk::PipelineLayout::Ptr   copy_pipeline_layout;
-
-    // Skybox
-    dw::vk::Buffer::Ptr                          cube_vbo;
-    dw::vk::GraphicsPipeline::Ptr                skybox_pipeline;
-    dw::vk::PipelineLayout::Ptr                  skybox_pipeline_layout;
-    dw::vk::DescriptorSetLayout::Ptr             skybox_ds_layout;
-    std::vector<dw::vk::DescriptorSet::Ptr>      skybox_ds;
-    dw::vk::DescriptorSet::Ptr                   current_skybox_ds;
-    dw::vk::RenderPass::Ptr                      skybox_rp;
-    dw::vk::Framebuffer::Ptr                     skybox_fbo[2];
-    dw::vk::Image::Ptr                           blank_sh_image;
-    dw::vk::ImageView::Ptr                       blank_sh_image_view;
-    dw::vk::Image::Ptr                           blank_cubemap_image;
-    dw::vk::ImageView::Ptr                       blank_cubemap_image_view;
-    std::unique_ptr<SkyEnvironment>              sky_environment;
-    std::vector<std::shared_ptr<HDREnvironment>> hdr_environments;
 
     // Helpers
     std::unique_ptr<dw::BRDFIntegrateLUT> brdf_preintegrate_lut;

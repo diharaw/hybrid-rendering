@@ -21,10 +21,10 @@ public:
     const static std::string kOutputTypeNames[];
 
 public:
-    RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, DDGI* ddgi, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
+    RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
     ~RayTracedReflections();
 
-    void                       render(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void                       render(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi);
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
@@ -40,7 +40,7 @@ private:
     void write_descriptor_sets();
     void create_pipelines();
     void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi);
     void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
     void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -112,7 +112,6 @@ private:
     std::weak_ptr<dw::vk::Backend> m_backend;
     CommonResources*               m_common_resources;
     GBuffer*                       m_g_buffer;
-    DDGI*                          m_ddgi;
     OutputType                     m_current_output = OUTPUT_UPSAMPLE;
     RayTraceScale                  m_scale;
     uint32_t                       m_g_buffer_mip = 0;

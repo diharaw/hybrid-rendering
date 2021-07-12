@@ -4,6 +4,7 @@
 #include <assimp/scene.h>
 #include <equirectangular_to_cubemap.h>
 #include "g_buffer.h"
+#include "deferred_shading.h"
 #include "ray_traced_shadows.h"
 #include "ray_traced_ao.h"
 #include "ray_traced_reflections.h"
@@ -34,7 +35,6 @@ enum VisualizationType
 
 #define NUM_PILLARS 6
 #define HALTON_SAMPLES 16
-#define GBUFFER_MIP_LEVELS 8
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
 
@@ -86,29 +86,6 @@ void set_light_type(Light& light, LightType value)
 {
     light.data2.r = value;
 }
-
-struct GIPushConstants
-{
-    float    bias;
-    uint32_t num_frames;
-    uint32_t max_ray_depth;
-    uint32_t sample_sky;
-    uint32_t g_buffer_mip;
-};
-
-struct SkyboxPushConstants
-{
-    glm::mat4 projection;
-    glm::mat4 view;
-};
-
-struct DeferredShadingPushConstants
-{
-    int shadows     = 1;
-    int ao          = 1;
-    int reflections = 1;
-    int gi          = 1;
-};
 
 struct TAAPushConstants
 {
@@ -165,7 +142,6 @@ class HybridRendering : public dw::Application
 {
 public:
     friend class GBuffer;
-    friend class SVGFDenoiser;
 
 protected:
     bool init(int argc, const char* argv[]) override
@@ -194,21 +170,16 @@ protected:
         create_descriptor_set_layouts();
         create_descriptor_sets();
         write_descriptor_sets();
-        create_render_passes();
 
         m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_ddgi.get()));
+        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_deferred_shading       = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
-        create_framebuffers();
-        create_deferred_pipeline();
-        //create_gi_ray_tracing_pipeline();
-        create_skybox_pipeline();
         create_tone_map_pipeline();
         create_taa_pipeline();
-        create_cube();
         set_active_scene();
 
         // Create camera.
@@ -216,9 +187,6 @@ protected:
 
         for (int i = 1; i <= HALTON_SAMPLES; i++)
             m_jitter_samples.push_back(glm::vec2((2.0f * halton_sequence(2, i) - 1.0f), (2.0f * halton_sequence(3, i) - 1.0f)));
-
-        float z_buffer_params_x             = -1.0 + (CAMERA_NEAR_PLANE / CAMERA_FAR_PLANE);
-        m_common_resources->z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / CAMERA_NEAR_PLANE, 1.0f / CAMERA_NEAR_PLANE);
 
         return true;
     }
@@ -395,7 +363,9 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        ImGui::Checkbox("Enabled", &m_rt_shadows_enabled);
+                        bool enabled = m_deferred_shading->use_ray_traced_shadows();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ray_traced_shadows(enabled);
                         m_ray_traced_shadows->gui();
 
                         ImGui::PopID();
@@ -416,7 +386,7 @@ protected:
                                 {
                                     m_vk_backend->wait_idle();
                                     m_ray_traced_reflections.reset();
-                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_ddgi.get(), (RayTraceScale)i));
+                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
                                 }
 
                                 if (is_selected)
@@ -425,52 +395,14 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        ImGui::Checkbox("Enabled", &m_rt_reflections_enabled);
+                        bool enabled = m_deferred_shading->use_ray_traced_reflections();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ray_traced_reflections(enabled);
+
                         m_ray_traced_reflections->gui();
 
                         ImGui::PopID();
                     }
-                    if (ImGui::CollapsingHeader("Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
-                    {
-                        ImGui::PushID("GUI_Global_Illumination");
-
-                        RayTraceScale scale = m_ddgi->scale();
-
-                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
-                        {
-                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
-                            {
-                                const bool is_selected = (i == scale);
-
-                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
-                                {
-                                    m_vk_backend->wait_idle();
-                                    m_ddgi.reset();
-                                    m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
-                                    m_ray_traced_reflections.reset();
-                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), m_ddgi.get(), (RayTraceScale)i));
-                                }
-
-                                if (is_selected)
-                                    ImGui::SetItemDefaultFocus();
-                            }
-                            ImGui::EndCombo();
-                        }
-
-                        ImGui::Checkbox("Enabled", &m_ddgi_enabled);
-                        m_ddgi->gui();
-
-                        ImGui::PopID();
-                    }
-                    //if (ImGui::CollapsingHeader("Ray Traced Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
-                    //{
-                    //    ImGui::PushID("Ray Traced Global Illumination");
-                    //    ImGui::Checkbox("Enabled", &m_rtgi_enabled);
-                    //    ImGui::InputFloat("Bias", &m_ray_traced_gi_bias);
-                    //    ImGui::Checkbox("Sample Sky", &m_ray_traced_gi_sample_sky);
-                    //    ImGui::SliderInt("Max Bounces", &m_ray_traced_gi_max_ray_bounces, 1, 4);
-                    //    ImGui::PopID();
-                    //}
                     if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         ImGui::PushID("Ray Traced Ambient Occlusion");
@@ -496,8 +428,48 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        ImGui::Checkbox("Enabled", &m_rtao_enabled);
+                        bool enabled = m_deferred_shading->use_ray_traced_ao();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ray_traced_ao(enabled);
+
                         m_ray_traced_ao->gui();
+                        ImGui::PopID();
+                    }
+                    if (ImGui::CollapsingHeader("Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::PushID("GUI_Global_Illumination");
+
+                        RayTraceScale scale = m_ddgi->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ddgi.reset();
+                                    m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        bool enabled = m_deferred_shading->use_ddgi();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ddgi(enabled);
+
+                        bool visualize_probe_grid = m_deferred_shading->visualize_probe_grid();
+                        if (ImGui::Checkbox("Visualize Probe Grid", &visualize_probe_grid))
+                            m_deferred_shading->set_visualize_probe_grid(visualize_probe_grid);
+
+                        m_ddgi->gui();
+
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
@@ -538,10 +510,12 @@ protected:
             m_ray_traced_shadows->render(cmd_buf);
             m_ray_traced_ao->render(cmd_buf);
             m_ddgi->render(cmd_buf);
-            m_ray_traced_reflections->render(cmd_buf);
-
-            deferred_shading(cmd_buf);
-            render_skybox(cmd_buf);
+            m_ray_traced_reflections->render(cmd_buf, m_ddgi.get());
+            m_deferred_shading->render(cmd_buf, 
+                                       m_ray_traced_ao.get(), 
+                                       m_ray_traced_shadows.get(), 
+                                       m_ray_traced_reflections.get(), 
+                                       m_ddgi.get());
             if (m_taa_enabled)
                 temporal_aa(cmd_buf);
             tone_map(cmd_buf);
@@ -563,6 +537,7 @@ protected:
 
     void shutdown() override
     {
+        m_deferred_shading.reset();
         m_g_buffer.reset();
         m_ray_traced_shadows.reset();
         m_ray_traced_ao.reset();
@@ -654,7 +629,6 @@ protected:
         m_vk_backend->wait_idle();
 
         create_output_images();
-        create_framebuffers();
         write_descriptor_sets();
     }
 
@@ -665,12 +639,6 @@ private:
     {
         m_common_resources->taa_view.clear();
         m_common_resources->taa_image.clear();
-
-        m_common_resources->deferred_image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_common_resources->deferred_image->set_name("Deferred Image");
-
-        m_common_resources->deferred_view = dw::vk::ImageView::create(m_vk_backend, m_common_resources->deferred_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->deferred_view->set_name("Deferred Image View");
 
         // TAA
         for (int i = 0; i < 2; i++)
@@ -684,143 +652,6 @@ private:
             image_view->set_name("TAA Image View " + std::to_string(i));
 
             m_common_resources->taa_view.push_back(image_view);
-        }
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_render_passes()
-    {
-        {
-            std::vector<VkAttachmentDescription> attachments(1);
-
-            // Deferred attachment
-            attachments[0].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-            attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
-            attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-            attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            attachments[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-            attachments[0].finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-            VkAttachmentReference deferred_reference;
-
-            deferred_reference.attachment = 0;
-            deferred_reference.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-            std::vector<VkSubpassDescription> subpass_description(1);
-
-            subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-            subpass_description[0].colorAttachmentCount    = 1;
-            subpass_description[0].pColorAttachments       = &deferred_reference;
-            subpass_description[0].pDepthStencilAttachment = nullptr;
-            subpass_description[0].inputAttachmentCount    = 0;
-            subpass_description[0].pInputAttachments       = nullptr;
-            subpass_description[0].preserveAttachmentCount = 0;
-            subpass_description[0].pPreserveAttachments    = nullptr;
-            subpass_description[0].pResolveAttachments     = nullptr;
-
-            // Subpass dependencies for layout transitions
-            std::vector<VkSubpassDependency> dependencies(2);
-
-            dependencies[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
-            dependencies[0].dstSubpass      = 0;
-            dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependencies[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-            dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-            dependencies[1].srcSubpass      = 0;
-            dependencies[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-            dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-            dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-            m_common_resources->deferred_rp = dw::vk::RenderPass::create(m_vk_backend, attachments, subpass_description, dependencies);
-        }
-
-        {
-            std::vector<VkAttachmentDescription> attachments(2);
-
-            // Deferred attachment
-            attachments[0].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-            attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
-            attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-            attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            attachments[0].initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            attachments[0].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            // Depth attachment
-            attachments[1].format         = m_vk_backend->swap_chain_depth_format();
-            attachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
-            attachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-            attachments[1].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            attachments[1].initialLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            attachments[1].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkAttachmentReference deferred_reference;
-
-            deferred_reference.attachment = 0;
-            deferred_reference.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-            VkAttachmentReference depth_reference;
-            depth_reference.attachment = 1;
-            depth_reference.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-            std::vector<VkSubpassDescription> subpass_description(1);
-
-            subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-            subpass_description[0].colorAttachmentCount    = 1;
-            subpass_description[0].pColorAttachments       = &deferred_reference;
-            subpass_description[0].pDepthStencilAttachment = &depth_reference;
-            subpass_description[0].inputAttachmentCount    = 0;
-            subpass_description[0].pInputAttachments       = nullptr;
-            subpass_description[0].preserveAttachmentCount = 0;
-            subpass_description[0].pPreserveAttachments    = nullptr;
-            subpass_description[0].pResolveAttachments     = nullptr;
-
-            // Subpass dependencies for layout transitions
-            std::vector<VkSubpassDependency> dependencies(2);
-
-            dependencies[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
-            dependencies[0].dstSubpass      = 0;
-            dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependencies[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-            dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-            dependencies[1].srcSubpass      = 0;
-            dependencies[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-            dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-            dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-            m_common_resources->skybox_rp = dw::vk::RenderPass::create(m_vk_backend, attachments, subpass_description, dependencies);
-        }
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_framebuffers()
-    {
-        m_common_resources->deferred_fbo.reset();
-        m_common_resources->deferred_fbo = dw::vk::Framebuffer::create(m_vk_backend, m_common_resources->deferred_rp, { m_common_resources->deferred_view }, m_width, m_height, 1);
-
-        for (uint32_t i = 0; i < 2; i++)
-        {
-            m_common_resources->skybox_fbo[i].reset();
-            m_common_resources->skybox_fbo[i] = dw::vk::Framebuffer::create(m_vk_backend, m_common_resources->skybox_rp, { m_common_resources->deferred_view, m_g_buffer->depth_fbo_image_view(i) }, m_width, m_height, 1);
         }
     }
 
@@ -888,6 +719,16 @@ private:
             m_common_resources->combined_sampler_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
             m_common_resources->combined_sampler_ds_layout->set_name("Combined Sampler DS Layout");
         }
+
+        {
+            dw::vk::DescriptorSetLayout::Desc desc;
+
+            desc.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            desc.add_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+            m_common_resources->ddgi_read_ds_layout = dw::vk::DescriptorSetLayout::create(m_vk_backend, desc);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -895,8 +736,7 @@ private:
     void create_descriptor_sets()
     {
         m_common_resources->per_frame_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
-        m_common_resources->deferred_read_ds = m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-
+        
         for (int i = 0; i < 9; i++)
             m_common_resources->blue_noise_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->blue_noise_ds_layout);
 
@@ -1098,27 +938,6 @@ private:
             }
         }
 
-        // Deferred Read
-        {
-            VkDescriptorImageInfo image;
-
-            image.sampler     = m_vk_backend->bilinear_sampler()->handle();
-            image.imageView   = m_common_resources->deferred_view->handle();
-            image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet write_data;
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write_data.pImageInfo      = &image;
-            write_data.dstBinding      = 0;
-            write_data.dstSet          = m_common_resources->deferred_read_ds->handle();
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), 1, &write_data, 0, nullptr);
-        }
-
         // TAA read
         {
             std::vector<VkDescriptorImageInfo> image_infos;
@@ -1190,25 +1009,6 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void create_deferred_pipeline()
-    {
-        dw::vk::PipelineLayout::Desc desc;
-
-        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
-        desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredShadingPushConstants));
-
-        m_common_resources->deferred_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
-        m_common_resources->deferred_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_common_resources->deferred_pipeline_layout, m_common_resources->deferred_rp);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void create_tone_map_pipeline()
     {
         dw::vk::PipelineLayout::Desc desc;
@@ -1218,153 +1018,6 @@ private:
 
         m_common_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_common_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_common_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_skybox_pipeline()
-    {
-        // ---------------------------------------------------------------------------
-        // Create shader modules
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ShaderModule::Ptr vs = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/skybox.vert.spv");
-        dw::vk::ShaderModule::Ptr fs = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/skybox.frag.spv");
-
-        dw::vk::GraphicsPipeline::Desc pso_desc;
-
-        pso_desc.add_shader_stage(VK_SHADER_STAGE_VERTEX_BIT, vs, "main")
-            .add_shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main");
-
-        // ---------------------------------------------------------------------------
-        // Create vertex input state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::VertexInputStateDesc vertex_input_state_desc;
-
-        struct SkyboxVertex
-        {
-            glm::vec3 position;
-            glm::vec3 normal;
-            glm::vec2 texcoord;
-        };
-
-        vertex_input_state_desc.add_binding_desc(0, sizeof(SkyboxVertex), VK_VERTEX_INPUT_RATE_VERTEX);
-
-        vertex_input_state_desc.add_attribute_desc(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
-        vertex_input_state_desc.add_attribute_desc(1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(SkyboxVertex, normal));
-        vertex_input_state_desc.add_attribute_desc(2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(SkyboxVertex, texcoord));
-
-        pso_desc.set_vertex_input_state(vertex_input_state_desc);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline input assembly state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::InputAssemblyStateDesc input_assembly_state_desc;
-
-        input_assembly_state_desc.set_primitive_restart_enable(false)
-            .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-
-        pso_desc.set_input_assembly_state(input_assembly_state_desc);
-
-        // ---------------------------------------------------------------------------
-        // Create viewport state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ViewportStateDesc vp_desc;
-
-        vp_desc.add_viewport(0.0f, 0.0f, m_width, m_height, 0.0f, 1.0f)
-            .add_scissor(0, 0, m_width, m_height);
-
-        pso_desc.set_viewport_state(vp_desc);
-
-        // ---------------------------------------------------------------------------
-        // Create rasterization state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::RasterizationStateDesc rs_state;
-
-        rs_state.set_depth_clamp(VK_FALSE)
-            .set_rasterizer_discard_enable(VK_FALSE)
-            .set_polygon_mode(VK_POLYGON_MODE_FILL)
-            .set_line_width(1.0f)
-            .set_cull_mode(VK_CULL_MODE_NONE)
-            .set_front_face(VK_FRONT_FACE_COUNTER_CLOCKWISE)
-            .set_depth_bias(VK_FALSE);
-
-        pso_desc.set_rasterization_state(rs_state);
-
-        // ---------------------------------------------------------------------------
-        // Create multisample state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::MultisampleStateDesc ms_state;
-
-        ms_state.set_sample_shading_enable(VK_FALSE)
-            .set_rasterization_samples(VK_SAMPLE_COUNT_1_BIT);
-
-        pso_desc.set_multisample_state(ms_state);
-
-        // ---------------------------------------------------------------------------
-        // Create depth stencil state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::DepthStencilStateDesc ds_state;
-
-        ds_state.set_depth_test_enable(VK_TRUE)
-            .set_depth_write_enable(VK_FALSE)
-            .set_depth_compare_op(VK_COMPARE_OP_LESS_OR_EQUAL)
-            .set_depth_bounds_test_enable(VK_FALSE)
-            .set_stencil_test_enable(VK_FALSE);
-
-        pso_desc.set_depth_stencil_state(ds_state);
-
-        // ---------------------------------------------------------------------------
-        // Create color blend state
-        // ---------------------------------------------------------------------------
-
-        dw::vk::ColorBlendAttachmentStateDesc blend_att_desc;
-
-        blend_att_desc.set_color_write_mask(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
-            .set_blend_enable(VK_FALSE);
-
-        dw::vk::ColorBlendStateDesc blend_state;
-
-        blend_state.set_logic_op_enable(VK_FALSE)
-            .set_logic_op(VK_LOGIC_OP_COPY)
-            .set_blend_constants(0.0f, 0.0f, 0.0f, 0.0f)
-            .add_attachment(blend_att_desc);
-
-        pso_desc.set_color_blend_state(blend_state);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline layout
-        // ---------------------------------------------------------------------------
-
-        dw::vk::PipelineLayout::Desc pl_desc;
-
-        pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout)
-            .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SkyboxPushConstants));
-
-        m_common_resources->skybox_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, pl_desc);
-
-        pso_desc.set_pipeline_layout(m_common_resources->skybox_pipeline_layout);
-
-        // ---------------------------------------------------------------------------
-        // Create dynamic state
-        // ---------------------------------------------------------------------------
-
-        pso_desc.add_dynamic_state(VK_DYNAMIC_STATE_VIEWPORT)
-            .add_dynamic_state(VK_DYNAMIC_STATE_SCISSOR);
-
-        // ---------------------------------------------------------------------------
-        // Create pipeline
-        // ---------------------------------------------------------------------------
-
-        pso_desc.set_render_pass(m_common_resources->skybox_rp);
-
-        m_common_resources->skybox_pipeline = dw::vk::GraphicsPipeline::create(m_vk_backend, pso_desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1389,309 +1042,6 @@ private:
         comp_desc.set_shader_stage(module, "main");
 
         m_common_resources->taa_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_cube()
-    {
-        float cube_vertices[] = {
-            // back face
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            0.0f, // bottom-left
-            1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            -1.0f,
-            1.0f,
-            1.0f, // top-right
-            1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            -1.0f,
-            1.0f,
-            0.0f, // bottom-right
-            1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            -1.0f,
-            1.0f,
-            1.0f, // top-right
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            0.0f, // bottom-left
-            -1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            1.0f, // top-left
-            // front face
-            -1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            0.0f, // bottom-left
-            1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            1.0f,
-            0.0f, // bottom-right
-            1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            1.0f,
-            1.0f, // top-right
-            1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            1.0f,
-            1.0f, // top-right
-            -1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            1.0f, // top-left
-            -1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            0.0f, // bottom-left
-            // left face
-            -1.0f,
-            1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f, // top-right
-            -1.0f,
-            1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            1.0f, // top-left
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            1.0f, // bottom-left
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            1.0f, // bottom-left
-            -1.0f,
-            -1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            0.0f, // bottom-right
-            -1.0f,
-            1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f, // top-right
-            // right face
-            1.0f,
-            1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f, // top-left
-            1.0f,
-            -1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            1.0f, // bottom-right
-            1.0f,
-            1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            1.0f, // top-right
-            1.0f,
-            -1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            1.0f, // bottom-right
-            1.0f,
-            1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f, // top-left
-            1.0f,
-            -1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            0.0f, // bottom-left
-            // bottom face
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            1.0f, // top-right
-            1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            1.0f, // top-left
-            1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            0.0f, // bottom-left
-            1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            0.0f, // bottom-left
-            -1.0f,
-            -1.0f,
-            1.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            0.0f, // bottom-right
-            -1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            1.0f, // top-right
-            // top face
-            -1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f, // top-left
-            1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            0.0f, // bottom-right
-            1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            1.0f, // top-right
-            1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            0.0f, // bottom-right
-            -1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f, // top-left
-            -1.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            0.0f // bottom-left
-        };
-        m_common_resources->cube_vbo = dw::vk::Buffer::create(m_vk_backend, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, sizeof(cube_vertices), VMA_MEMORY_USAGE_GPU_ONLY, 0, cube_vertices);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1940,6 +1290,9 @@ private:
     {
         m_main_camera     = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
         m_prev_camera_pos = m_main_camera->m_position;
+
+        float z_buffer_params_x             = -1.0 + (CAMERA_NEAR_PLANE / CAMERA_FAR_PLANE);
+        m_common_resources->z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / CAMERA_NEAR_PLANE, 1.0f / CAMERA_NEAR_PLANE);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -2016,141 +1369,6 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
-    void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        VkRenderPassBeginInfo info    = {};
-        info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        info.renderPass               = m_common_resources->skybox_rp->handle();
-        info.framebuffer              = m_common_resources->skybox_fbo[m_common_resources->ping_pong]->handle();
-        info.renderArea.extent.width  = m_width;
-        info.renderArea.extent.height = m_height;
-        info.clearValueCount          = 0;
-        info.pClearValues             = nullptr;
-
-        vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport vp;
-
-        vp.x        = 0.0f;
-        vp.y        = 0.0f;
-        vp.width    = (float)m_width;
-        vp.height   = (float)m_height;
-        vp.minDepth = 0.0f;
-        vp.maxDepth = 1.0f;
-
-        vkCmdSetViewport(cmd_buf->handle(), 0, 1, &vp);
-
-        VkRect2D scissor_rect;
-
-        scissor_rect.extent.width  = m_width;
-        scissor_rect.extent.height = m_height;
-        scissor_rect.offset.x      = 0;
-        scissor_rect.offset.y      = 0;
-
-        vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
-
-        // Also render the DDGI probe visualization here, if requested.
-        m_ddgi->render_probes(cmd_buf);
-
-        {
-            DW_SCOPED_SAMPLE("Skybox", cmd_buf);
-
-            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline->handle());
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->skybox_pipeline_layout->handle(), 0, 1, &m_common_resources->current_skybox_ds->handle(), 0, nullptr);
-
-            SkyboxPushConstants push_constants;
-
-            push_constants.projection = m_projection;
-            push_constants.view       = m_main_camera->m_view;
-
-            vkCmdPushConstants(cmd_buf->handle(), m_common_resources->skybox_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants), &push_constants);
-
-            const VkBuffer     buffer = m_common_resources->cube_vbo->handle();
-            const VkDeviceSize size   = 0;
-            vkCmdBindVertexBuffers(cmd_buf->handle(), 0, 1, &buffer, &size);
-
-            vkCmdDraw(cmd_buf->handle(), 36, 1, 0, 0);
-        }
-
-        vkCmdEndRenderPass(cmd_buf->handle());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void deferred_shading(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
-
-        VkClearValue clear_value;
-
-        clear_value.color.float32[0] = 0.0f;
-        clear_value.color.float32[1] = 0.0f;
-        clear_value.color.float32[2] = 0.0f;
-        clear_value.color.float32[3] = 1.0f;
-
-        VkRenderPassBeginInfo info    = {};
-        info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        info.renderPass               = m_common_resources->deferred_rp->handle();
-        info.framebuffer              = m_common_resources->deferred_fbo->handle();
-        info.renderArea.extent.width  = m_width;
-        info.renderArea.extent.height = m_height;
-        info.clearValueCount          = 1;
-        info.pClearValues             = &clear_value;
-
-        vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport vp;
-
-        vp.x        = 0.0f;
-        vp.y        = 0.0f;
-        vp.width    = (float)m_width;
-        vp.height   = (float)m_height;
-        vp.minDepth = 0.0f;
-        vp.maxDepth = 1.0f;
-
-        vkCmdSetViewport(cmd_buf->handle(), 0, 1, &vp);
-
-        VkRect2D scissor_rect;
-
-        scissor_rect.extent.width  = m_width;
-        scissor_rect.extent.height = m_height;
-        scissor_rect.offset.x      = 0;
-        scissor_rect.offset.y      = 0;
-
-        vkCmdSetScissor(cmd_buf->handle(), 0, 1, &scissor_rect);
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->deferred_pipeline->handle());
-
-        DeferredShadingPushConstants push_constants;
-
-        push_constants.shadows     = (float)m_rt_shadows_enabled;
-        push_constants.ao          = (float)m_rtao_enabled;
-        push_constants.reflections = (float)m_rt_reflections_enabled;
-        push_constants.gi          = (float)m_ddgi_enabled;
-
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->deferred_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_constants), &push_constants);
-
-        const uint32_t dynamic_offset = m_common_resources->ubo_size * m_vk_backend->current_frame_idx();
-
-        VkDescriptorSet descriptor_sets[] = {
-            m_g_buffer->output_ds()->handle(),
-            m_ray_traced_ao->output_ds()->handle(),
-            m_ray_traced_shadows->output_ds()->handle(),
-            m_ray_traced_reflections->output_ds()->handle(),
-            m_ddgi->output_ds()->handle(),
-            m_common_resources->per_frame_ds->handle(),
-            m_common_resources->current_skybox_ds->handle()
-        };
-
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_common_resources->deferred_pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
-
-        vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
-
-        vkCmdEndRenderPass(cmd_buf->handle());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
     void temporal_aa(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("TAA", cmd_buf);
@@ -2171,7 +1389,7 @@ private:
         if (m_taa_reset)
         {
             blitt_image(cmd_buf,
-                        m_common_resources->deferred_image,
+                        m_deferred_shading->output_image(),
                         m_common_resources->taa_image[read_idx],
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -2197,7 +1415,7 @@ private:
         VkDescriptorSet read_ds;
 
         if (m_current_visualization == VISUALIZATION_FINAL)
-            read_ds = m_common_resources->deferred_read_ds->handle();
+            read_ds = m_deferred_shading->output_ds()->handle();
         else if (m_current_visualization == VISUALIZATION_SHADOWS)
             read_ds = m_ray_traced_shadows->output_ds()->handle();
         else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
@@ -2285,7 +1503,7 @@ private:
         else
         {
             if (m_current_visualization == VISUALIZATION_FINAL)
-                read_ds = m_common_resources->deferred_read_ds->handle();
+                read_ds = m_deferred_shading->output_ds()->handle();
             else if (m_current_visualization == VISUALIZATION_SHADOWS)
                 read_ds = m_ray_traced_shadows->output_ds()->handle();
             else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
@@ -2323,14 +1541,18 @@ private:
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
         glm::mat4 current_jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f));
-        m_projection             = m_taa_enabled ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
-
-        m_ubo_data.proj_inverse        = glm::inverse(m_projection);
-        m_ubo_data.view_inverse        = glm::inverse(m_main_camera->m_view);
-        m_ubo_data.view_proj           = m_projection * m_main_camera->m_view;
+        
+        m_common_resources->view       = m_main_camera->m_view;
+        m_common_resources->projection             = m_taa_enabled ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
+        m_common_resources->prev_view_projection = m_main_camera->m_prev_view_projection;
+        m_common_resources->position   = m_main_camera->m_position;
+        
+        m_ubo_data.proj_inverse        = glm::inverse(m_common_resources->projection);
+        m_ubo_data.view_inverse        = glm::inverse(m_common_resources->view);
+        m_ubo_data.view_proj           = m_common_resources->projection * m_common_resources->view;
         m_ubo_data.view_proj_inverse   = glm::inverse(m_ubo_data.view_proj);
-        m_ubo_data.prev_view_proj      = m_common_resources->first_frame ? m_main_camera->m_prev_view_projection : current_jitter * m_main_camera->m_prev_view_projection;
-        m_ubo_data.cam_pos             = glm::vec4(m_main_camera->m_position, float(m_rtao_enabled));
+        m_ubo_data.prev_view_proj      = m_common_resources->first_frame ? m_common_resources->prev_view_projection : current_jitter * m_common_resources->prev_view_projection;
+        m_ubo_data.cam_pos             = glm::vec4(m_common_resources->position, float(m_deferred_shading->use_ray_traced_ao()));
         m_ubo_data.current_prev_jitter = glm::vec4(m_current_jitter, m_prev_jitter);
 
         set_light_radius(m_ubo_data.light, m_light_radius);
@@ -2437,21 +1659,24 @@ private:
             m_common_resources->current_scene = m_common_resources->pillars_scene;
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
-            m_ddgi->set_probe_visualization_scale(0.5f);
+            m_ddgi->restart_accumulation();
+            m_deferred_shading->set_probe_visualization_scale(0.5f);
         }
         else if (m_current_scene == SCENE_SPONZA)
         {
             m_common_resources->current_scene = m_common_resources->sponza_scene;
             m_ddgi->set_normal_bias(0.1f);
             m_ddgi->set_probe_distance(50.0f);
-            m_ddgi->set_probe_visualization_scale(5.0f);
+            m_ddgi->restart_accumulation();
+            m_deferred_shading->set_probe_visualization_scale(5.0f);
         }
         else if (m_current_scene == SCENE_PICA_PICA)
         {
             m_common_resources->current_scene = m_common_resources->pica_pica_scene;
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
-            m_ddgi->set_probe_visualization_scale(0.5f);
+            m_ddgi->restart_accumulation();
+            m_deferred_shading->set_probe_visualization_scale(0.5f);
         }
     }
 
@@ -2460,6 +1685,7 @@ private:
 private:
     std::unique_ptr<CommonResources>      m_common_resources;
     std::unique_ptr<GBuffer>              m_g_buffer;
+    std::unique_ptr<DeferredShading>      m_deferred_shading;
     std::unique_ptr<RayTracedShadows>     m_ray_traced_shadows;
     std::unique_ptr<RayTracedAO>          m_ray_traced_ao;
     std::unique_ptr<RayTracedReflections> m_ray_traced_reflections;
@@ -2467,7 +1693,6 @@ private:
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
-    glm::mat4                   m_projection;
     glm::mat4                   m_prev_view_proj;
     std::vector<glm::vec2>      m_jitter_samples;
     glm::vec3                   m_prev_camera_pos = glm::vec3(0.0f);
@@ -2500,11 +1725,6 @@ private:
     glm::vec3 m_light_color     = glm::vec3(1.0f);
     float     m_light_intensity = 1.0f;
     bool      m_light_animation = false;
-
-    bool m_rt_shadows_enabled     = true;
-    bool m_rt_reflections_enabled = true;
-    bool m_ddgi_enabled = true;
-    bool m_rtao_enabled = true;
 
     // Uniforms.
     UBO               m_ubo_data;

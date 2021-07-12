@@ -68,8 +68,8 @@ const std::string RayTracedReflections::kOutputTypeNames[] = {
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, DDGI* ddgi, RayTraceScale scale) :
-    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_ddgi(ddgi), m_scale(scale)
+RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale) :
+    m_backend(backend), m_common_resources(common_resources), m_g_buffer(g_buffer), m_scale(scale)
 {
     auto vk_backend = m_backend.lock();
 
@@ -94,12 +94,12 @@ RayTracedReflections::~RayTracedReflections()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf)
+void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi)
 {
     DW_SCOPED_SAMPLE("Ray Traced Reflections", cmd_buf);
 
     clear_images(cmd_buf);
-    ray_trace(cmd_buf);
+    ray_trace(cmd_buf, ddgi);
 
     if (m_denoise)
     {
@@ -690,7 +690,7 @@ void RayTracedReflections::create_pipelines()
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
         pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->blue_noise_ds_layout);
-        pl_desc.add_descriptor_set_layout(m_ddgi->read_ds_layout());
+        pl_desc.add_descriptor_set_layout(m_common_resources->ddgi_read_ds_layout);
         pl_desc.add_push_constant_range(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(RayTracePushConstants));
 
         m_ray_trace.pipeline_layout = dw::vk::PipelineLayout::create(backend, pl_desc);
@@ -840,7 +840,7 @@ void RayTracedReflections::clear_images(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
+void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi)
 {
     DW_SCOPED_SAMPLE("Ray Trace", cmd_buf);
 
@@ -873,7 +873,7 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     const uint32_t dynamic_offsets[] = {
         m_common_resources->ubo_size * backend->current_frame_idx(),
-        m_ddgi->current_ubo_offset()
+        ddgi->current_ubo_offset()
     };
 
     VkDescriptorSet descriptor_sets[] = {
@@ -883,7 +883,7 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->output_ds()->handle(),
         m_common_resources->current_skybox_ds->handle(),
         m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle(),
-        m_ddgi->current_read_ds()->handle()
+        ddgi->current_read_ds()->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 7, descriptor_sets, 2, dynamic_offsets);

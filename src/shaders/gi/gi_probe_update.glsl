@@ -37,6 +37,16 @@ layout(set = 1, binding = 2, scalar) uniform DDGIUBO
 layout(set = 2, binding = 0) uniform sampler2D s_InputRadiance;
 layout(set = 2, binding = 1) uniform sampler2D s_InputDirectionDepth;
 
+// ------------------------------------------------------------------------
+// PUSH CONSTANTS ---------------------------------------------------------
+// ------------------------------------------------------------------------
+
+layout(push_constant) uniform PushConstants
+{
+    uint first_frame;
+}
+u_PushConstants;
+
 // ------------------------------------------------------------------
 // CONSTANTS --------------------------------------------------------
 // ------------------------------------------------------------------
@@ -134,7 +144,8 @@ void main()
         prev_result = texelFetch(s_InputIrradiance, current_coord, 0).rgb;
 #endif
             
-        result = mix(result, prev_result, ddgi.hysteresis);
+        if (u_PushConstants.first_frame == 0)            
+            result = mix(result, prev_result, ddgi.hysteresis);
 
 #if defined(DEPTH_PROBE_UPDATE)
         imageStore(i_OutputDepth, current_coord, vec4(result, 1.0));
