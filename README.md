@@ -1,6 +1,6 @@
 #  Hybrid Rendering
 
-A simple Raster/Ray-Trace hybrid renderer using NVIDIA RTX ray-tracing in Vulkan
+A simple Raster/Ray-Trace hybrid renderer using the Vulkan KHR ray-tracing extensions.
 
 ## Screenshots
 
