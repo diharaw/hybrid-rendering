@@ -402,6 +402,7 @@ protected:
                                     m_vk_backend->wait_idle();
                                     m_ddgi.reset();
                                     m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                    set_active_scene();
                                 }
 
                                 if (is_selected)
