@@ -20,26 +20,26 @@ public:
     ~DeferredShading();
 
     void render(dw::vk::CommandBuffer::Ptr cmd_buf,
-                RayTracedAO* ao,
-                RayTracedShadows* shadows,
-                RayTracedReflections* reflections,
-                DDGI* ddhgi);
+                RayTracedAO*               ao,
+                RayTracedShadows*          shadows,
+                RayTracedReflections*      reflections,
+                DDGI*                      ddhgi);
 
     dw::vk::DescriptorSet::Ptr output_ds();
     dw::vk::Image::Ptr         output_image();
 
-    inline bool use_ray_traced_ao() { return m_shading.use_ray_traced_ao; }
-    inline bool use_ray_traced_shadows() { return m_shading.use_ray_traced_shadows; }
-    inline bool use_ray_traced_reflections() { return m_shading.use_ray_traced_reflections; }
-    inline bool use_ddgi() { return m_shading.use_ddgi; }
-    inline bool visualize_probe_grid() { return m_visualize_probe_grid.enabled; }
+    inline bool  use_ray_traced_ao() { return m_shading.use_ray_traced_ao; }
+    inline bool  use_ray_traced_shadows() { return m_shading.use_ray_traced_shadows; }
+    inline bool  use_ray_traced_reflections() { return m_shading.use_ray_traced_reflections; }
+    inline bool  use_ddgi() { return m_shading.use_ddgi; }
+    inline bool  visualize_probe_grid() { return m_visualize_probe_grid.enabled; }
     inline float probe_visualization_scale() { return m_visualize_probe_grid.scale; }
-    inline void set_use_ray_traced_ao(bool value) { m_shading.use_ray_traced_ao = value; }
-    inline void set_use_ray_traced_shadows(bool value) { m_shading.use_ray_traced_shadows = value; }
-    inline void set_use_ray_traced_reflections(bool value) { m_shading.use_ray_traced_reflections = value; }
-    inline void set_use_ddgi(bool value) { m_shading.use_ddgi = value; }
-    inline void set_visualize_probe_grid(bool value) { m_visualize_probe_grid.enabled = value; }
-    inline void set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
+    inline void  set_use_ray_traced_ao(bool value) { m_shading.use_ray_traced_ao = value; }
+    inline void  set_use_ray_traced_shadows(bool value) { m_shading.use_ray_traced_shadows = value; }
+    inline void  set_use_ray_traced_reflections(bool value) { m_shading.use_ray_traced_reflections = value; }
+    inline void  set_use_ddgi(bool value) { m_shading.use_ddgi = value; }
+    inline void  set_visualize_probe_grid(bool value) { m_visualize_probe_grid.enabled = value; }
+    inline void  set_probe_visualization_scale(float value) { m_visualize_probe_grid.scale = value; }
 
 private:
     void load_sphere_mesh();
@@ -55,8 +55,8 @@ private:
                         RayTracedShadows*          shadows,
                         RayTracedReflections*      reflections,
                         DDGI*                      ddgi);
-    void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi); 
-    void render_probes(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI*                      ddgi);
+    void render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi);
+    void render_probes(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi);
 
 private:
     struct SkyEnvironment
@@ -76,10 +76,10 @@ private:
 
     struct Shading
     {
-        bool                          use_ray_traced_ao = true;
-        bool                          use_ray_traced_shadows = true;
+        bool                          use_ray_traced_ao          = true;
+        bool                          use_ray_traced_shadows     = true;
         bool                          use_ray_traced_reflections = true;
-        bool                          use_ddgi = true;
+        bool                          use_ddgi                   = true;
         dw::vk::RenderPass::Ptr       rp;
         dw::vk::Framebuffer::Ptr      fbo;
         dw::vk::Image::Ptr            image;
@@ -107,12 +107,12 @@ private:
         dw::vk::PipelineLayout::Ptr   pipeline_layout;
     };
 
-    std::weak_ptr<dw::vk::Backend>   m_backend;
-    uint32_t                         m_width;
-    uint32_t                         m_height;
-    CommonResources*                 m_common_resources;
-    GBuffer*                         m_g_buffer;
-    Shading                          m_shading;
-    Skybox                           m_skybox;
-    VisualizeProbeGrid m_visualize_probe_grid;
+    std::weak_ptr<dw::vk::Backend> m_backend;
+    uint32_t                       m_width;
+    uint32_t                       m_height;
+    CommonResources*               m_common_resources;
+    GBuffer*                       m_g_buffer;
+    Shading                        m_shading;
+    Skybox                         m_skybox;
+    VisualizeProbeGrid             m_visualize_probe_grid;
 };

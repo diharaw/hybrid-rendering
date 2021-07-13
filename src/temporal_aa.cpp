@@ -59,7 +59,6 @@ TemporalAA::TemporalAA(std::weak_ptr<dw::vk::Backend> backend, CommonResources* 
 
 TemporalAA::~TemporalAA()
 {
-
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -89,7 +88,7 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
                         RayTracedShadows*          shadows,
                         RayTracedReflections*      reflections,
                         DDGI*                      ddgi,
-                        float delta_seconds)
+                        float                      delta_seconds)
 {
     if (m_enabled)
     {

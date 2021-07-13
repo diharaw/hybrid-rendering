@@ -54,16 +54,15 @@ DeferredShading::DeferredShading(std::weak_ptr<dw::vk::Backend> backend, CommonR
 
 DeferredShading::~DeferredShading()
 {
-
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 void DeferredShading::render(dw::vk::CommandBuffer::Ptr cmd_buf,
-            RayTracedAO*               ao,
-            RayTracedShadows*          shadows,
-            RayTracedReflections*      reflections,
-            DDGI*                      ddgi)
+                             RayTracedAO*               ao,
+                             RayTracedShadows*          shadows,
+                             RayTracedReflections*      reflections,
+                             DDGI*                      ddgi)
 {
     DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
@@ -401,7 +400,7 @@ void DeferredShading::create_cube()
         0.0f // bottom-left
     };
 
-    auto vk_backend   = m_backend.lock();
+    auto vk_backend = m_backend.lock();
 
     m_skybox.cube_vbo = dw::vk::Buffer::create(vk_backend, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, sizeof(cube_vertices), VMA_MEMORY_USAGE_GPU_ONLY, 0, cube_vertices);
 }
@@ -917,10 +916,10 @@ void DeferredShading::create_pipeline()
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 void DeferredShading::render_shading(dw::vk::CommandBuffer::Ptr cmd_buf,
-                    RayTracedAO*               ao,
-                    RayTracedShadows*          shadows,
-                    RayTracedReflections*      reflections,
-                    DDGI*                      ddgi)
+                                     RayTracedAO*               ao,
+                                     RayTracedShadows*          shadows,
+                                     RayTracedReflections*      reflections,
+                                     DDGI*                      ddgi)
 {
     DW_SCOPED_SAMPLE("Opaque", cmd_buf);
 
@@ -1000,7 +999,7 @@ void DeferredShading::render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* dd
 {
     DW_SCOPED_SAMPLE("Skybox", cmd_buf);
 
-    auto                  vk_backend = m_backend.lock();
+    auto vk_backend = m_backend.lock();
 
     VkRenderPassBeginInfo info    = {};
     info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;

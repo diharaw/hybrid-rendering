@@ -18,19 +18,19 @@ public:
     ~TemporalAA();
 
     void                       update();
-    void render(dw::vk::CommandBuffer::Ptr cmd_buf,
-                DeferredShading* deferred_shading,
-                RayTracedAO*               ao,
-                RayTracedShadows*          shadows,
-                RayTracedReflections*      reflections,
-                DDGI*                      ddgi,
-                float                      delta_seconds);
+    void                       render(dw::vk::CommandBuffer::Ptr cmd_buf,
+                                      DeferredShading*           deferred_shading,
+                                      RayTracedAO*               ao,
+                                      RayTracedShadows*          shadows,
+                                      RayTracedReflections*      reflections,
+                                      DDGI*                      ddgi,
+                                      float                      delta_seconds);
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();
 
-    inline bool      enabled()        { return m_enabled; }
+    inline bool      enabled() { return m_enabled; }
     inline glm::vec2 current_jitter() { return m_current_jitter; }
-    inline glm::vec2 prev_jitter()    { return m_prev_jitter; }
+    inline glm::vec2 prev_jitter() { return m_prev_jitter; }
 
 private:
     void create_images();

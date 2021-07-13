@@ -450,18 +450,18 @@ protected:
             m_ray_traced_ao->render(cmd_buf);
             m_ddgi->render(cmd_buf);
             m_ray_traced_reflections->render(cmd_buf, m_ddgi.get());
-            m_deferred_shading->render(cmd_buf, 
-                                       m_ray_traced_ao.get(), 
-                                       m_ray_traced_shadows.get(), 
-                                       m_ray_traced_reflections.get(), 
+            m_deferred_shading->render(cmd_buf,
+                                       m_ray_traced_ao.get(),
+                                       m_ray_traced_shadows.get(),
+                                       m_ray_traced_reflections.get(),
                                        m_ddgi.get());
-            m_temporal_aa->render(cmd_buf, 
-                m_deferred_shading.get(), 
-                m_ray_traced_ao.get(), 
-                m_ray_traced_shadows.get(), 
-                m_ray_traced_reflections.get(), 
-                m_ddgi.get(), 
-                m_delta_seconds);
+            m_temporal_aa->render(cmd_buf,
+                                  m_deferred_shading.get(),
+                                  m_ray_traced_ao.get(),
+                                  m_ray_traced_shadows.get(),
+                                  m_ray_traced_reflections.get(),
+                                  m_ddgi.get(),
+                                  m_delta_seconds);
             tone_map(cmd_buf);
         }
 
@@ -658,7 +658,7 @@ private:
     void create_descriptor_sets()
     {
         m_common_resources->per_frame_ds = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
-        
+
         for (int i = 0; i < 9; i++)
             m_common_resources->blue_noise_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->blue_noise_ds_layout);
 
@@ -1114,7 +1114,7 @@ private:
 
     void create_camera()
     {
-        m_main_camera     = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
+        m_main_camera                     = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
         m_common_resources->prev_position = m_main_camera->m_position;
 
         float z_buffer_params_x             = -1.0 + (CAMERA_NEAR_PLANE / CAMERA_FAR_PLANE);
@@ -1217,12 +1217,12 @@ private:
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
         glm::mat4 current_jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_temporal_aa->current_jitter(), 0.0f));
-        
-        m_common_resources->view       = m_main_camera->m_view;
+
+        m_common_resources->view                 = m_main_camera->m_view;
         m_common_resources->projection           = m_temporal_aa->enabled() ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
         m_common_resources->prev_view_projection = m_main_camera->m_prev_view_projection;
-        m_common_resources->position   = m_main_camera->m_position;
-        
+        m_common_resources->position             = m_main_camera->m_position;
+
         m_ubo_data.proj_inverse        = glm::inverse(m_common_resources->projection);
         m_ubo_data.view_inverse        = glm::inverse(m_common_resources->view);
         m_ubo_data.view_proj           = m_common_resources->projection * m_common_resources->view;
@@ -1309,8 +1309,8 @@ private:
 
         current->update();
 
-        m_common_resources->frame_time   = m_delta_seconds;
-        m_common_resources->camera_delta = m_main_camera->m_position - m_common_resources->prev_position;
+        m_common_resources->frame_time    = m_delta_seconds;
+        m_common_resources->camera_delta  = m_main_camera->m_position - m_common_resources->prev_position;
         m_common_resources->prev_position = m_main_camera->m_position;
     }
 
@@ -1355,13 +1355,13 @@ private:
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
-    bool  m_mouse_look         = false;
-    float m_heading_speed      = 0.0f;
-    float m_sideways_speed     = 0.0f;
-    float m_camera_sensitivity = 0.05f;
-    float m_camera_speed       = 0.2f;
-    float m_offset             = 0.1f;
-    bool  m_debug_gui          = false;
+    bool                        m_mouse_look         = false;
+    float                       m_heading_speed      = 0.0f;
+    float                       m_sideways_speed     = 0.0f;
+    float                       m_camera_sensitivity = 0.05f;
+    float                       m_camera_speed       = 0.2f;
+    float                       m_offset             = 0.1f;
+    bool                        m_debug_gui          = false;
 
     // Camera orientation.
     float m_camera_x;
