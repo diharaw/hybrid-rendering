@@ -125,7 +125,7 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     const uint32_t dynamic_offset = m_common_resources->ubo_size * vk_backend->current_frame_idx();
 
     VkDescriptorSet descriptor_sets[] = {
-        m_common_resources->current_scene->descriptor_set()->handle(),
+        m_common_resources->current_scene()->descriptor_set()->handle(),
         m_common_resources->per_frame_ds->handle()
     };
 
@@ -133,7 +133,7 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     uint32_t mesh_id = 0;
 
-    const auto& instances = m_common_resources->current_scene->instances();
+    const auto& instances = m_common_resources->current_scene()->instances();
 
     for (uint32_t instance_idx = 0; instance_idx < instances.size(); instance_idx++)
     {
@@ -157,7 +157,7 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
                 push_constants.model          = instance.transform;
                 push_constants.prev_model     = instance.transform;
-                push_constants.material_index = m_common_resources->current_scene->material_index(mat->id());
+                push_constants.material_index = m_common_resources->current_scene()->material_index(mat->id());
                 push_constants.mesh_id        = mesh_id;
 
                 vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants), &push_constants);
@@ -547,7 +547,7 @@ void GBuffer::create_pipeline()
 
     dw::vk::PipelineLayout::Desc pl_desc;
 
-    pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout())
+    pl_desc.add_descriptor_set_layout(m_common_resources->current_scene()->descriptor_set_layout())
         .add_descriptor_set_layout(m_common_resources->per_frame_ds_layout)
         .add_push_constant_range(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants));
 

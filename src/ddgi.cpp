@@ -92,7 +92,7 @@ void DDGI::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     DW_SCOPED_SAMPLE("DDGI", cmd_buf);
 
     // If the scene has changed re-initialize the probe grid
-    if (m_last_scene_id != m_common_resources->current_scene->id())
+    if (m_last_scene_id != m_common_resources->current_scene()->id())
         initialize_probe_grid();
 
     update_properties_ubo();
@@ -151,8 +151,8 @@ uint32_t DDGI::current_ubo_offset()
 void DDGI::initialize_probe_grid()
 {
     // Get the min and max extents of the scene.
-    glm::vec3 min_extents = m_common_resources->current_scene->min_extents();
-    glm::vec3 max_extents = m_common_resources->current_scene->max_extents();
+    glm::vec3 min_extents = m_common_resources->current_scene()->min_extents();
+    glm::vec3 max_extents = m_common_resources->current_scene()->max_extents();
 
     // Compute the scene length.
     glm::vec3 scene_length = max_extents - min_extents;
@@ -164,7 +164,7 @@ void DDGI::initialize_probe_grid()
     m_probe_update.max_distance      = m_probe_grid.probe_distance * 1.5f;
 
     // Assign current scene ID
-    m_last_scene_id = m_common_resources->current_scene->id();
+    m_last_scene_id = m_common_resources->current_scene()->id();
 
     recreate_probe_grid_resources();
 }
@@ -619,7 +619,7 @@ void DDGI::create_pipelines()
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_common_resources->current_scene()->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_ray_trace.write_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
@@ -792,7 +792,7 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     };
 
     VkDescriptorSet descriptor_sets[] = {
-        m_common_resources->current_scene->descriptor_set()->handle(),
+        m_common_resources->current_scene()->descriptor_set()->handle(),
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
         m_common_resources->current_skybox_ds->handle(),

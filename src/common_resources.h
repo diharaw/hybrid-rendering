@@ -31,6 +31,29 @@ enum EnvironmentType
     ENVIRONMENT_TYPE_LA_DOWNTOWN_HELIPAD
 };
 
+enum SceneType
+{
+    SCENE_TYPE_PILLARS,
+    SCENE_TYPE_SPONZA,
+    SCENE_TYPE_PICA_PICA,
+    SCENE_TYPE_COUNT
+};
+
+enum LightType
+{
+    LIGHT_TYPE_DIRECTIONAL,
+    LIGHT_TYPE_POINT
+};
+
+enum VisualizationType
+{
+    VISUALIZATION_TYPE_FINAL,
+    VISUALIZATION_TYPE_SHADOWS,
+    VISUALIZATION_TYPE_AMBIENT_OCCLUSION,
+    VISUALIZATION_TYPE_REFLECTIONS,
+    VISUALIZATION_TYPE_GLOBAL_ILLUIMINATION
+};
+
 struct SkyEnvironment
 {
     std::unique_ptr<dw::CubemapSHProjection> cubemap_sh_projection;
@@ -48,6 +71,9 @@ struct HDREnvironment
 
 struct CommonResources
 {
+    SceneType         current_scene_type         = SCENE_TYPE_PILLARS;
+    VisualizationType current_visualization_type = VISUALIZATION_TYPE_FINAL;
+    EnvironmentType   current_environment_type   = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
     bool      first_frame = true;
     bool      ping_pong   = false;
     int32_t   num_frames  = 0;
@@ -56,16 +82,14 @@ struct CommonResources
     glm::vec3 camera_delta = glm::vec3(0.0f);
     float     frame_time   = 0.0f;
     glm::vec3 position;
+    glm::vec3 prev_position;
     glm::mat4 view;
     glm::mat4 projection;
     glm::mat4 prev_view_projection;
 
     // Assets.
     std::vector<dw::Mesh::Ptr> meshes;
-    dw::RayTracedScene::Ptr    pillars_scene;
-    dw::RayTracedScene::Ptr    sponza_scene;
-    dw::RayTracedScene::Ptr    pica_pica_scene;
-    dw::RayTracedScene::Ptr    current_scene;
+    std::vector<dw::RayTracedScene::Ptr> scenes;
 
     // Common
     dw::vk::DescriptorSet::Ptr       per_frame_ds;
@@ -94,18 +118,12 @@ struct CommonResources
     std::unique_ptr<SkyEnvironment>              sky_environment;
     std::vector<std::shared_ptr<HDREnvironment>> hdr_environments;
 
-    // TAA pass
-    std::vector<dw::vk::Image::Ptr>         taa_image;
-    std::vector<dw::vk::ImageView::Ptr>     taa_view;
-    dw::vk::ComputePipeline::Ptr            taa_pipeline;
-    dw::vk::PipelineLayout::Ptr             taa_pipeline_layout;
-    std::vector<dw::vk::DescriptorSet::Ptr> taa_read_ds;
-    std::vector<dw::vk::DescriptorSet::Ptr> taa_write_ds;
-
     // Copy pass
     dw::vk::GraphicsPipeline::Ptr copy_pipeline;
     dw::vk::PipelineLayout::Ptr   copy_pipeline_layout;
 
     // Helpers
     std::unique_ptr<dw::BRDFIntegrateLUT> brdf_preintegrate_lut;
+
+    inline dw::RayTracedScene::Ptr current_scene() { return scenes[current_scene_type]; }
 };

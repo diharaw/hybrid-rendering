@@ -651,7 +651,7 @@ void RayTracedShadows::create_pipelines()
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_common_resources->pillars_scene->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_common_resources->current_scene()->descriptor_set_layout());
         pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
@@ -826,7 +826,7 @@ void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
 
     VkDescriptorSet descriptor_sets[] = {
-        m_common_resources->current_scene->descriptor_set()->handle(),
+        m_common_resources->current_scene()->descriptor_set()->handle(),
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
         m_g_buffer->output_ds()->handle(),

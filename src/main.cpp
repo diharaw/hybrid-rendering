@@ -9,32 +9,10 @@
 #include "ray_traced_ao.h"
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
+#include "temporal_aa.h"
 #include "utilities.h"
 
-enum SceneType
-{
-    SCENE_PILLARS,
-    SCENE_SPONZA,
-    SCENE_PICA_PICA
-};
-
-enum LightType
-{
-    LIGHT_TYPE_DIRECTIONAL,
-    LIGHT_TYPE_POINT
-};
-
-enum VisualizationType
-{
-    VISUALIZATION_FINAL,
-    VISUALIZATION_SHADOWS,
-    VISUALIZATION_AMBIENT_OCCLUSION,
-    VISUALIZATION_REFLECTIONS,
-    VISUALIZATION_GLOBAL_ILLUIMINATION
-};
-
 #define NUM_PILLARS 6
-#define HALTON_SAMPLES 16
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
 
@@ -87,35 +65,11 @@ void set_light_type(Light& light, LightType value)
     light.data2.r = value;
 }
 
-struct TAAPushConstants
-{
-    glm::vec4 texel_size;
-    glm::vec4 current_prev_jitter;
-    glm::vec4 time_params;
-    float     feedback_min;
-    float     feedback_max;
-    int       sharpen;
-};
-
 struct ToneMapPushConstants
 {
     int   single_channel;
     float exposure;
 };
-
-float halton_sequence(int base, int index)
-{
-    float result = 0;
-    float f      = 1;
-    while (index > 0)
-    {
-        f /= base;
-        result += f * (index % base);
-        index = floor(index / base);
-    }
-
-    return result;
-}
 
 // Uniform buffer data structure.
 struct UBO
@@ -165,7 +119,6 @@ protected:
         m_common_resources->blue_noise_view_2     = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_common_resources->blue_noise            = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
 
-        create_output_images();
         create_environment_resources();
         create_descriptor_set_layouts();
         create_descriptor_sets();
@@ -177,16 +130,13 @@ protected:
         m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_deferred_shading       = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_temporal_aa            = std::unique_ptr<TemporalAA>(new TemporalAA(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
 
         create_tone_map_pipeline();
-        create_taa_pipeline();
         set_active_scene();
 
         // Create camera.
         create_camera();
-
-        for (int i = 1; i <= HALTON_SAMPLES; i++)
-            m_jitter_samples.push_back(glm::vec2((2.0f * halton_sequence(2, i) - 1.0f), (2.0f * halton_sequence(3, i) - 1.0f)));
 
         return true;
     }
@@ -213,15 +163,15 @@ protected:
                 {
                     if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        if (ImGui::BeginCombo("Scene", scene_types[m_current_scene].c_str()))
+                        if (ImGui::BeginCombo("Scene", scene_types[m_common_resources->current_scene_type].c_str()))
                         {
                             for (uint32_t i = 0; i < scene_types.size(); i++)
                             {
-                                const bool is_selected = (i == m_current_scene);
+                                const bool is_selected = (i == m_common_resources->current_scene_type);
 
                                 if (ImGui::Selectable(scene_types[i].c_str(), is_selected))
                                 {
-                                    m_current_scene = (SceneType)i;
+                                    m_common_resources->current_scene_type = (SceneType)i;
                                     set_active_scene();
                                 }
 
@@ -231,16 +181,16 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        if (ImGui::BeginCombo("Environment", environment_types[m_current_environment_type].c_str()))
+                        if (ImGui::BeginCombo("Environment", environment_types[m_common_resources->current_environment_type].c_str()))
                         {
                             for (uint32_t i = 0; i < environment_types.size(); i++)
                             {
-                                const bool is_selected = (i == m_current_environment_type);
+                                const bool is_selected = (i == m_common_resources->current_environment_type);
 
                                 if (ImGui::Selectable(environment_types[i].c_str(), is_selected))
                                 {
-                                    m_current_environment_type            = (EnvironmentType)i;
-                                    m_common_resources->current_skybox_ds = m_common_resources->skybox_ds[m_current_environment_type];
+                                    m_common_resources->current_environment_type = (EnvironmentType)i;
+                                    m_common_resources->current_skybox_ds        = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
                                 }
 
                                 if (is_selected)
@@ -249,14 +199,14 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        if (ImGui::BeginCombo("Visualization", visualization_types[m_current_visualization].c_str()))
+                        if (ImGui::BeginCombo("Visualization", visualization_types[m_common_resources->current_visualization_type].c_str()))
                         {
                             for (uint32_t i = 0; i < visualization_types.size(); i++)
                             {
-                                const bool is_selected = (i == m_current_visualization);
+                                const bool is_selected = (i == m_common_resources->current_visualization_type);
 
                                 if (ImGui::Selectable(visualization_types[i].c_str(), is_selected))
-                                    m_current_visualization = (VisualizationType)i;
+                                    m_common_resources->current_visualization_type = (VisualizationType)i;
 
                                 if (is_selected)
                                     ImGui::SetItemDefaultFocus();
@@ -264,7 +214,7 @@ protected:
                             ImGui::EndCombo();
                         }
 
-                        if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+                        if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
                         {
                             RayTracedReflections::OutputType type = m_ray_traced_reflections->current_output();
 
@@ -285,7 +235,7 @@ protected:
 
                             m_ray_traced_reflections->set_current_output(type);
                         }
-                        else if (m_current_visualization == VISUALIZATION_SHADOWS)
+                        else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_SHADOWS)
                         {
                             RayTracedShadows::OutputType type = m_ray_traced_shadows->current_output();
 
@@ -306,7 +256,7 @@ protected:
 
                             m_ray_traced_shadows->set_current_output(type);
                         }
-                        else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
+                        else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_AMBIENT_OCCLUSION)
                         {
                             RayTracedAO::OutputType type = m_ray_traced_ao->current_output();
 
@@ -473,18 +423,7 @@ protected:
                         ImGui::PopID();
                     }
                     if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
-                    {
-                        ImGui::PushID("TAA");
-                        if (ImGui::Checkbox("Enabled", &m_taa_enabled))
-                        {
-                            if (m_taa_enabled)
-                                m_taa_reset = true;
-                        }
-                        ImGui::Checkbox("Sharpen", &m_taa_sharpen);
-                        ImGui::SliderFloat("Feedback Min", &m_taa_feedback_min, 0.0f, 1.0f);
-                        ImGui::SliderFloat("Feedback Max", &m_taa_feedback_max, 0.0f, 1.0f);
-                        ImGui::PopID();
-                    }
+                        m_temporal_aa->gui();
                     if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
                         dw::profiler::ui();
 
@@ -501,7 +440,7 @@ protected:
             // Update uniforms.
             update_uniforms(cmd_buf);
 
-            m_common_resources->current_scene->build_tlas(cmd_buf);
+            m_common_resources->current_scene()->build_tlas(cmd_buf);
 
             update_ibl(cmd_buf);
 
@@ -516,8 +455,13 @@ protected:
                                        m_ray_traced_shadows.get(), 
                                        m_ray_traced_reflections.get(), 
                                        m_ddgi.get());
-            if (m_taa_enabled)
-                temporal_aa(cmd_buf);
+            m_temporal_aa->render(cmd_buf, 
+                m_deferred_shading.get(), 
+                m_ray_traced_ao.get(), 
+                m_ray_traced_shadows.get(), 
+                m_ray_traced_reflections.get(), 
+                m_ddgi.get(), 
+                m_delta_seconds);
             tone_map(cmd_buf);
         }
 
@@ -537,6 +481,7 @@ protected:
 
     void shutdown() override
     {
+        m_temporal_aa.reset();
         m_deferred_shading.reset();
         m_g_buffer.reset();
         m_ray_traced_shadows.reset();
@@ -628,33 +573,10 @@ protected:
 
         m_vk_backend->wait_idle();
 
-        create_output_images();
         write_descriptor_sets();
     }
 
 private:
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_output_images()
-    {
-        m_common_resources->taa_view.clear();
-        m_common_resources->taa_image.clear();
-
-        // TAA
-        for (int i = 0; i < 2; i++)
-        {
-            auto image = dw::vk::Image::create(m_vk_backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
-            image->set_name("TAA Image " + std::to_string(i));
-
-            m_common_resources->taa_image.push_back(image);
-
-            auto image_view = dw::vk::ImageView::create(m_vk_backend, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-            image_view->set_name("TAA Image View " + std::to_string(i));
-
-            m_common_resources->taa_view.push_back(image_view);
-        }
-    }
-
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     bool create_uniform_buffer()
@@ -735,16 +657,10 @@ private:
 
     void create_descriptor_sets()
     {
-        m_common_resources->per_frame_ds     = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
+        m_common_resources->per_frame_ds = m_vk_backend->allocate_descriptor_set(m_common_resources->per_frame_ds_layout);
         
         for (int i = 0; i < 9; i++)
             m_common_resources->blue_noise_ds[i] = m_vk_backend->allocate_descriptor_set(m_common_resources->blue_noise_ds_layout);
-
-        for (int i = 0; i < 2; i++)
-        {
-            m_common_resources->taa_read_ds.push_back(m_vk_backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout));
-            m_common_resources->taa_write_ds.push_back(m_vk_backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout));
-        }
 
         int num_environment_map_images = environment_map_images.size() + 2;
 
@@ -900,7 +816,7 @@ private:
             vkUpdateDescriptorSets(m_vk_backend->device(), 4, &write_data[0], 0, nullptr);
         }
 
-        m_common_resources->current_skybox_ds = m_common_resources->skybox_ds[m_current_environment_type];
+        m_common_resources->current_skybox_ds = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
 
         // Blue Noise
         {
@@ -937,74 +853,6 @@ private:
                 vkUpdateDescriptorSets(m_vk_backend->device(), 2, &write_data[0], 0, nullptr);
             }
         }
-
-        // TAA read
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(2);
-            write_datas.reserve(2);
-
-            for (int i = 0; i < 2; i++)
-            {
-                VkDescriptorImageInfo combined_sampler_image_info;
-
-                combined_sampler_image_info.sampler     = m_vk_backend->bilinear_sampler()->handle();
-                combined_sampler_image_info.imageView   = m_common_resources->taa_view[i]->handle();
-                combined_sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                image_infos.push_back(combined_sampler_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_common_resources->taa_read_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
-
-        // TAA write
-        {
-            std::vector<VkDescriptorImageInfo> image_infos;
-            std::vector<VkWriteDescriptorSet>  write_datas;
-            VkWriteDescriptorSet               write_data;
-
-            image_infos.reserve(2);
-            write_datas.reserve(2);
-
-            for (int i = 0; i < 2; i++)
-            {
-                VkDescriptorImageInfo storage_image_info;
-
-                storage_image_info.sampler     = VK_NULL_HANDLE;
-                storage_image_info.imageView   = m_common_resources->taa_view[i]->handle();
-                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                image_infos.push_back(storage_image_info);
-
-                DW_ZERO_MEMORY(write_data);
-
-                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write_data.descriptorCount = 1;
-                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write_data.pImageInfo      = &image_infos.back();
-                write_data.dstBinding      = 0;
-                write_data.dstSet          = m_common_resources->taa_write_ds[i]->handle();
-
-                write_datas.push_back(write_data);
-            }
-
-            vkUpdateDescriptorSets(m_vk_backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
-        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1018,30 +866,6 @@ private:
 
         m_common_resources->copy_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
         m_common_resources->copy_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(m_vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_common_resources->copy_pipeline_layout, m_vk_backend->swapchain_render_pass());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void create_taa_pipeline()
-    {
-        dw::vk::PipelineLayout::Desc desc;
-
-        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
-        desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
-        desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAPushConstants));
-
-        m_common_resources->taa_pipeline_layout = dw::vk::PipelineLayout::create(m_vk_backend, desc);
-
-        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(m_vk_backend, "shaders/taa.comp.spv");
-
-        dw::vk::ComputePipeline::Desc comp_desc;
-
-        comp_desc.set_pipeline_layout(m_common_resources->taa_pipeline_layout);
-        comp_desc.set_shader_stage(module, "main");
-
-        m_common_resources->taa_pipeline = dw::vk::ComputePipeline::create(m_vk_backend, comp_desc);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1140,6 +964,8 @@ private:
 
     bool load_mesh()
     {
+        m_common_resources->scenes.reserve(SCENE_TYPE_COUNT);
+
         {
             std::vector<dw::RayTracedScene::Instance> instances;
 
@@ -1228,7 +1054,7 @@ private:
 
             instances.push_back(bunny_instance);
 
-            m_common_resources->pillars_scene = dw::RayTracedScene::create(m_vk_backend, instances);
+            m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
         }
 
         {
@@ -1253,7 +1079,7 @@ private:
 
             instances.push_back(sponza_instance);
 
-            m_common_resources->sponza_scene = dw::RayTracedScene::create(m_vk_backend, instances);
+            m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
         }
 
         {
@@ -1278,7 +1104,7 @@ private:
 
             instances.push_back(pica_pica_instance);
 
-            m_common_resources->pica_pica_scene = dw::RayTracedScene::create(m_vk_backend, instances);
+            m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
         }
 
         return true;
@@ -1289,160 +1115,10 @@ private:
     void create_camera()
     {
         m_main_camera     = std::make_unique<dw::Camera>(60.0f, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE, float(m_width) / float(m_height), glm::vec3(0.0f, 35.0f, 125.0f), glm::vec3(0.0f, 0.0, -1.0f));
-        m_prev_camera_pos = m_main_camera->m_position;
+        m_common_resources->prev_position = m_main_camera->m_position;
 
         float z_buffer_params_x             = -1.0 + (CAMERA_NEAR_PLANE / CAMERA_FAR_PLANE);
         m_common_resources->z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / CAMERA_NEAR_PLANE, 1.0f / CAMERA_NEAR_PLANE);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void blitt_image(dw::vk::CommandBuffer::Ptr cmd_buf,
-                     dw::vk::Image::Ptr         src,
-                     dw::vk::Image::Ptr         dst,
-                     VkImageLayout              src_img_src_layout,
-                     VkImageLayout              src_img_dst_layout,
-                     VkImageLayout              dst_img_src_layout,
-                     VkImageLayout              dst_img_dst_layout,
-                     VkImageAspectFlags         aspect_flags,
-                     VkFilter                   filter)
-    {
-        VkImageSubresourceRange initial_subresource_range;
-        DW_ZERO_MEMORY(initial_subresource_range);
-
-        initial_subresource_range.aspectMask     = aspect_flags;
-        initial_subresource_range.levelCount     = 1;
-        initial_subresource_range.layerCount     = 1;
-        initial_subresource_range.baseArrayLayer = 0;
-        initial_subresource_range.baseMipLevel   = 0;
-
-        if (src_img_src_layout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-        {
-            dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                                src->handle(),
-                                                src_img_src_layout,
-                                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                initial_subresource_range);
-        }
-
-        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                            dst->handle(),
-                                            dst_img_src_layout,
-                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                            initial_subresource_range);
-
-        VkImageBlit blit                   = {};
-        blit.srcOffsets[0]                 = { 0, 0, 0 };
-        blit.srcOffsets[1]                 = { static_cast<int32_t>(src->width()), static_cast<int32_t>(src->height()), 1 };
-        blit.srcSubresource.aspectMask     = aspect_flags;
-        blit.srcSubresource.mipLevel       = 0;
-        blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount     = 1;
-        blit.dstOffsets[0]                 = { 0, 0, 0 };
-        blit.dstOffsets[1]                 = { static_cast<int32_t>(dst->width()), static_cast<int32_t>(dst->height()), 1 };
-        blit.dstSubresource.aspectMask     = aspect_flags;
-        blit.dstSubresource.mipLevel       = 0;
-        blit.dstSubresource.baseArrayLayer = 0;
-        blit.dstSubresource.layerCount     = 1;
-
-        vkCmdBlitImage(cmd_buf->handle(),
-                       src->handle(),
-                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       dst->handle(),
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1,
-                       &blit,
-                       filter);
-
-        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                            src->handle(),
-                                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                            src_img_dst_layout,
-                                            initial_subresource_range);
-
-        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                            dst->handle(),
-                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                            dst_img_dst_layout,
-                                            initial_subresource_range);
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------------------------
-
-    void temporal_aa(dw::vk::CommandBuffer::Ptr cmd_buf)
-    {
-        DW_SCOPED_SAMPLE("TAA", cmd_buf);
-
-        const uint32_t NUM_THREADS = 32;
-        const uint32_t write_idx   = (uint32_t)m_common_resources->ping_pong;
-        const uint32_t read_idx    = (uint32_t)!m_common_resources->ping_pong;
-
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->taa_image[write_idx]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_GENERAL,
-            subresource_range);
-
-        if (m_taa_reset)
-        {
-            blitt_image(cmd_buf,
-                        m_deferred_shading->output_image(),
-                        m_common_resources->taa_image[read_idx],
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_ASPECT_COLOR_BIT,
-                        VK_FILTER_NEAREST);
-        }
-
-        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline->handle());
-
-        TAAPushConstants push_constants;
-
-        push_constants.texel_size          = glm::vec4(1.0f / float(m_width), 1.0f / float(m_height), float(m_width), float(m_height));
-        push_constants.current_prev_jitter = glm::vec4(m_current_jitter, m_prev_jitter);
-        push_constants.time_params         = glm::vec4(static_cast<float>(glfwGetTime()), sinf(static_cast<float>(glfwGetTime())), cosf(static_cast<float>(glfwGetTime())), static_cast<float>(m_delta_seconds));
-        push_constants.feedback_min        = m_taa_feedback_min;
-        push_constants.feedback_max        = m_taa_feedback_max;
-        push_constants.sharpen             = static_cast<int>(m_taa_sharpen);
-
-        vkCmdPushConstants(cmd_buf->handle(), m_common_resources->taa_pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
-
-        VkDescriptorSet read_ds;
-
-        if (m_current_visualization == VISUALIZATION_FINAL)
-            read_ds = m_deferred_shading->output_ds()->handle();
-        else if (m_current_visualization == VISUALIZATION_SHADOWS)
-            read_ds = m_ray_traced_shadows->output_ds()->handle();
-        else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
-            read_ds = m_ray_traced_ao->output_ds()->handle();
-        else if (m_current_visualization == VISUALIZATION_REFLECTIONS)
-            read_ds = m_ray_traced_reflections->output_ds()->handle();
-        else
-            read_ds = m_ddgi->output_ds()->handle();
-
-        VkDescriptorSet descriptor_sets[] = {
-            m_common_resources->taa_write_ds[write_idx]->handle(),
-            read_ds,
-            m_common_resources->taa_read_ds[read_idx]->handle(),
-            m_g_buffer->output_ds()->handle()
-        };
-
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_common_resources->taa_pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
-
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
-
-        // Prepare ray tracing output image as transfer source
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_common_resources->taa_image[write_idx]->handle(),
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1498,17 +1174,17 @@ private:
 
         VkDescriptorSet read_ds;
 
-        if (m_taa_enabled)
-            read_ds = m_common_resources->taa_read_ds[m_common_resources->ping_pong]->handle();
+        if (m_temporal_aa->enabled())
+            read_ds = m_temporal_aa->output_ds()->handle();
         else
         {
-            if (m_current_visualization == VISUALIZATION_FINAL)
+            if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_FINAL)
                 read_ds = m_deferred_shading->output_ds()->handle();
-            else if (m_current_visualization == VISUALIZATION_SHADOWS)
+            else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_SHADOWS)
                 read_ds = m_ray_traced_shadows->output_ds()->handle();
-            else if (m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION)
+            else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_AMBIENT_OCCLUSION)
                 read_ds = m_ray_traced_ao->output_ds()->handle();
-            else if (m_current_visualization == VISUALIZATION_REFLECTIONS)
+            else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
                 read_ds = m_ray_traced_reflections->output_ds()->handle();
             else
                 read_ds = m_ddgi->output_ds()->handle();
@@ -1520,7 +1196,7 @@ private:
 
         ToneMapPushConstants push_constants;
 
-        push_constants.single_channel = (m_current_visualization == VISUALIZATION_SHADOWS || m_current_visualization == VISUALIZATION_AMBIENT_OCCLUSION) ? 1 : 0;
+        push_constants.single_channel = (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_SHADOWS || m_common_resources->current_visualization_type == VISUALIZATION_TYPE_AMBIENT_OCCLUSION) ? 1 : 0;
         push_constants.exposure       = m_exposure;
 
         vkCmdPushConstants(cmd_buf->handle(), m_common_resources->copy_pipeline_layout->handle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants), &push_constants);
@@ -1540,10 +1216,10 @@ private:
     {
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
 
-        glm::mat4 current_jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f));
+        glm::mat4 current_jitter = glm::translate(glm::mat4(1.0f), glm::vec3(m_temporal_aa->current_jitter(), 0.0f));
         
         m_common_resources->view       = m_main_camera->m_view;
-        m_common_resources->projection             = m_taa_enabled ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
+        m_common_resources->projection           = m_temporal_aa->enabled() ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
         m_common_resources->prev_view_projection = m_main_camera->m_prev_view_projection;
         m_common_resources->position   = m_main_camera->m_position;
         
@@ -1553,7 +1229,7 @@ private:
         m_ubo_data.view_proj_inverse   = glm::inverse(m_ubo_data.view_proj);
         m_ubo_data.prev_view_proj      = m_common_resources->first_frame ? m_common_resources->prev_view_projection : current_jitter * m_common_resources->prev_view_projection;
         m_ubo_data.cam_pos             = glm::vec4(m_common_resources->position, float(m_deferred_shading->use_ray_traced_ao()));
-        m_ubo_data.current_prev_jitter = glm::vec4(m_current_jitter, m_prev_jitter);
+        m_ubo_data.current_prev_jitter = glm::vec4(m_temporal_aa->current_jitter(), m_temporal_aa->prev_jitter());
 
         set_light_radius(m_ubo_data.light, m_light_radius);
         set_light_direction(m_ubo_data.light, m_light_direction);
@@ -1561,7 +1237,7 @@ private:
         set_light_intensity(m_ubo_data.light, m_light_intensity);
         set_light_type(m_ubo_data.light, LIGHT_TYPE_DIRECTIONAL);
 
-        m_prev_view_proj = m_ubo_data.view_proj;
+        m_main_camera->m_prev_view_projection = m_ubo_data.view_proj;
 
         uint8_t* ptr = (uint8_t*)m_common_resources->ubo->mapped_ptr();
         memcpy(ptr + m_common_resources->ubo_size * m_vk_backend->current_frame_idx(), &m_ubo_data, sizeof(UBO));
@@ -1571,7 +1247,7 @@ private:
 
     void update_ibl(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
-        if (m_current_environment_type == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
+        if (m_common_resources->current_environment_type == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
         {
             m_common_resources->sky_environment->hosek_wilkie_sky_model->update(cmd_buf, m_light_direction);
 
@@ -1604,19 +1280,7 @@ private:
 
     void update_camera()
     {
-        if (m_taa_enabled)
-        {
-            m_prev_jitter        = m_current_jitter;
-            uint32_t  sample_idx = m_common_resources->num_frames % (m_jitter_samples.size());
-            glm::vec2 halton     = m_jitter_samples[sample_idx];
-
-            m_current_jitter = glm::vec2(halton.x / float(m_width), halton.y / float(m_height));
-        }
-        else
-        {
-            m_prev_jitter    = glm::vec2(0.0f);
-            m_current_jitter = glm::vec2(0.0f);
-        }
+        m_temporal_aa->update();
 
         dw::Camera* current = m_main_camera.get();
 
@@ -1646,33 +1310,30 @@ private:
         current->update();
 
         m_common_resources->frame_time   = m_delta_seconds;
-        m_common_resources->camera_delta = m_main_camera->m_position - m_prev_camera_pos;
-        m_prev_camera_pos                = m_main_camera->m_position;
+        m_common_resources->camera_delta = m_main_camera->m_position - m_common_resources->prev_position;
+        m_common_resources->prev_position = m_main_camera->m_position;
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     void set_active_scene()
     {
-        if (m_current_scene == SCENE_PILLARS)
+        if (m_common_resources->current_scene_type == SCENE_TYPE_PILLARS)
         {
-            m_common_resources->current_scene = m_common_resources->pillars_scene;
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(0.5f);
         }
-        else if (m_current_scene == SCENE_SPONZA)
+        else if (m_common_resources->current_scene_type == SCENE_TYPE_SPONZA)
         {
-            m_common_resources->current_scene = m_common_resources->sponza_scene;
             m_ddgi->set_normal_bias(0.1f);
             m_ddgi->set_probe_distance(50.0f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(5.0f);
         }
-        else if (m_current_scene == SCENE_PICA_PICA)
+        else if (m_common_resources->current_scene_type == SCENE_TYPE_PICA_PICA)
         {
-            m_common_resources->current_scene = m_common_resources->pica_pica_scene;
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
             m_ddgi->restart_accumulation();
@@ -1690,23 +1351,10 @@ private:
     std::unique_ptr<RayTracedAO>          m_ray_traced_ao;
     std::unique_ptr<RayTracedReflections> m_ray_traced_reflections;
     std::unique_ptr<DDGI>                 m_ddgi;
+    std::unique_ptr<TemporalAA>           m_temporal_aa;
 
     // Camera.
     std::unique_ptr<dw::Camera> m_main_camera;
-    glm::mat4                   m_prev_view_proj;
-    std::vector<glm::vec2>      m_jitter_samples;
-    glm::vec3                   m_prev_camera_pos = glm::vec3(0.0f);
-    glm::vec2                   m_prev_jitter     = glm::vec2(0.0f);
-    glm::vec2                   m_current_jitter  = glm::vec2(0.0f);
-
-    // TAA
-    bool  m_taa_enabled      = true;
-    bool  m_taa_sharpen      = true;
-    bool  m_taa_reset        = true;
-    float m_taa_feedback_min = 0.88f;
-    float m_taa_feedback_max = 0.97f;
-
-    // Camera controls.
     bool  m_mouse_look         = false;
     float m_heading_speed      = 0.0f;
     float m_sideways_speed     = 0.0f;
@@ -1727,11 +1375,8 @@ private:
     bool      m_light_animation = false;
 
     // Uniforms.
-    UBO               m_ubo_data;
-    float             m_exposure                 = 1.0f;
-    SceneType         m_current_scene            = SCENE_PILLARS;
-    VisualizationType m_current_visualization    = VISUALIZATION_FINAL;
-    EnvironmentType   m_current_environment_type = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
+    UBO   m_ubo_data;
+    float m_exposure = 1.0f;
 };
 
 DW_DECLARE_MAIN(HybridRendering)
