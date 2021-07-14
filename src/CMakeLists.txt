@@ -24,7 +24,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/g_buffer.cpp
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.cpp
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.cpp
-                             ${PROJECT_SOURCE_DIR}/src/tonemap.cpp
+                             ${PROJECT_SOURCE_DIR}/src/tone_map.cpp
                              ${PROJECT_SOURCE_DIR}/src/utilities.cpp
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.cpp
                              ${PROJECT_SOURCE_DIR}/src/common_resources.h
@@ -36,7 +36,7 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/g_buffer.h
                              ${PROJECT_SOURCE_DIR}/src/deferred_shading.h
                              ${PROJECT_SOURCE_DIR}/src/temporal_aa.h
-                             ${PROJECT_SOURCE_DIR}/src/tonemap.h
+                             ${PROJECT_SOURCE_DIR}/src/tone_map.h
                              ${PROJECT_SOURCE_DIR}/src/utilities.h
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.h
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/brdf_preintegrate_lut.cpp
