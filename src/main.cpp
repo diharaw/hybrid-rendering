@@ -20,7 +20,7 @@
 const std::vector<std::string> environment_map_images = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
 const std::vector<std::string> environment_types      = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
 const std::vector<std::string> visualization_types    = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
-const std::vector<std::string> scene_types            = { "Pillars", "Sponza", "Pica Pica" };
+const std::vector<std::string> scene_types            = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
 const std::vector<std::string> ray_trace_scales       = { "Full-Res", "Half-Res", "Quarter-Res" };
 
 struct Light
@@ -778,6 +778,31 @@ private:
         {
             std::vector<dw::RayTracedScene::Instance> instances;
 
+            dw::Mesh::Ptr reflections_test = dw::Mesh::load(m_vk_backend, "mesh/reflections_test.gltf");
+
+            if (!reflections_test)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            reflections_test->initialize_for_ray_tracing(m_vk_backend);
+
+            m_common_resources->meshes.push_back(reflections_test);
+
+            dw::RayTracedScene::Instance reflections_test_instance;
+
+            reflections_test_instance.mesh      = reflections_test;
+            reflections_test_instance.transform = glm::mat4(1.0f);
+
+            instances.push_back(reflections_test_instance);
+
+            m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
+        }
+
+        {
+            std::vector<dw::RayTracedScene::Instance> instances;
+
             dw::Mesh::Ptr sponza = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
 
             if (!sponza)
@@ -1228,6 +1253,13 @@ private:
     void set_active_scene()
     {
         if (m_common_resources->current_scene_type == SCENE_TYPE_PILLARS)
+        {
+            m_ddgi->set_normal_bias(1.0f);
+            m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->restart_accumulation();
+            m_deferred_shading->set_probe_visualization_scale(0.5f);
+        }
+        else if (m_common_resources->current_scene_type == SCENE_TYPE_REFLECTIONS_TEST)
         {
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
