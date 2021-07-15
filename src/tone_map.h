@@ -18,13 +18,13 @@ public:
     ToneMap(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources);
     ~ToneMap();
 
-    void render(dw::vk::CommandBuffer::Ptr cmd_buf,
-                TemporalAA*                temporal_aa,
-                DeferredShading*           deferred_shading,
-                RayTracedAO*               ao,
-                RayTracedShadows*          shadows,
-                RayTracedReflections*      reflections,
-                DDGI*                      ddgi,
+    void render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
+                TemporalAA*                                     temporal_aa,
+                DeferredShading*                                deferred_shading,
+                RayTracedAO*                                    ao,
+                RayTracedShadows*                               shadows,
+                RayTracedReflections*                           reflections,
+                DDGI*                                           ddgi,
                 std::function<void(dw::vk::CommandBuffer::Ptr)> gui_callback);
     void gui();
 

@@ -117,7 +117,7 @@ struct CommonResources
     dw::vk::ImageView::Ptr                       blank_cubemap_image_view;
     std::unique_ptr<SkyEnvironment>              sky_environment;
     std::vector<std::shared_ptr<HDREnvironment>> hdr_environments;
-    std::unique_ptr<dw::BRDFIntegrateLUT> brdf_preintegrate_lut;
+    std::unique_ptr<dw::BRDFIntegrateLUT>        brdf_preintegrate_lut;
 
     inline dw::RayTracedScene::Ptr current_scene() { return scenes[current_scene_type]; }
 };

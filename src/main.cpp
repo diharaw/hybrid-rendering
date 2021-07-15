@@ -122,8 +122,8 @@ protected:
         m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
         m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_deferred_shading       = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_temporal_aa            = std::unique_ptr<TemporalAA>(new TemporalAA(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_tone_map               = std::unique_ptr<ToneMap>(new ToneMap(m_vk_backend, m_common_resources.get()));
@@ -192,7 +192,7 @@ protected:
                                m_ddgi.get(),
                                [this](dw::vk::CommandBuffer::Ptr cmd_buf) {
                                    render_gui(cmd_buf);
-                                });
+                               });
         }
 
         vkEndCommandBuffer(cmd_buf->handle());
@@ -1285,7 +1285,7 @@ private:
     bool      m_light_animation = false;
 
     // Uniforms.
-    UBO   m_ubo_data;
+    UBO m_ubo_data;
 };
 
 DW_DECLARE_MAIN(HybridRendering)

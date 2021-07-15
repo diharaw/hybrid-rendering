@@ -35,18 +35,17 @@ ToneMap::ToneMap(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common
 
 ToneMap::~ToneMap()
 {
-
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void ToneMap::render(dw::vk::CommandBuffer::Ptr cmd_buf,
-            TemporalAA*                temporal_aa,
-            DeferredShading*           deferred_shading,
-            RayTracedAO*               ao,
-            RayTracedShadows*          shadows,
-            RayTracedReflections*      reflections,
-                     DDGI*                      ddgi,
+void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
+                     TemporalAA*                                     temporal_aa,
+                     DeferredShading*                                deferred_shading,
+                     RayTracedAO*                                    ao,
+                     RayTracedShadows*                               shadows,
+                     RayTracedReflections*                           reflections,
+                     DDGI*                                           ddgi,
                      std::function<void(dw::vk::CommandBuffer::Ptr)> gui_callback)
 {
     DW_SCOPED_SAMPLE("Tone Map", cmd_buf);
