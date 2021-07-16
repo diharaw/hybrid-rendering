@@ -108,12 +108,12 @@ protected:
         }
 
         m_common_resources->brdf_preintegrate_lut = std::unique_ptr<dw::BRDFIntegrateLUT>(new dw::BRDFIntegrateLUT(m_vk_backend));
+        m_common_resources->blue_noise            = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
         m_common_resources->blue_noise_image_1    = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_0.png");
         m_common_resources->blue_noise_view_1     = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_1, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
         m_common_resources->blue_noise_image_2    = dw::vk::Image::create_from_file(m_vk_backend, "texture/LDR_RGBA_1.png");
         m_common_resources->blue_noise_view_2     = dw::vk::ImageView::create(m_vk_backend, m_common_resources->blue_noise_image_2, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_common_resources->blue_noise            = std::unique_ptr<BlueNoise>(new BlueNoise(m_vk_backend));
-
+        
         create_environment_resources();
         create_descriptor_set_layouts();
         create_descriptor_sets();

@@ -7,6 +7,11 @@
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+static const int RAY_TRACE_NUM_THREADS_X = 8;
+static const int RAY_TRACE_NUM_THREADS_Y = 4;
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct RayTracePushConstants
 {
     float    bias;
@@ -150,7 +155,7 @@ void RayTracedShadows::create_images()
 
     // Ray Trace
     {
-        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), 1, 1, 1, VK_FORMAT_R32_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_ray_trace.image->set_name("Shadows Ray Trace");
 
         m_ray_trace.view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -835,10 +840,7 @@ void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
 
     dw::vk::utilities::set_image_layout(
         cmd_buf->handle(),

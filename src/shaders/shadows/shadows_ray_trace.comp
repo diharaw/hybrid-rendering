@@ -14,8 +14,8 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-#define NUM_THREADS_X 32
-#define NUM_THREADS_Y 32
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 4
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -27,7 +27,7 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 // DESCRIPTOR SETS --------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(set = 1, binding = 0, r8) uniform image2D i_Output;
+layout(set = 1, binding = 0, r32i) uniform image2D i_Output;
 
 layout(set = 2, binding = 0) uniform PerFrameUBO
 {
@@ -85,7 +85,7 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 // ------------------------------------------------------------------------
 
-float query_visibility(vec3 world_pos, vec3 direction)
+bool query_visibility(vec3 world_pos, vec3 direction)
 {
     float t_min     = 0.01f;
     float t_max     = 100000.0f;
@@ -108,9 +108,9 @@ float query_visibility(vec3 world_pos, vec3 direction)
 
     // Returns type of committed (true) intersection
     if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-        return 0.0f;
+        return false;
 
-    return 1.0f;
+    return true;
 }
 
 // ------------------------------------------------------------------------
@@ -130,6 +130,12 @@ vec3 octohedral_to_direction(vec2 e)
         v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
     return normalize(v);
 }
+
+// ------------------------------------------------------------------
+// SHARED -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+shared bool g_visibility[NUM_THREADS_X][NUM_THREADS_Y];
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -190,10 +196,22 @@ void main()
         shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
     }
 
-    float visibility = query_visibility(ray_origin, shadow_ray_dir);
+    g_visibility[gl_LocalInvocationIndex.x][gl_LocalInvocationIndex.y] = query_visibility(ray_origin, shadow_ray_dir);
 
-    // Store blended sample into the storage image
-    imageStore(i_Output, current_coord, vec4(visibility));
+    if (gl_LocalInvocationIndex == 0)
+    {
+        int result = 0;
+        int idx = 0;
+
+        for (int y = 0; y < NUM_THREADS_Y; y++)
+        {
+            for (int x = 0; x < NUM_THREADS_X; x++)
+                result |= int(g_visibility[x][y]) << idx++;
+        }
+
+        // Store blended sample into the storage image
+        imageStore(i_Output, gl_WorkGroupID.xy, ivec4(result));
+    }
 }
 
 // ------------------------------------------------------------------
