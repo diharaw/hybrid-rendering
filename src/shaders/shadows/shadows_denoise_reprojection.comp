@@ -8,7 +8,10 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-#define NUM_THREADS 32
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+#define RAY_MASK_SIZE_X 8
+#define RAY_MASK_SIZE_Y 4
 #define NORMAL_DISTANCE 0.1f
 #define PLANE_DISTANCE 5.0f
 
@@ -16,7 +19,7 @@
 // INPUTS -----------------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
 
 // ------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------
@@ -39,7 +42,7 @@ layout(set = 2, binding = 2) uniform sampler2D s_PrevGBuffer3; // R: Roughness, 
 layout(set = 2, binding = 3) uniform sampler2D s_PrevGBufferDepth;
 
 // Input DS
-layout(set = 3, binding = 0) uniform sampler2D s_Input;
+layout(set = 3, binding = 0) uniform usampler2D s_Input;
 
 // Prev Output
 layout(set = 4, binding = 0) uniform sampler2D s_HistoryOutput;
@@ -71,8 +74,54 @@ layout(push_constant) uniform PushConstants
 u_PushConstants;
 
 // ------------------------------------------------------------------
+// SHARED -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+shared uint g_shadow_hit_masks[3][6];
+
+// ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
+
+void populate_cache()
+{
+    if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
+    {   
+        ivec2 coord = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
+        g_shadow_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = texelFetch(s_Input, coord, 0).x;
+    }
+
+    barrier();
+}
+
+// ------------------------------------------------------------------------
+
+float unpack_shadow_hit_value(ivec2 coord)
+{
+    // Find the global coordinate for the top left corner of the current cache block.
+    const ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+
+    // Compute the local coordinate within the cache for the requested global coordinate.
+    const ivec2 unpacked_cache_coord = coord - min_cached_coord;
+
+    // From the unpacked local coordinate, compute which ray mask the requested hit belongs to.
+    // aka the packed local coordinate.
+    const ivec2 packed_cache_coord = unpacked_cache_coord / ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
+    
+    // From the packed local coordinate, compute the unpacked local coordinate for the start of the current ray mask.
+    const ivec2 min_mask_coord = packed_cache_coord * ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
+
+    // Find the relative coordinate of the requested sample within the ray mask.
+    const ivec2 relative_mask_coord = unpacked_cache_coord - min_mask_coord;
+
+    // Compute the flattened hit index of the requested sample within the ray mask.
+    const int hit_index = relative_mask_coord.y * RAY_MASK_SIZE_X + relative_mask_coord.x;
+    
+    // Use the hit index to bit shift the value from the cache and retrieve the requested sample.
+    return float((g_shadow_hit_masks[packed_cache_coord.x][packed_cache_coord.y] >> hit_index) & 1u);
+}
+
+// ------------------------------------------------------------------------
 
 bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
 {
@@ -146,26 +195,26 @@ vec3 octohedral_to_direction(vec2 e)
 
 // ------------------------------------------------------------------
 
-float neighborhood_mean(ivec2 coord)
-{
-    float visibility_sum = 0.0f;
-
-    int   radius = 4;
-    float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
-
-    for (int dx = -radius; dx <= radius; dx++)
-    {
-        for (int dy = -radius; dy <= radius; dy++)
-        {
-            ivec2 sample_coord      = coord + ivec2(dx, dy);
-            float sample_visibility = texelFetch(s_Input, sample_coord, 0).r;
-
-            visibility_sum += sample_visibility;
-        }
-    }
-
-    return visibility_sum / weight;
-}
+//float neighborhood_mean(ivec2 coord)
+//{
+//    float visibility_sum = 0.0f;
+//
+//    int   radius = 4;
+//    float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
+//
+//    for (int dx = -radius; dx <= radius; dx++)
+//    {
+//        for (int dy = -radius; dy <= radius; dy++)
+//        {
+//            ivec2 sample_coord      = coord + ivec2(dx, dy);
+//            float sample_visibility = texelFetch(s_Input, sample_coord, 0).r;
+//
+//            visibility_sum += sample_visibility;
+//        }
+//    }
+//
+//    return visibility_sum / weight;
+//}
 
 // ------------------------------------------------------------------------
 
@@ -320,6 +369,8 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility,
 
 void main()
 {
+    populate_cache();
+
     const ivec2 size          = textureSize(s_HistoryOutput, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
@@ -332,7 +383,7 @@ void main()
         return;
     }
 
-    float visibility = texelFetch(s_Input, current_coord, 0).r;
+    float visibility = unpack_shadow_hit_value(current_coord); //texelFetch(s_Input, current_coord, 0).r;
 
     float history_length;
     float history_visibility;
@@ -344,19 +395,19 @@ void main()
                                   history_length);
     history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
 
-    if (success)
-    {
-        float mean             = neighborhood_mean(current_coord);
-        float spatial_variance = mean;
-        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
-
-        // Compute the clamping bounding box
-        const float std_deviation = sqrt(spatial_variance);
-        const float nmin          = mean - 0.5f * std_deviation;
-        const float nmax          = mean + 0.5f * std_deviation;
-
-        history_visibility = clamp(history_visibility, nmin, nmax);
-    }
+//    if (success)
+//    {
+//        float mean             = neighborhood_mean(current_coord);
+//        float spatial_variance = mean;
+//        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
+//
+//        // Compute the clamping bounding box
+//        const float std_deviation = sqrt(spatial_variance);
+//        const float nmin          = mean - 0.5f * std_deviation;
+//        const float nmax          = mean + 0.5f * std_deviation;
+//
+//        history_visibility = clamp(history_visibility, nmin, nmax);
+//    }
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in
