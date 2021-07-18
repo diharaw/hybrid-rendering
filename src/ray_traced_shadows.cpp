@@ -218,8 +218,8 @@ void RayTracedShadows::create_descriptor_sets()
     {
         m_ray_trace.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
         m_ray_trace.write_ds->set_name("Shadows Ray Trace Write");
-        
-        m_ray_trace.read_ds  = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+
+        m_ray_trace.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_ray_trace.read_ds->set_name("Shadows Ray Trace Read");
     }
 
@@ -246,11 +246,11 @@ void RayTracedShadows::create_descriptor_sets()
     {
         m_temporal_accumulation.current_write_ds[i] = backend->allocate_descriptor_set(m_temporal_accumulation.write_ds_layout);
         m_temporal_accumulation.current_write_ds[i]->set_name("Temporal Accumulation Write " + std::to_string(i));
-        
-        m_temporal_accumulation.current_read_ds[i]  = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
+
+        m_temporal_accumulation.current_read_ds[i] = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
         m_temporal_accumulation.current_read_ds[i]->set_name("Temporal Accumulation Read " + std::to_string(i));
-        
-        m_temporal_accumulation.prev_read_ds[i]     = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
+
+        m_temporal_accumulation.prev_read_ds[i] = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
         m_temporal_accumulation.prev_read_ds[i]->set_name("Temporal Accumulation Prev Read " + std::to_string(i));
     }
 
@@ -260,7 +260,7 @@ void RayTracedShadows::create_descriptor_sets()
     // A-Trous
     for (int i = 0; i < 2; i++)
     {
-        m_a_trous.read_ds[i]  = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+        m_a_trous.read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
         m_a_trous.read_ds[i]->set_name("A-Trous Read " + std::to_string(i));
 
         m_a_trous.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);

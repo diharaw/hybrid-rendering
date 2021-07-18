@@ -90,7 +90,7 @@ bool out_of_frame_disocclusion_check(ivec2 coord)
     const ivec2 imageDim = textureSize(s_Input, 0);
 
     // check whether reprojected pixel is inside of the screen
-    if (any(lessThan(coord, ivec2(1, 1))) || any(greaterThan(coord, imageDim - ivec2(1, 1))))
+    if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, imageDim - ivec2(1, 1))))
         return true;
     else
         return false;
