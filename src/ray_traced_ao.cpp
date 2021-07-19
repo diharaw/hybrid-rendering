@@ -7,12 +7,15 @@
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+static const int RAY_TRACE_NUM_THREADS_X = 8;
+static const int RAY_TRACE_NUM_THREADS_Y = 4;
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct RayTracePushConstants
 {
-    uint32_t num_rays;
     uint32_t num_frames;
     float    ray_length;
-    float    power;
     float    bias;
     int32_t  g_buffer_mip;
 };
@@ -51,6 +54,7 @@ struct BilateralBlurPushConstants
 struct UpsamplePushConstants
 {
     int32_t g_buffer_mip;
+    float   power;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -123,9 +127,8 @@ void RayTracedAO::gui()
 {
     ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::Checkbox("Disocclusion Blur", &m_disocclusion_blur.enabled);
-    ImGui::SliderInt("Num Rays", &m_ray_trace.num_rays, 1, 8);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
-    ImGui::SliderFloat("Power", &m_ray_trace.power, 1.0f, 5.0f);
+    ImGui::SliderFloat("Power", &m_upsample.power, 1.0f, 5.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Temporal Alpha", &m_temporal_accumulation.alpha, 0.0f, 0.5f);
     ImGui::SliderInt("Blur Radius", &m_bilateral_blur.blur_radius, 1, 20);
@@ -167,7 +170,7 @@ void RayTracedAO::create_images()
 
     // Ray Trace
     {
-        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R8_UNORM, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_ray_trace.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), 1, 1, 1, VK_FORMAT_R32_UINT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_ray_trace.image->set_name("AO Ray Trace");
 
         m_ray_trace.view = dw::vk::ImageView::create(backend, m_ray_trace.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -902,9 +905,7 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
     RayTracePushConstants push_constants;
 
     push_constants.num_frames   = m_common_resources->num_frames;
-    push_constants.num_rays     = m_ray_trace.num_rays;
     push_constants.ray_length   = m_ray_trace.ray_length;
-    push_constants.power        = m_ray_trace.power;
     push_constants.bias         = m_ray_trace.bias;
     push_constants.g_buffer_mip = m_g_buffer_mip;
 
@@ -917,15 +918,12 @@ void RayTracedAO::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_ray_trace.write_ds->handle(),
         m_common_resources->per_frame_ds->handle(),
         m_g_buffer->output_ds()->handle(),
-        m_common_resources->blue_noise_ds[BLUE_NOISE_2SPP]->handle()
+        m_common_resources->blue_noise_ds[BLUE_NOISE_1SPP]->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, &dynamic_offset);
 
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
 
     dw::vk::utilities::set_image_layout(
         cmd_buf->handle(),
@@ -966,6 +964,7 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
     UpsamplePushConstants push_constants;
 
     push_constants.g_buffer_mip = m_g_buffer_mip;
+    push_constants.power        = m_upsample.power;
 
     vkCmdPushConstants(cmd_buf->handle(), m_upsample.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1018,7 +1017,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
     TemporalReprojectionPushConstants push_constants;
 
     push_constants.alpha        = m_temporal_accumulation.alpha;
-    push_constants.g_buffer_mip = m_g_buffer_mip;
+    push_constants.g_buffer_mip = m_g_buffer_mip; 
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -1036,8 +1035,8 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
+    const int NUM_THREADS_X = 8;
+    const int NUM_THREADS_Y = 8;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
 

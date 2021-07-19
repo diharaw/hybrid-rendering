@@ -35,6 +35,7 @@ layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(push_constant) uniform PushConstants
 {
     int g_buffer_mip;
+    float power;
 }
 u_PushConstants;
 
@@ -123,6 +124,8 @@ void main()
     }
 
     upsampled = upsampled / max(total_w, FLT_EPS);
+
+    upsampled = pow(upsampled, u_PushConstants.power);
 
     // Store
     imageStore(i_Output, current_coord, vec4(upsampled));

@@ -50,9 +50,7 @@ private:
 private:
     struct RayTrace
     {
-        int32_t                      num_rays   = 2;
         float                        ray_length = 7.0f;
-        float                        power      = 1.2f;
         float                        bias       = 0.3f;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
@@ -105,6 +103,7 @@ private:
 
     struct Upsample
     {
+        float                        power = 1.2f;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image;

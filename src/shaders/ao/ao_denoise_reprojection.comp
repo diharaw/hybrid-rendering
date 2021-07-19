@@ -8,8 +8,10 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-#define NUM_THREADS_X 32
-#define NUM_THREADS_Y 32
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+#define RAY_MASK_SIZE_X 8
+#define RAY_MASK_SIZE_Y 4
 #define NORMAL_DISTANCE 0.1f
 #define PLANE_DISTANCE 5.0f
 
@@ -39,7 +41,7 @@ layout(set = 2, binding = 1) uniform sampler2D s_PrevGBuffer2; // RG: Normal, BA
 layout(set = 2, binding = 2) uniform sampler2D s_PrevGBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 layout(set = 2, binding = 3) uniform sampler2D s_PrevGBufferDepth;
 
-layout(set = 3, binding = 0) uniform sampler2D s_Input;
+layout(set = 3, binding = 0) uniform usampler2D s_Input;
 
 // Previous Reprojection Read DS
 layout(set = 4, binding = 0) uniform sampler2D s_PrevAO;
@@ -72,8 +74,58 @@ layout(push_constant) uniform PushConstants
 u_PushConstants;
 
 // ------------------------------------------------------------------
+// SHARED -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+shared uint  g_ao_hit_masks[3][6];
+shared float g_mean_accumulation[8][24];
+
+// ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
+
+void populate_cache()
+{
+    if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
+    {
+        ivec2 coord                                                        = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
+        g_ao_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = texelFetch(s_Input, coord, 0).x;
+    }
+
+    barrier();
+}
+
+// ------------------------------------------------------------------------
+
+float unpack_ao_hit_value(ivec2 coord)
+{
+    // Find the global coordinate for the top left corner of the current work group.
+    const ivec2 work_group_start_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y);
+
+    // Find the global coordinate for the top left corner of the cache.
+    const ivec2 cache_start_coord = work_group_start_coord - ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y * 2);
+
+    // Compute the local coordinate within the cache for the requested global coordinate.
+    const ivec2 unpacked_cache_coord = coord - cache_start_coord;
+
+    // From the unpacked local coordinate, compute which ray mask the requested hit belongs to.
+    // aka the packed local coordinate.
+    const ivec2 packed_cache_coord = unpacked_cache_coord / ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
+
+    // From the packed local coordinate, compute the unpacked local coordinate for the start of the current ray mask.
+    const ivec2 mask_start_coord = packed_cache_coord * ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
+
+    // Find the relative coordinate of the requested sample within the ray mask.
+    const ivec2 relative_mask_coord = unpacked_cache_coord - mask_start_coord;
+
+    // Compute the flattened hit index of the requested sample within the ray mask.
+    const int hit_index = relative_mask_coord.y * RAY_MASK_SIZE_X + relative_mask_coord.x;
+
+    // Use the hit index to bit shift the value from the cache and retrieve the requested sample.
+    return float((g_ao_hit_masks[packed_cache_coord.x][packed_cache_coord.y] >> hit_index) & 1u);
+}
+
+// ------------------------------------------------------------------------
 
 bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
 {
@@ -87,7 +139,7 @@ bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 
 
 bool out_of_frame_disocclusion_check(ivec2 coord)
 {
-    const ivec2 imageDim = textureSize(s_Input, 0);
+    const ivec2 imageDim = textureSize(s_PrevAO, 0);
 
     // check whether reprojected pixel is inside of the screen
     if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, imageDim - ivec2(1, 1))))
@@ -145,6 +197,43 @@ vec3 octohedral_to_direction(vec2 e)
     return normalize(v);
 }
 
+// ------------------------------------------------------------------
+
+float horizontal_neighborhood_mean(ivec2 coord)
+{
+    float result = 0.0f;
+
+    for (int x = -8; x <= 8; x++)
+        result += unpack_ao_hit_value(ivec2(coord.x + x, coord.y));
+
+    return result;
+}
+
+// ------------------------------------------------------------------
+
+float neighborhood_mean(ivec2 coord)
+{
+    float top    = horizontal_neighborhood_mean(ivec2(coord.x, coord.y - 8));
+    float middle = horizontal_neighborhood_mean(ivec2(coord.x, coord.y));
+    float bottom = horizontal_neighborhood_mean(ivec2(coord.x, coord.y + 8));
+
+    g_mean_accumulation[gl_LocalInvocationID.x][gl_LocalInvocationID.y]      = top;
+    g_mean_accumulation[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 8]  = middle;
+    g_mean_accumulation[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 16] = bottom;
+
+    barrier();
+
+    const int   radius = 8;
+    const float weight = (float(radius) * 2.0f + 1.0f) * (float(radius) * 2.0f + 1.0f);
+
+    float mean = 0.0f;
+
+    for (int y = 0; y <= 16; y++)
+        mean += g_mean_accumulation[gl_LocalInvocationID.x][gl_LocalInvocationID.y + y];
+
+    return mean / weight;
+}
+
 // ------------------------------------------------------------------------
 
 vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
@@ -166,7 +255,7 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 // ------------------------------------------------------------------
 
-bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float history_length)
+bool load_prev_data(ivec2 frag_coord, float depth, out float history_ao, out float history_length)
 {
     const ivec2 ipos         = frag_coord;
     const vec2  image_dim    = vec2(textureSize(s_PrevAO, 0));
@@ -184,7 +273,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
     // +0.5 to account for texel center offset
     const ivec2 ipos_prev = ivec2(vec2(ipos) + current_motion.xy * image_dim + vec2(0.5, 0.5));
 
-    prev_ao = 0.0f;
+    history_ao = 0.0f;
 
     bool       v[4];
     const vec2 pos_prev          = floor(frag_coord.xy) + current_motion.xy * image_dim;
@@ -222,7 +311,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
                        (1 - x) * y,
                        x * y };
 
-        prev_ao = 0.0f;
+        history_ao = 0.0f;
 
         // perform the actual bilinear interpolation
         for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
@@ -231,14 +320,14 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
 
             if (v[sampleIdx])
             {
-                prev_ao += w[sampleIdx] * texelFetch(s_PrevAO, loc, 0).r;
+                history_ao += w[sampleIdx] * texelFetch(s_PrevAO, loc, 0).r;
                 sumw += w[sampleIdx];
             }
         }
 
         // redistribute weights in case not all taps were used
         valid   = (sumw >= 0.01);
-        prev_ao = valid ? prev_ao / sumw : 0.0f;
+        history_ao = valid ? history_ao / sumw : 0.0f;
     }
     if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
     {
@@ -262,7 +351,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
 
                 if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id))
                 {
-                    prev_ao += texelFetch(s_PrevAO, p, 0).r;
+                    history_ao += texelFetch(s_PrevAO, p, 0).r;
                     cnt += 1.0;
                 }
             }
@@ -270,7 +359,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
         if (cnt > 0)
         {
             valid = true;
-            prev_ao /= cnt;
+            history_ao /= cnt;
         }
     }
 
@@ -278,7 +367,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
         history_length = texelFetch(s_PrevHistoryLength, ipos_prev, 0).r;
     else
     {
-        prev_ao        = 0.0f;
+        history_ao        = 0.0f;
         history_length = 0.0f;
     }
 
@@ -291,8 +380,11 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float prev_ao, out float 
 
 void main()
 {
-    const ivec2 size          = textureSize(s_Input, 0);
+    const ivec2 size          = textureSize(s_PrevAO, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    populate_cache();
+    float mean = neighborhood_mean(current_coord);
 
     float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
@@ -303,22 +395,36 @@ void main()
         return;
     }
 
-    float ao = texelFetch(s_Input, current_coord, 0).r;
+    float ao = unpack_ao_hit_value(current_coord);
 
     float history_length;
-    float prev_ao;
+    float history_ao;
     bool  success  = load_prev_data(current_coord,
-                                  depth,
-                                  prev_ao,
-                                  history_length);
+                                    depth,
+                                    history_ao,
+                                    history_length);
+
     history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
+
+    if (success)
+    {
+        float spatial_variance = mean;
+        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
+
+        // Compute the clamping bounding box
+        const float std_deviation = sqrt(spatial_variance);
+        const float nmin          = mean - 0.5f * std_deviation;
+        const float nmax          = mean + 0.5f * std_deviation;
+
+        history_ao = clamp(history_ao, nmin, nmax);
+    }
 
     // this adjusts the alpha for the case where insufficient history is available.
     // It boosts the temporal accumulation to give the samples equal weights in
     // the beginning.
     const float alpha = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
 
-    float out_ao = mix(prev_ao, ao, alpha);
+    float out_ao = mix(history_ao, ao, alpha);
 
     // temporal integration
     imageStore(i_Output, current_coord, vec4(out_ao));
