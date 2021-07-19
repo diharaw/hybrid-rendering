@@ -1017,7 +1017,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
     TemporalReprojectionPushConstants push_constants;
 
     push_constants.alpha        = m_temporal_accumulation.alpha;
-    push_constants.g_buffer_mip = m_g_buffer_mip; 
+    push_constants.g_buffer_mip = m_g_buffer_mip;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 

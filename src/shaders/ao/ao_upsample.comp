@@ -34,7 +34,7 @@ layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 
 layout(push_constant) uniform PushConstants
 {
-    int g_buffer_mip;
+    int   g_buffer_mip;
     float power;
 }
 u_PushConstants;

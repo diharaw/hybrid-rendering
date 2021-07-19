@@ -88,8 +88,14 @@ void populate_cache()
 {
     if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
     {
-        ivec2 coord                                                        = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
-        g_ao_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = texelFetch(s_Input, coord, 0).x;
+        const ivec2 coord     = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
+        
+        const ivec2 image_dim = textureSize(s_Input, 0);
+
+        if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, image_dim - ivec2(1, 1))))
+            g_ao_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = 0xFFFFFFFF;
+        else 
+            g_ao_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = texelFetch(s_Input, coord, 0).x;
     }
 
     barrier();
@@ -326,7 +332,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_ao, out flo
         }
 
         // redistribute weights in case not all taps were used
-        valid   = (sumw >= 0.01);
+        valid      = (sumw >= 0.01);
         history_ao = valid ? history_ao / sumw : 0.0f;
     }
     if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
@@ -367,7 +373,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_ao, out flo
         history_length = texelFetch(s_PrevHistoryLength, ipos_prev, 0).r;
     else
     {
-        history_ao        = 0.0f;
+        history_ao     = 0.0f;
         history_length = 0.0f;
     }
 
@@ -399,10 +405,10 @@ void main()
 
     float history_length;
     float history_ao;
-    bool  success  = load_prev_data(current_coord,
-                                    depth,
-                                    history_ao,
-                                    history_length);
+    bool  success = load_prev_data(current_coord,
+                                  depth,
+                                  history_ao,
+                                  history_length);
 
     history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
 
