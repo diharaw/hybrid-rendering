@@ -1,5 +1,6 @@
 #version 450
 
+#extension GL_KHR_shader_subgroup_vote: enable
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
@@ -460,13 +461,14 @@ void main()
     // temporal integration
     imageStore(i_Output, current_coord, vec4(accumulated_visibility, variance, 0.0f, 0.0f));
 
-    if (allInvocationsEqualARB(accumulated_visibility == 0.0f) || allInvocationsEqualARB(accumulated_visibility == 1.0f))
+    // If all pixels in the current tile are in shadow or in light, skip A-Trous filter. 
+    if (subgroupAllEqual(accumulated_visibility == 0.0f) || subgroupAllEqual(accumulated_visibility == 1.0f))
+        return;
+
+    if (gl_LocalInvocationIndex == 0)
     {
-        if (gl_LocalInvocationIndex == 0)
-        {
-            int idx = atomicAdd(TileDispatchArgs.num_groups_x, 1);
-            TileData.coord[idx] = current_coord;
-        }
+        uint idx = atomicAdd(TileDispatchArgs.num_groups_x, 1);
+        TileData.coord[idx] = current_coord;
     }
 }
 

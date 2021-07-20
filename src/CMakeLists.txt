@@ -62,6 +62,7 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/ao/ao_upsample.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_atrous.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_reprojection.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_denoise_reset_args.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_ray_trace.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/shadows/shadows_upsample.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_ray_trace.rgen

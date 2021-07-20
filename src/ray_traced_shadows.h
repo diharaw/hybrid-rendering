@@ -35,11 +35,13 @@ public:
 
 private:
     void create_images();
+    void create_buffers();
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipelines();
     void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void reset_args(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
     void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -56,10 +58,18 @@ private:
         dw::vk::DescriptorSet::Ptr   read_ds;
     };
 
+    struct ResetArgs
+    {
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+    };
+
     struct TemporalAccumulation
     {
         float                            alpha         = 0.01f;
         float                            moments_alpha = 0.2f;
+        dw::vk::Buffer::Ptr              tile_coords_buffer;
+        dw::vk::Buffer::Ptr              dispatch_args_buffer;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
@@ -114,6 +124,7 @@ private:
     bool                           m_denoise     = true;
     bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
+    ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
     ATrous                         m_a_trous;
     Upsample                       m_upsample;
