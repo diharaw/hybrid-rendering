@@ -28,6 +28,16 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 // Current Reprojection Write DS
 layout(set = 0, binding = 0, rg16f) uniform writeonly image2D i_Output;
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D i_Moments;
+layout(set = 0, binding = 2, std430) buffer TileData_t
+{
+    ivec2 coord[];
+} TileData;
+layout(set = 0, binding = 3, std430) buffer TileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+} TileDispatchArgs;
 
 // Current G-buffer DS
 layout(set = 1, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
@@ -449,6 +459,15 @@ void main()
 
     // temporal integration
     imageStore(i_Output, current_coord, vec4(accumulated_visibility, variance, 0.0f, 0.0f));
+
+    if (allInvocationsEqualARB(accumulated_visibility == 0.0f) || allInvocationsEqualARB(accumulated_visibility == 1.0f))
+    {
+        if (gl_LocalInvocationIndex == 0)
+        {
+            int idx = atomicAdd(TileDispatchArgs.num_groups_x, 1);
+            TileData.coord[idx] = current_coord;
+        }
+    }
 }
 
 // ------------------------------------------------------------------
