@@ -219,8 +219,13 @@ void RayTracedShadows::create_buffers()
 {
     auto backend                               = m_backend.lock();
 
-    m_temporal_accumulation.tile_coords_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
-    m_temporal_accumulation.dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0);
+    uint32_t default_args[] = { 1, 1, 1 };
+
+    m_temporal_accumulation.tile_coords_buffer   = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
+    m_temporal_accumulation.dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0, default_args);
+
+    m_temporal_accumulation.uniform_tile_coords_buffer   = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec4) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
+    m_temporal_accumulation.uniform_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0, default_args);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -246,6 +251,8 @@ void RayTracedShadows::create_descriptor_sets()
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
         desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
         desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 
         m_temporal_accumulation.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -401,9 +408,9 @@ void RayTracedShadows::write_descriptor_sets()
         std::vector<VkWriteDescriptorSet>  write_datas;
         VkWriteDescriptorSet               write_data;
 
-        buffer_infos.reserve(2);
+        buffer_infos.reserve(4);
         image_infos.reserve(2);
-        write_datas.reserve(4);
+        write_datas.reserve(6);
 
         {
             VkDescriptorImageInfo storage_image_info;
@@ -484,6 +491,48 @@ void RayTracedShadows::write_descriptor_sets()
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             write_data.pBufferInfo     = &buffer_infos.back();
             write_data.dstBinding      = 3;
+            write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.uniform_tile_coords_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.uniform_tile_coords_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 4;
+            write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.uniform_dispatch_args_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.uniform_dispatch_args_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 5;
             write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
 
             write_datas.push_back(write_data);
@@ -793,6 +842,26 @@ void RayTracedShadows::create_pipelines()
         m_temporal_accumulation.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
+    // Copy Uniform Tiles
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_accumulation.write_ds_layout);
+
+        m_copy_uniform_tiles.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_copy_uniform_tiles.pipeline_layout->set_name("Copy Uniform Tiles Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/shadows_denoise_copy_uniform_tiles.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_copy_uniform_tiles.pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_copy_uniform_tiles.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+    }
+
     // A-Trous Filter
     {
         dw::vk::PipelineLayout::Desc desc;
@@ -1031,8 +1100,6 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline->handle());
-
     bool    ping_pong = false;
     int32_t read_idx  = 0;
     int32_t write_idx = 1;
@@ -1068,26 +1135,47 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
             pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         }
 
-        ATrousFilterPushConstants push_constants;
+        {
+            DW_SCOPED_SAMPLE("Copy Uniform Tiles", cmd_buf);
 
-        push_constants.radius         = m_a_trous.radius;
-        push_constants.step_size      = 1 << i;
-        push_constants.phi_visibility = m_a_trous.phi_visibility;
-        push_constants.phi_normal     = m_a_trous.phi_normal;
-        push_constants.sigma_depth    = m_a_trous.sigma_depth;
-        push_constants.g_buffer_mip   = m_g_buffer_mip;
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_copy_uniform_tiles.pipeline->handle());
 
-        vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+            VkDescriptorSet descriptor_sets[] = {
+                m_a_trous.write_ds[write_idx]->handle(),
+                m_temporal_accumulation.current_write_ds[m_common_resources->ping_pong]->handle()
+            };
 
-        VkDescriptorSet descriptor_sets[] = {
-            m_a_trous.write_ds[write_idx]->handle(),
-            i == 0 ? m_temporal_accumulation.output_only_read_ds->handle() : m_a_trous.read_ds[read_idx]->handle(),
-            m_g_buffer->output_ds()->handle()
-        };
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_copy_uniform_tiles.pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+            vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.uniform_dispatch_args_buffer->handle(), 0);
+        }
 
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+        {
+            DW_SCOPED_SAMPLE("Iteration " + std::to_string(i), cmd_buf);
+
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline->handle());
+
+            ATrousFilterPushConstants push_constants;
+
+            push_constants.radius         = m_a_trous.radius;
+            push_constants.step_size      = 1 << i;
+            push_constants.phi_visibility = m_a_trous.phi_visibility;
+            push_constants.phi_normal     = m_a_trous.phi_normal;
+            push_constants.sigma_depth    = m_a_trous.sigma_depth;
+            push_constants.g_buffer_mip   = m_g_buffer_mip;
+
+            vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+            VkDescriptorSet descriptor_sets[] = {
+                m_a_trous.write_ds[write_idx]->handle(),
+                i == 0 ? m_temporal_accumulation.output_only_read_ds->handle() : m_a_trous.read_ds[read_idx]->handle(),
+                m_g_buffer->output_ds()->handle()
+            };
+
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+
+            vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+        }
 
         ping_pong = !ping_pong;
 

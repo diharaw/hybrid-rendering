@@ -70,6 +70,8 @@ private:
         float                            moments_alpha = 0.2f;
         dw::vk::Buffer::Ptr              tile_coords_buffer;
         dw::vk::Buffer::Ptr              dispatch_args_buffer;
+        dw::vk::Buffer::Ptr              uniform_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              uniform_dispatch_args_buffer;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
@@ -84,6 +86,12 @@ private:
         dw::vk::DescriptorSet::Ptr       current_read_ds[2];
         dw::vk::DescriptorSet::Ptr       output_only_read_ds;
         dw::vk::DescriptorSet::Ptr       prev_read_ds[2];
+    };
+
+    struct CopyUniformTiles
+    {
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
     };
 
     struct ATrous
@@ -126,6 +134,7 @@ private:
     RayTrace                       m_ray_trace;
     ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
+    CopyUniformTiles            m_copy_uniform_tiles;
     ATrous                         m_a_trous;
     Upsample                       m_upsample;
 };

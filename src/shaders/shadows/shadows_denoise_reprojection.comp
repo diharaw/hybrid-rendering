@@ -39,6 +39,16 @@ layout(set = 0, binding = 3, std430) buffer TileDispatchArgs_t
     uint num_groups_y;
     uint num_groups_z;
 } TileDispatchArgs;
+layout(set = 0, binding = 4, std430) buffer UniformTileData_t
+{
+    ivec4 coord_and_value[];
+} UniformTileData;
+layout(set = 0, binding = 5, std430) buffer UniformTileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+} UniformTileDispatchArgs;
 
 // Current G-buffer DS
 layout(set = 1, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
@@ -461,14 +471,22 @@ void main()
     // temporal integration
     imageStore(i_Output, current_coord, vec4(accumulated_visibility, variance, 0.0f, 0.0f));
 
-    // If all pixels in the current tile are in shadow or in light, skip A-Trous filter. 
-    if (subgroupAllEqual(accumulated_visibility == 0.0f) || subgroupAllEqual(accumulated_visibility == 1.0f))
-        return;
-
-    if (gl_LocalInvocationIndex == 0)
+    // If all the threads contain the same value, skip the A-Trous filter.
+    if (subgroupAllEqual(visibility))
     {
-        uint idx = atomicAdd(TileDispatchArgs.num_groups_x, 1);
-        TileData.coord[idx] = current_coord;
+        if (gl_LocalInvocationIndex == 0)
+        {
+            uint idx = atomicAdd(UniformTileDispatchArgs.num_groups_x, 1);
+            UniformTileData.coord_and_value[idx] = ivec4(current_coord, floatBitsToInt(accumulated_visibility), 0);
+        }   
+    }
+    else
+    {
+        if (gl_LocalInvocationIndex == 0)
+        {
+            uint idx = atomicAdd(TileDispatchArgs.num_groups_x, 1);
+            TileData.coord[idx] = current_coord;
+        }  
     }
 }
 

@@ -17,6 +17,13 @@ layout(set = 0, binding = 3, std430) buffer TileDispatchArgs_t
     uint num_groups_y;
     uint num_groups_z;
 } TileDispatchArgs;
+layout(set = 0, binding = 5, std430) buffer UniformTileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+} UniformTileDispatchArgs;
+
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -25,8 +32,12 @@ layout(set = 0, binding = 3, std430) buffer TileDispatchArgs_t
 void main()
 {
     TileDispatchArgs.num_groups_x = 0;
-    TileDispatchArgs.num_groups_y = 0;
-    TileDispatchArgs.num_groups_z = 0;
+    TileDispatchArgs.num_groups_y = 1;
+    TileDispatchArgs.num_groups_z = 1;
+
+    UniformTileDispatchArgs.num_groups_x = 0;
+    UniformTileDispatchArgs.num_groups_y = 1;
+    UniformTileDispatchArgs.num_groups_z = 1;
 }
 
 // ------------------------------------------------------------------
