@@ -11,13 +11,13 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 // ------------------------------------------------------------------
 
 // Current Reprojection Write DS
-layout(set = 0, binding = 3, std430) buffer TileDispatchArgs_t
+layout(set = 0, binding = 1, std430) buffer TileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
 } TileDispatchArgs;
-layout(set = 0, binding = 5, std430) buffer UniformTileDispatchArgs_t
+layout(set = 0, binding = 3, std430) buffer UniformTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;

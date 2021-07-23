@@ -76,6 +76,7 @@ private:
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr indirect_buffer_ds_layout;
         dw::vk::Image::Ptr               current_output_image;
         dw::vk::Image::Ptr               current_moments_image[2];
         dw::vk::Image::Ptr               prev_image;
@@ -86,6 +87,7 @@ private:
         dw::vk::DescriptorSet::Ptr       current_read_ds[2];
         dw::vk::DescriptorSet::Ptr       output_only_read_ds;
         dw::vk::DescriptorSet::Ptr       prev_read_ds[2];
+        dw::vk::DescriptorSet::Ptr       indirect_buffer_ds;
     };
 
     struct CopyUniformTiles

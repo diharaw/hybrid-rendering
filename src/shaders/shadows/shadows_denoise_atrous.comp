@@ -4,13 +4,14 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-#define NUM_THREADS 32
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
 // ------------------------------------------------------------------
 
-layout(local_size_x = NUM_THREADS, local_size_y = NUM_THREADS, local_size_z = 1) in;
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
 
 // ------------------------------------------------------------------
 // DESCRIPTOR SETS --------------------------------------------------
@@ -25,6 +26,11 @@ layout(set = 2, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Me
 layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
 layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
+
+layout(set = 3, binding = 0, std430) buffer TileData_t
+{
+    ivec2 coord[];
+} TileData;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -115,7 +121,7 @@ float compute_weight(float center_depth,
 void main()
 {
     ivec2       size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
-    const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 ipos = TileData.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
 
     const float eps_variance      = 1e-10;
     const float kernel_weights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };

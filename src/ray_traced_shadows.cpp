@@ -249,10 +249,6 @@ void RayTracedShadows::create_descriptor_sets()
 
         desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
         desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-        desc.add_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 
         m_temporal_accumulation.write_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
     }
@@ -280,7 +276,22 @@ void RayTracedShadows::create_descriptor_sets()
 
     m_temporal_accumulation.output_only_read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     m_temporal_accumulation.output_only_read_ds->set_name("Temporal Accumulation Output Only Read");
+    
+    // Indirect Buffer
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
 
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_temporal_accumulation.indirect_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
+
+        m_temporal_accumulation.indirect_buffer_ds = backend->allocate_descriptor_set(m_temporal_accumulation.indirect_buffer_ds_layout);
+        m_temporal_accumulation.indirect_buffer_ds->set_name("Temporal Accumulation Indirect Buffer");
+    }
+    
     // A-Trous
     for (int i = 0; i < 2; i++)
     {
@@ -403,14 +414,12 @@ void RayTracedShadows::write_descriptor_sets()
     // Reprojection Current Write
     for (int i = 0; i < 2; i++)
     {
-        std::vector<VkDescriptorBufferInfo> buffer_infos;
         std::vector<VkDescriptorImageInfo> image_infos;
         std::vector<VkWriteDescriptorSet>  write_datas;
         VkWriteDescriptorSet               write_data;
 
-        buffer_infos.reserve(4);
         image_infos.reserve(2);
-        write_datas.reserve(6);
+        write_datas.reserve(2);
 
         {
             VkDescriptorImageInfo storage_image_info;
@@ -449,90 +458,6 @@ void RayTracedShadows::write_descriptor_sets()
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             write_data.pImageInfo      = &image_infos.back();
             write_data.dstBinding      = 1;
-            write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
-
-            write_datas.push_back(write_data);
-        }
-
-        {
-            VkDescriptorBufferInfo buffer_info;
-
-            buffer_info.range  = m_temporal_accumulation.tile_coords_buffer->size();
-            buffer_info.offset = 0;
-            buffer_info.buffer = m_temporal_accumulation.tile_coords_buffer->handle();
-
-            buffer_infos.push_back(buffer_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write_data.pBufferInfo     = &buffer_infos.back();
-            write_data.dstBinding      = 2;
-            write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
-
-            write_datas.push_back(write_data);
-        }
-
-        {
-            VkDescriptorBufferInfo buffer_info;
-
-            buffer_info.range  = m_temporal_accumulation.dispatch_args_buffer->size();
-            buffer_info.offset = 0;
-            buffer_info.buffer = m_temporal_accumulation.dispatch_args_buffer->handle();
-
-            buffer_infos.push_back(buffer_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write_data.pBufferInfo     = &buffer_infos.back();
-            write_data.dstBinding      = 3;
-            write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
-
-            write_datas.push_back(write_data);
-        }
-
-        {
-            VkDescriptorBufferInfo buffer_info;
-
-            buffer_info.range  = m_temporal_accumulation.uniform_tile_coords_buffer->size();
-            buffer_info.offset = 0;
-            buffer_info.buffer = m_temporal_accumulation.uniform_tile_coords_buffer->handle();
-
-            buffer_infos.push_back(buffer_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write_data.pBufferInfo     = &buffer_infos.back();
-            write_data.dstBinding      = 4;
-            write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
-
-            write_datas.push_back(write_data);
-        }
-
-        {
-            VkDescriptorBufferInfo buffer_info;
-
-            buffer_info.range  = m_temporal_accumulation.uniform_dispatch_args_buffer->size();
-            buffer_info.offset = 0;
-            buffer_info.buffer = m_temporal_accumulation.uniform_dispatch_args_buffer->handle();
-
-            buffer_infos.push_back(buffer_info);
-
-            DW_ZERO_MEMORY(write_data);
-
-            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write_data.descriptorCount = 1;
-            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write_data.pBufferInfo     = &buffer_infos.back();
-            write_data.dstBinding      = 5;
             write_data.dstSet          = m_temporal_accumulation.current_write_ds[i]->handle();
 
             write_datas.push_back(write_data);
@@ -651,6 +576,102 @@ void RayTracedShadows::write_descriptor_sets()
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
+    // Indirect Buffer
+    {
+        std::vector<VkDescriptorBufferInfo> buffer_infos;
+        std::vector<VkWriteDescriptorSet>   write_datas;
+        VkWriteDescriptorSet                write_data;
+
+        buffer_infos.reserve(4);
+        write_datas.reserve(4);
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.tile_coords_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.tile_coords_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.dispatch_args_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.dispatch_args_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.uniform_tile_coords_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.uniform_tile_coords_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 2;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.uniform_dispatch_args_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.uniform_dispatch_args_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 3;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
     // A-Trous write
     {
         std::vector<VkDescriptorImageInfo> image_infos;
@@ -684,6 +705,7 @@ void RayTracedShadows::write_descriptor_sets()
 
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
+
     // A-Trous read
     {
         std::vector<VkDescriptorImageInfo> image_infos;
@@ -801,7 +823,7 @@ void RayTracedShadows::create_pipelines()
     {
         dw::vk::PipelineLayout::Desc desc;
 
-        desc.add_descriptor_set_layout(m_temporal_accumulation.write_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
 
         m_reset_args.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
         m_reset_args.pipeline_layout->set_name("Reset Args Pipeline Layout");
@@ -826,6 +848,7 @@ void RayTracedShadows::create_pipelines()
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalAccumulationPushConstants));
 
@@ -847,7 +870,7 @@ void RayTracedShadows::create_pipelines()
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
-        desc.add_descriptor_set_layout(m_temporal_accumulation.write_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
 
         m_copy_uniform_tiles.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
         m_copy_uniform_tiles.pipeline_layout->set_name("Copy Uniform Tiles Pipeline Layout");
@@ -869,6 +892,7 @@ void RayTracedShadows::create_pipelines()
         desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ATrousFilterPushConstants));
 
@@ -977,7 +1001,7 @@ void RayTracedShadows::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
         image_memory_barrier(m_ray_trace.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
     };
 
-    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ray_trace.pipeline->handle());
 
@@ -1017,10 +1041,21 @@ void RayTracedShadows::reset_args(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Reset Args", cmd_buf);
 
+    {
+        std::vector<VkBufferMemoryBarrier> buffer_barriers = {
+            buffer_memory_barrier(m_temporal_accumulation.tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT), 
+            buffer_memory_barrier(m_temporal_accumulation.dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT), 
+            buffer_memory_barrier(m_temporal_accumulation.uniform_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT), 
+            buffer_memory_barrier(m_temporal_accumulation.uniform_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, {}, {}, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reset_args.pipeline->handle());
 
     VkDescriptorSet descriptor_sets[] = {
-        m_temporal_accumulation.current_write_ds[m_common_resources->ping_pong]->handle()
+        m_temporal_accumulation.indirect_buffer_ds->handle()
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reset_args.pipeline_layout->handle(), 0, 1, descriptor_sets, 0, nullptr);
@@ -1048,7 +1083,14 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
             image_memory_barrier(m_temporal_accumulation.current_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
         };
 
-        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        std::vector<VkBufferMemoryBarrier> buffer_barriers = {
+            buffer_memory_barrier(m_temporal_accumulation.tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.uniform_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.uniform_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline->handle());
@@ -1067,12 +1109,13 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
         m_temporal_accumulation.prev_read_ds[!m_common_resources->ping_pong]->handle(),
-        m_common_resources->per_frame_ds->handle()
+        m_common_resources->per_frame_ds->handle(),
+        m_temporal_accumulation.indirect_buffer_ds->handle()
     };
 
     const uint32_t dynamic_offset = m_common_resources->ubo_size * backend->current_frame_idx();
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), 1);
 
@@ -1086,7 +1129,14 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
             image_memory_barrier(m_temporal_accumulation.current_moments_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
         };
 
-        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        std::vector<VkBufferMemoryBarrier> buffer_barriers = {
+            buffer_memory_barrier(m_temporal_accumulation.tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.uniform_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.uniform_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 }
 
@@ -1095,8 +1145,6 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("A-Trous Filter", cmd_buf);
-
-    const uint32_t NUM_THREADS = 32;
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -1119,7 +1167,7 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
                 image_memory_barrier(m_a_trous.image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
             };
 
-            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         }
         else
         {
@@ -1132,7 +1180,7 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
                 image_memory_barrier(m_a_trous.image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
             };
 
-            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         }
 
         {
@@ -1142,7 +1190,7 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
             VkDescriptorSet descriptor_sets[] = {
                 m_a_trous.write_ds[write_idx]->handle(),
-                m_temporal_accumulation.current_write_ds[m_common_resources->ping_pong]->handle()
+                m_temporal_accumulation.indirect_buffer_ds->handle()
             };
 
             vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_copy_uniform_tiles.pipeline_layout->handle(), 0, 2, descriptor_sets, 0, nullptr);
@@ -1169,12 +1217,14 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
             VkDescriptorSet descriptor_sets[] = {
                 m_a_trous.write_ds[write_idx]->handle(),
                 i == 0 ? m_temporal_accumulation.output_only_read_ds->handle() : m_a_trous.read_ds[read_idx]->handle(),
-                m_g_buffer->output_ds()->handle()
+                m_g_buffer->output_ds()->handle(),
+                m_temporal_accumulation.indirect_buffer_ds->handle()
             };
 
-            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
-            vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+            vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.dispatch_args_buffer->handle(), 0);
+            //vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
         }
 
         ping_pong = !ping_pong;
@@ -1240,7 +1290,7 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
         image_memory_barrier(m_a_trous.image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
     };
 
-    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

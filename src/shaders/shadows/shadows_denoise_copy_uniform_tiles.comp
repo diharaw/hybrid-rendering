@@ -20,17 +20,10 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 // Current Reprojection Write DS
 layout(set = 0, binding = 0, rg16f) uniform writeonly image2D i_Output;
 
-layout(set = 1, binding = 4, std430) buffer UniformTileData_t
+layout(set = 1, binding = 2, std430) buffer UniformTileData_t
 {
     ivec4 coord_and_value[];
 } UniformTileData;
-
-// ------------------------------------------------------------------
-// SHARED -----------------------------------------------------------
-// ------------------------------------------------------------------
-
-shared float g_value;
-shared ivec2 g_coord;
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -38,16 +31,11 @@ shared ivec2 g_coord;
 
 void main()
 {
-    if (gl_LocalInvocationIndex == 0)
-    {
-        ivec4 data = UniformTileData.coord_and_value[gl_WorkGroupID.x];
-        g_coord = data.xy;
-        g_value = intBitsToFloat(data.z);
-    }
+    ivec4 data = UniformTileData.coord_and_value[gl_WorkGroupID.x];
+    ivec2 coord = data.xy + ivec2(gl_LocalInvocationID.xy);
+    float value = intBitsToFloat(data.z);
 
-    barrier();
-
-    imageStore(i_Output, g_coord + ivec2(gl_LocalInvocationID.xy), vec4(g_value, 0.0f, 0.0f, 0.0f));
+    imageStore(i_Output, coord, vec4(value, 0.0f, 0.0f, 0.0f));
 }
 
 // ------------------------------------------------------------------
