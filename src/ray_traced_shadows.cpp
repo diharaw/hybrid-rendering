@@ -217,7 +217,7 @@ void RayTracedShadows::create_images()
 
 void RayTracedShadows::create_buffers()
 {
-    auto backend                               = m_backend.lock();
+    auto backend = m_backend.lock();
 
     uint32_t default_args[] = { 1, 1, 1 };
 
@@ -276,7 +276,7 @@ void RayTracedShadows::create_descriptor_sets()
 
     m_temporal_accumulation.output_only_read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
     m_temporal_accumulation.output_only_read_ds->set_name("Temporal Accumulation Output Only Read");
-    
+
     // Indirect Buffer
     {
         dw::vk::DescriptorSetLayout::Desc desc;
@@ -291,7 +291,7 @@ void RayTracedShadows::create_descriptor_sets()
         m_temporal_accumulation.indirect_buffer_ds = backend->allocate_descriptor_set(m_temporal_accumulation.indirect_buffer_ds_layout);
         m_temporal_accumulation.indirect_buffer_ds->set_name("Temporal Accumulation Indirect Buffer");
     }
-    
+
     // A-Trous
     for (int i = 0; i < 2; i++)
     {
@@ -1043,9 +1043,9 @@ void RayTracedShadows::reset_args(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     {
         std::vector<VkBufferMemoryBarrier> buffer_barriers = {
-            buffer_memory_barrier(m_temporal_accumulation.tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT), 
-            buffer_memory_barrier(m_temporal_accumulation.dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT), 
-            buffer_memory_barrier(m_temporal_accumulation.uniform_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT), 
+            buffer_memory_barrier(m_temporal_accumulation.tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.uniform_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
             buffer_memory_barrier(m_temporal_accumulation.uniform_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
         };
 

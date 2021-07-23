@@ -136,7 +136,7 @@ private:
     RayTrace                       m_ray_trace;
     ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
-    CopyUniformTiles            m_copy_uniform_tiles;
+    CopyUniformTiles               m_copy_uniform_tiles;
     ATrous                         m_a_trous;
     Upsample                       m_upsample;
 };

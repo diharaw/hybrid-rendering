@@ -16,14 +16,15 @@ layout(set = 0, binding = 1, std430) buffer TileDispatchArgs_t
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
-} TileDispatchArgs;
+}
+TileDispatchArgs;
 layout(set = 0, binding = 3, std430) buffer UniformTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
-} UniformTileDispatchArgs;
-
+}
+UniformTileDispatchArgs;
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------

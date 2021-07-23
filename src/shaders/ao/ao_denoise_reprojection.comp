@@ -88,13 +88,13 @@ void populate_cache()
 {
     if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
     {
-        const ivec2 coord     = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
-        
+        const ivec2 coord = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
+
         const ivec2 image_dim = textureSize(s_Input, 0);
 
         if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, image_dim - ivec2(1, 1))))
             g_ao_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = 0xFFFFFFFF;
-        else 
+        else
             g_ao_hit_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = texelFetch(s_Input, coord, 0).x;
     }
 

@@ -23,7 +23,8 @@ layout(set = 0, binding = 0, rg16f) uniform writeonly image2D i_Output;
 layout(set = 1, binding = 2, std430) buffer UniformTileData_t
 {
     ivec4 coord_and_value[];
-} UniformTileData;
+}
+UniformTileData;
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -31,7 +32,7 @@ layout(set = 1, binding = 2, std430) buffer UniformTileData_t
 
 void main()
 {
-    ivec4 data = UniformTileData.coord_and_value[gl_WorkGroupID.x];
+    ivec4 data  = UniformTileData.coord_and_value[gl_WorkGroupID.x];
     ivec2 coord = data.xy + ivec2(gl_LocalInvocationID.xy);
     float value = intBitsToFloat(data.z);
 

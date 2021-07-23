@@ -30,7 +30,8 @@ layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(set = 3, binding = 0, std430) buffer TileData_t
 {
     ivec2 coord[];
-} TileData;
+}
+TileData;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------

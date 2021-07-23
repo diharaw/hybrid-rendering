@@ -1,12 +1,12 @@
 #include "utilities.h"
 #include <macros.h>
 
-void pipeline_barrier(dw::vk::CommandBuffer::Ptr        cmd_buf,
-                      std::vector<VkMemoryBarrier>      memory_barriers,
-                      std::vector<VkImageMemoryBarrier> image_memory_barriers,
+void pipeline_barrier(dw::vk::CommandBuffer::Ptr         cmd_buf,
+                      std::vector<VkMemoryBarrier>       memory_barriers,
+                      std::vector<VkImageMemoryBarrier>  image_memory_barriers,
                       std::vector<VkBufferMemoryBarrier> buffer_memory_barriers,
-                      VkPipelineStageFlags              srcStageMask,
-                      VkPipelineStageFlags              dstStageMask)
+                      VkPipelineStageFlags               srcStageMask,
+                      VkPipelineStageFlags               dstStageMask)
 {
     vkCmdPipelineBarrier(
         cmd_buf->handle(),
@@ -44,20 +44,20 @@ VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
 }
 
 VkBufferMemoryBarrier buffer_memory_barrier(dw::vk::Buffer::Ptr buffer,
-                                                   VkDeviceSize  offset,
-                                                   VkDeviceSize  size,
-                                                   VkAccessFlags       srcAccessFlags,
-                                                   VkAccessFlags       dstAccessFlags)
+                                            VkDeviceSize        offset,
+                                            VkDeviceSize        size,
+                                            VkAccessFlags       srcAccessFlags,
+                                            VkAccessFlags       dstAccessFlags)
 {
     VkBufferMemoryBarrier memory_barrier;
     DW_ZERO_MEMORY(memory_barrier);
 
-    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memory_barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     memory_barrier.srcAccessMask = srcAccessFlags;
     memory_barrier.dstAccessMask = dstAccessFlags;
-    memory_barrier.buffer = buffer->handle();
-    memory_barrier.offset = offset;
-    memory_barrier.size = size;
+    memory_barrier.buffer        = buffer->handle();
+    memory_barrier.offset        = offset;
+    memory_barrier.size          = size;
 
     return memory_barrier;
 }
