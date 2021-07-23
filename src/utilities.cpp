@@ -1,6 +1,8 @@
 #include "utilities.h"
 #include <macros.h>
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void pipeline_barrier(dw::vk::CommandBuffer::Ptr         cmd_buf,
                       std::vector<VkMemoryBarrier>       memory_barriers,
                       std::vector<VkImageMemoryBarrier>  image_memory_barriers,
@@ -20,6 +22,8 @@ void pipeline_barrier(dw::vk::CommandBuffer::Ptr         cmd_buf,
         image_memory_barriers.size(),
         image_memory_barriers.data());
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
                                           VkImageLayout           oldImageLayout,
@@ -43,6 +47,8 @@ VkImageMemoryBarrier image_memory_barrier(dw::vk::Image::Ptr      image,
     return memory_barrier;
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 VkBufferMemoryBarrier buffer_memory_barrier(dw::vk::Buffer::Ptr buffer,
                                             VkDeviceSize        offset,
                                             VkDeviceSize        size,
@@ -52,7 +58,7 @@ VkBufferMemoryBarrier buffer_memory_barrier(dw::vk::Buffer::Ptr buffer,
     VkBufferMemoryBarrier memory_barrier;
     DW_ZERO_MEMORY(memory_barrier);
 
-    memory_barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memory_barrier.sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     memory_barrier.srcAccessMask = srcAccessFlags;
     memory_barrier.dstAccessMask = dstAccessFlags;
     memory_barrier.buffer        = buffer->handle();
@@ -61,6 +67,8 @@ VkBufferMemoryBarrier buffer_memory_barrier(dw::vk::Buffer::Ptr buffer,
 
     return memory_barrier;
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAccessFlags)
 {
@@ -74,3 +82,5 @@ VkMemoryBarrier memory_barrier(VkAccessFlags srcAccessFlags, VkAccessFlags dstAc
 
     return memory_barrier;
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------

@@ -1049,7 +1049,7 @@ void RayTracedShadows::reset_args(dw::vk::CommandBuffer::Ptr cmd_buf)
             buffer_memory_barrier(m_temporal_accumulation.uniform_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
         };
 
-        pipeline_barrier(cmd_buf, {}, {}, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        pipeline_barrier(cmd_buf, {}, {}, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reset_args.pipeline->handle());
@@ -1136,7 +1136,7 @@ void RayTracedShadows::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
             buffer_memory_barrier(m_temporal_accumulation.uniform_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT)
         };
 
-        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        pipeline_barrier(cmd_buf, memory_barriers, image_barriers, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT);
     }
 }
 
@@ -1224,7 +1224,6 @@ void RayTracedShadows::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
             vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
             vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.dispatch_args_buffer->handle(), 0);
-            //vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
         }
 
         ping_pong = !ping_pong;
