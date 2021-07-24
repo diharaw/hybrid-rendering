@@ -62,30 +62,30 @@ layout(set = 5, binding = 0) uniform PerFrameUBO
 }
 u_GlobalUBO;
 
-layout(set = 6, binding = 0, std430) buffer TileData_t
+layout(set = 6, binding = 0, std430) buffer DenoiseTileData_t
 {
     ivec2 coord[];
 }
-TileData;
-layout(set = 6, binding = 1, std430) buffer TileDispatchArgs_t
+DenoiseTileData;
+layout(set = 6, binding = 1, std430) buffer DenoiseTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
 }
-TileDispatchArgs;
-layout(set = 6, binding = 2, std430) buffer UniformTileData_t
+DenoiseTileDispatchArgs;
+layout(set = 6, binding = 2, std430) buffer ShadowTileData_t
 {
-    ivec4 coord_and_value[];
+    ivec2 coord[];
 }
-UniformTileData;
-layout(set = 6, binding = 3, std430) buffer UniformTileDispatchArgs_t
+ShadowTileData;
+layout(set = 6, binding = 3, std430) buffer ShadowTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
 }
-UniformTileDispatchArgs;
+ShadowTileDispatchArgs;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -474,21 +474,20 @@ void main()
     imageStore(i_Moments, current_coord, vec4(output_moments, history_length, 0.0f));
     imageStore(i_Output, current_coord, vec4(output_visibility_variance, 0.0f, 0.0f));
 
-    // If all the threads contain the same value, skip the A-Trous filter.
-    if (subgroupAll(depth == 1.0f) || subgroupAllEqual(output_visibility_variance.x))
+    // If all the threads are in shadow, skip the A-Trous filter.
+    bool should_skip_denoise = subgroupAll(depth == 1.0f) || subgroupAll(output_visibility_variance.x == 0.0f);
+
+    if (gl_LocalInvocationIndex == 0)
     {
-        if (gl_LocalInvocationIndex == 0)
+        if (should_skip_denoise)
         {
-            uint idx                             = atomicAdd(UniformTileDispatchArgs.num_groups_x, 1);
-            UniformTileData.coord_and_value[idx] = ivec4(current_coord, floatBitsToInt(output_visibility_variance.x), 0);
+            uint idx                   = atomicAdd(ShadowTileDispatchArgs.num_groups_x, 1);
+            ShadowTileData.coord[idx] = current_coord;
         }
-    }
-    else
-    {
-        if (gl_LocalInvocationIndex == 0)
+        else
         {
-            uint idx            = atomicAdd(TileDispatchArgs.num_groups_x, 1);
-            TileData.coord[idx] = current_coord;
+            uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
+            DenoiseTileData.coord[idx] = current_coord;
         }
     }
 }

@@ -27,11 +27,11 @@ layout(set = 2, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Mo
 layout(set = 2, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 layout(set = 2, binding = 3) uniform sampler2D s_GBufferDepth;
 
-layout(set = 3, binding = 0, std430) buffer TileData_t
+layout(set = 3, binding = 0, std430) buffer DenoiseTileData_t
 {
     ivec2 coord[];
 }
-TileData;
+DenoiseTileData;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -45,6 +45,7 @@ layout(push_constant) uniform PushConstants
     float phi_normal;
     float sigma_depth;
     int   g_buffer_mip;
+    float power;
 }
 u_PushConstants;
 
@@ -122,7 +123,7 @@ float compute_weight(float center_depth,
 void main()
 {
     ivec2       size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
-    const ivec2 ipos = TileData.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
+    const ivec2 ipos = DenoiseTileData.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
 
     const float eps_variance      = 1e-10;
     const float kernel_weights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };
@@ -193,6 +194,9 @@ void main()
     vec2 out_visibility = sum_visibility / vec2(sum_w_visibility, sum_w_visibility * sum_w_visibility);
 
     // temporal integration
+    if (u_PushConstants.power != 0.0f)
+        out_visibility.x = pow(out_visibility.x, u_PushConstants.power);
+
     imageStore(i_Output, ipos, vec4(out_visibility, 0.0f, 0.0f));
 }
 

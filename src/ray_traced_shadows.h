@@ -68,10 +68,10 @@ private:
     {
         float                            alpha         = 0.01f;
         float                            moments_alpha = 0.2f;
-        dw::vk::Buffer::Ptr              tile_coords_buffer;
-        dw::vk::Buffer::Ptr              dispatch_args_buffer;
-        dw::vk::Buffer::Ptr              uniform_tile_coords_buffer;
-        dw::vk::Buffer::Ptr              uniform_dispatch_args_buffer;
+        dw::vk::Buffer::Ptr              denoise_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              denoise_dispatch_args_buffer;
+        dw::vk::Buffer::Ptr              shadow_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              shadow_dispatch_args_buffer;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
@@ -90,7 +90,7 @@ private:
         dw::vk::DescriptorSet::Ptr       indirect_buffer_ds;
     };
 
-    struct CopyUniformTiles
+    struct CopyShadowTiles
     {
         dw::vk::PipelineLayout::Ptr  pipeline_layout;
         dw::vk::ComputePipeline::Ptr pipeline;
@@ -101,8 +101,9 @@ private:
         float                        phi_visibility     = 10.0f;
         float                        phi_normal         = 32.0f;
         float                        sigma_depth        = 1.0f;
+        float                        power              = 1.2f;
         int32_t                      radius             = 1;
-        int32_t                      filter_iterations  = 4;
+        int32_t                      filter_iterations  = 3;
         int32_t                      feedback_iteration = 1;
         int32_t                      read_idx           = 0;
         dw::vk::ComputePipeline::Ptr pipeline;
@@ -136,7 +137,7 @@ private:
     RayTrace                       m_ray_trace;
     ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
-    CopyUniformTiles               m_copy_uniform_tiles;
+    CopyShadowTiles                m_copy_shadow_tiles;
     ATrous                         m_a_trous;
     Upsample                       m_upsample;
 };

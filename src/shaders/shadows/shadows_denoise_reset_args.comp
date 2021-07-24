@@ -11,20 +11,20 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 // ------------------------------------------------------------------
 
 // Current Reprojection Write DS
-layout(set = 0, binding = 1, std430) buffer TileDispatchArgs_t
+layout(set = 0, binding = 1, std430) buffer DenoiseTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
 }
-TileDispatchArgs;
-layout(set = 0, binding = 3, std430) buffer UniformTileDispatchArgs_t
+DenoiseTileDispatchArgs;
+layout(set = 0, binding = 3, std430) buffer ShadowTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
 }
-UniformTileDispatchArgs;
+ShadowTileDispatchArgs;
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -32,13 +32,13 @@ UniformTileDispatchArgs;
 
 void main()
 {
-    TileDispatchArgs.num_groups_x = 0;
-    TileDispatchArgs.num_groups_y = 1;
-    TileDispatchArgs.num_groups_z = 1;
+    DenoiseTileDispatchArgs.num_groups_x = 0;
+    DenoiseTileDispatchArgs.num_groups_y = 1;
+    DenoiseTileDispatchArgs.num_groups_z = 1;
 
-    UniformTileDispatchArgs.num_groups_x = 0;
-    UniformTileDispatchArgs.num_groups_y = 1;
-    UniformTileDispatchArgs.num_groups_z = 1;
+    ShadowTileDispatchArgs.num_groups_x = 0;
+    ShadowTileDispatchArgs.num_groups_y = 1;
+    ShadowTileDispatchArgs.num_groups_z = 1;
 }
 
 // ------------------------------------------------------------------
