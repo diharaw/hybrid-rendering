@@ -92,7 +92,7 @@ private:
 
     struct BilateralBlur
     {
-        int32_t                      blur_radius = 5;
+        int32_t                      blur_radius = 4;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
         dw::vk::Image::Ptr           image[2];

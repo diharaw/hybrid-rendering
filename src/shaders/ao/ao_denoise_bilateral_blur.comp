@@ -14,6 +14,7 @@
 #define GAUSS_BLUR_DEVIATION 1.5
 #define PI 3.14159265359
 #define USE_NORMAL_EDGE_STOPPING
+#define USE_SHARED_MEMORY_CACHE
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -84,18 +85,18 @@ vec3 octohedral_to_direction(vec2 e)
 #if defined(USE_SHARED_MEMORY_CACHE)
 void populate_cache()
 {
-    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(NUM_THREADS_X/2, NUM_THREADS_Y/2);
-    ivec2 coord = min_cached_coord + ivec2(gl_LocalInvocationID.xy);
+    const ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(NUM_THREADS_X/2, NUM_THREADS_Y/2);
+    const ivec2 coord = min_cached_coord + ivec2(gl_LocalInvocationID.xy);
 
-    ivec2 offsets[4] = { ivec2(0, 0), ivec2(0, 8), ivec2(8, 0), ivec2(8, 8) };
+    const ivec2 offsets[4] = { ivec2(0, 0), ivec2(0, 8), ivec2(8, 0), ivec2(8, 8) };
 
     for (int i = 0; i < 4; i++)
     {
-        ivec2 cache_coord = ivec2(gl_LocalInvocationID.xy) + offsets[i];
+        const ivec2 cache_coord = ivec2(gl_LocalInvocationID.xy) + offsets[i];
 
-        float ao     = texelFetch(s_Input, coord + offsets[i], 0).r;
-        vec3  normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord + offsets[i], u_PushConstants.g_buffer_mip).rg);
-        float depth  = texelFetch(s_GBufferDepth, coord + offsets[i], u_PushConstants.g_buffer_mip).r;
+        const float ao     = texelFetch(s_Input, coord + offsets[i], 0).r;
+        const vec3  normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord + offsets[i], u_PushConstants.g_buffer_mip).rg);
+        const float depth  = texelFetch(s_GBufferDepth, coord + offsets[i], u_PushConstants.g_buffer_mip).r;
 
         g_cached_depth[cache_coord.x][cache_coord.y] = depth;
         g_cached_normal_xy[cache_coord.x][cache_coord.y]   = packSnorm2x16(normal.xy);
@@ -121,7 +122,7 @@ void load_ao_and_normal(ivec2 coord, out float ao, out vec3 normal)
     vec2 unpacked_normal_xy   = unpackSnorm2x16(packed_normal_xy);
     vec2 unpacked_normal_z_ao = unpackSnorm2x16(packed_normal_z_ao);
 
-    ao     = unpacked_normal_z_ao.y;
+    ao     =  unpacked_normal_z_ao.y;
     normal = vec3(unpacked_normal_xy, unpacked_normal_z_ao.x);
 #else
     ao     = texelFetch(s_Input, coord, 0).r;

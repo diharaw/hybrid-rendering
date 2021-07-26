@@ -131,7 +131,7 @@ void RayTracedAO::gui()
     ImGui::SliderFloat("Power", &m_upsample.power, 1.0f, 5.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Temporal Alpha", &m_temporal_accumulation.alpha, 0.0f, 0.5f);
-    ImGui::SliderInt("Blur Radius", &m_bilateral_blur.blur_radius, 1, 20);
+    ImGui::SliderInt("Blur Radius", &m_bilateral_blur.blur_radius, 1, 4);
     ImGui::SliderInt("Disocclusion Blur Radius", &m_disocclusion_blur.blur_radius, 1, 20);
     ImGui::SliderInt("Disocclusion Blur Threshold", &m_disocclusion_blur.threshold, 1, 15);
 }
