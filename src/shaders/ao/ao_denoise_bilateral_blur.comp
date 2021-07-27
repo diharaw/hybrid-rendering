@@ -14,7 +14,6 @@
 #define GAUSS_BLUR_DEVIATION 1.5
 #define PI 3.14159265359
 #define USE_NORMAL_EDGE_STOPPING
-#define USE_SHARED_MEMORY_CACHE
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -45,7 +44,6 @@ layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
 layout(push_constant) uniform PushConstants
 {
     vec4  z_buffer_params;
-    ivec2 direction;
     int   radius;
     int   g_buffer_mip;
 }
@@ -55,11 +53,7 @@ u_PushConstants;
 // SHARED MEMORY ----------------------------------------------------
 // ------------------------------------------------------------------
 
-#if defined(USE_SHARED_MEMORY_CACHE)
-shared float g_cached_depth[CACHE_SIZE_X][CACHE_SIZE_Y];
-shared uint  g_cached_normal_xy[CACHE_SIZE_X][CACHE_SIZE_Y];
-shared uint  g_cached_normal_z_ao[CACHE_SIZE_X][CACHE_SIZE_Y];
-#endif
+shared float g_horizontal_ao[NUM_THREADS_X][CACHE_SIZE_Y];
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -78,71 +72,6 @@ vec3 octohedral_to_direction(vec2 e)
     if (v.z < 0.0)
         v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
     return normalize(v);
-}
-
-// ------------------------------------------------------------------------
-
-#if defined(USE_SHARED_MEMORY_CACHE)
-void populate_cache()
-{
-    const ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(NUM_THREADS_X/2, NUM_THREADS_Y/2);
-    const ivec2 coord = min_cached_coord + ivec2(gl_LocalInvocationID.xy);
-
-    const ivec2 offsets[4] = { ivec2(0, 0), ivec2(0, 8), ivec2(8, 0), ivec2(8, 8) };
-
-    for (int i = 0; i < 4; i++)
-    {
-        const ivec2 cache_coord = ivec2(gl_LocalInvocationID.xy) + offsets[i];
-
-        const float ao     = texelFetch(s_Input, coord + offsets[i], 0).r;
-        const vec3  normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord + offsets[i], u_PushConstants.g_buffer_mip).rg);
-        const float depth  = texelFetch(s_GBufferDepth, coord + offsets[i], u_PushConstants.g_buffer_mip).r;
-
-        g_cached_depth[cache_coord.x][cache_coord.y] = depth;
-        g_cached_normal_xy[cache_coord.x][cache_coord.y]   = packSnorm2x16(normal.xy);
-        g_cached_normal_z_ao[cache_coord.x][cache_coord.y] = packSnorm2x16(vec2(normal.z, ao));
-    }
-
-    barrier();
-}
-#endif
-
-// ------------------------------------------------------------------
-
-void load_ao_and_normal(ivec2 coord, out float ao, out vec3 normal)
-{
-#if defined(USE_SHARED_MEMORY_CACHE)
-    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(NUM_THREADS_X/2, NUM_THREADS_Y/2);
-    
-    ivec2 cache_coord = coord - min_cached_coord;
-
-    uint packed_normal_xy   = g_cached_normal_xy[cache_coord.x][cache_coord.y];
-    uint packed_normal_z_ao = g_cached_normal_z_ao[cache_coord.x][cache_coord.y];
-
-    vec2 unpacked_normal_xy   = unpackSnorm2x16(packed_normal_xy);
-    vec2 unpacked_normal_z_ao = unpackSnorm2x16(packed_normal_z_ao);
-
-    ao     =  unpacked_normal_z_ao.y;
-    normal = vec3(unpacked_normal_xy, unpacked_normal_z_ao.x);
-#else
-    ao     = texelFetch(s_Input, coord, 0).r;
-    normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord, u_PushConstants.g_buffer_mip).rg);
-#endif
-}
-
-// ------------------------------------------------------------------
-
-float load_depth(ivec2 coord)
-{
-#if defined(USE_SHARED_MEMORY_CACHE)
-    ivec2 min_cached_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREADS_X, NUM_THREADS_Y) - ivec2(NUM_THREADS_X/2, NUM_THREADS_Y/2);
-    
-    ivec2 cache_coord = coord - min_cached_coord;
-    
-    return g_cached_depth[cache_coord.x][cache_coord.y];
-#else 
-    return texelFetch(s_GBufferDepth, coord, u_PushConstants.g_buffer_mip).r;
-#endif
 }
 
 // ------------------------------------------------------------------
@@ -172,16 +101,15 @@ float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
 
 // ------------------------------------------------------------------
 
-float bilateral_blur(ivec2 current_coord)
+float blur_horizontally(ivec2 coord)
 {
     const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
 
-    vec3  center_normal;
-    float total_ao     = 0.0f;
+    float total_ao     = texelFetch(s_Input, coord, 0).r;
     float total_weight = 1.0f;
 
-    float center_depth = linear_eye_depth(load_depth(current_coord));
-    load_ao_and_normal(current_coord, total_ao, center_normal);
+    float center_depth = linear_eye_depth(texelFetch(s_GBufferDepth, coord, u_PushConstants.g_buffer_mip).r);
+    vec3  center_normal = octohedral_to_direction(texelFetch(s_GBuffer2, coord, u_PushConstants.g_buffer_mip).rg);
 
     int radius = u_PushConstants.radius;
 
@@ -190,12 +118,54 @@ float bilateral_blur(ivec2 current_coord)
         if (i == 0)
             continue;
 
-        ivec2 sample_coord = current_coord + u_PushConstants.direction * ivec2(i);
-        float sample_depth = linear_eye_depth(load_depth(sample_coord));
-        float sample_ao;
-        vec3  sample_normal;
+        ivec2 sample_coord = coord + ivec2(i, 0);
+        float sample_depth = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r);
+        float sample_ao = texelFetch(s_Input, sample_coord, 0).r;
+        vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
-        load_ao_and_normal(sample_coord, sample_ao, sample_normal);
+        float weight = gaussian_weight(float(i), deviation);
+        weight *= depth_edge_stopping_weight(center_depth, sample_depth);
+        weight *= normal_edge_stopping_weight(center_normal, sample_normal);
+
+        total_ao += weight * sample_ao;
+        total_weight += weight;
+    }
+
+    return total_ao / max(total_weight, 0.0001f);
+}
+
+// ------------------------------------------------------------------
+
+float bilateral_blur(ivec2 current_coord)
+{
+    // Blur horizontally
+    float top = blur_horizontally(current_coord + ivec2(0, -4));
+    float bottom = blur_horizontally(current_coord + ivec2(0, 4));
+
+    g_horizontal_ao[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = top;     
+    g_horizontal_ao[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 8] = bottom;
+
+    barrier();
+
+    const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
+
+    float total_ao     = g_horizontal_ao[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 4];
+    float total_weight = 1.0f;
+
+    float center_depth = linear_eye_depth(texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r);
+    vec3  center_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
+
+    int radius = u_PushConstants.radius;
+
+    for (int i = -radius; i <= radius; i++)
+    {
+        if (i == 0)
+            continue;
+
+        ivec2 sample_coord = current_coord + ivec2(0, i);
+        float sample_depth = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r);
+        float sample_ao = g_horizontal_ao[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 4 + i];
+        vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
         float weight = gaussian_weight(float(i), deviation);
         weight *= depth_edge_stopping_weight(center_depth, sample_depth);
@@ -220,13 +190,8 @@ void main()
     // Compute current pixel coord
     ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
-#if defined(USE_SHARED_MEMORY_CACHE)
-    // Populate LDS cache
-    populate_cache();
-#endif
-
     // Skip pixel if it belongs to the background
-    float depth = load_depth(current_coord);
+    float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
     if (depth == 1.0f)
     {
