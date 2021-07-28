@@ -44,6 +44,7 @@ struct DisocclusionBlurPushConstants
 struct BilateralBlurPushConstants
 {
     glm::vec4  z_buffer_params;
+    glm::ivec2 direction;
     int32_t    radius;
     int32_t    g_buffer_mip;
 };
@@ -146,7 +147,7 @@ dw::vk::DescriptorSet::Ptr RayTracedAO::output_ds()
         else if (m_current_output == OUTPUT_TEMPORAL_ACCUMULATION)
             return m_temporal_accumulation.output_read_ds[m_common_resources->ping_pong];
         else if (m_current_output == OUTPUT_BILATERAL_BLUR)
-            return m_bilateral_blur.read_ds;
+            return m_bilateral_blur.read_ds[1];
         else if (m_current_output == OUTPUT_DISOCCLUSION_BLUR)
             return m_disocclusion_blur.read_ds;
         else
@@ -202,11 +203,14 @@ void RayTracedAO::create_images()
     }
 
     // Bilateral Blur
-    m_bilateral_blur.image = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
-    m_bilateral_blur.image->set_name("AO Denoise Blur");
+    for (int i = 0; i < 2; i++)
+    {
+        m_bilateral_blur.image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_bilateral_blur.image[i]->set_name("AO Denoise Blur " + std::to_string(i));
 
-    m_bilateral_blur.image_view = dw::vk::ImageView::create(backend, m_bilateral_blur.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-    m_bilateral_blur.image_view->set_name("AO Denoise Blur");
+        m_bilateral_blur.image_view[i] = dw::vk::ImageView::create(backend, m_bilateral_blur.image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_bilateral_blur.image_view[i]->set_name("AO Denoise Blur " + std::to_string(i));
+    }
 
     // Upsample
     {
@@ -284,11 +288,14 @@ void RayTracedAO::create_descriptor_sets()
 
     // Bilateral Blur
     {
-        m_bilateral_blur.write_ds = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
-        m_bilateral_blur.write_ds->set_name("AO Blur Write");
+        for (int i = 0; i < 2; i++)
+        {
+            m_bilateral_blur.write_ds[i] = backend->allocate_descriptor_set(m_common_resources->storage_image_ds_layout);
+            m_bilateral_blur.write_ds[i]->set_name("AO Blur Write " + std::to_string(i));
 
-        m_bilateral_blur.read_ds = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
-        m_bilateral_blur.read_ds->set_name("AO Blur Read");
+            m_bilateral_blur.read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+            m_bilateral_blur.read_ds[i]->set_name("AO Blur Read " + std::to_string(i));
+        }
     }
 
     // Upsample
@@ -597,48 +604,51 @@ void RayTracedAO::write_descriptor_sets()
 
 // Bilateral Blur
 {
-    // write
+    for (int i = 0; i < 2; i++)
     {
-        VkDescriptorImageInfo storage_image_info;
+        // write
+        {
+            VkDescriptorImageInfo storage_image_info;
 
-        storage_image_info.sampler     = VK_NULL_HANDLE;
-        storage_image_info.imageView   = m_bilateral_blur.image_view->handle();
-        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            storage_image_info.sampler     = VK_NULL_HANDLE;
+            storage_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+            storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        VkWriteDescriptorSet write_data;
+            VkWriteDescriptorSet write_data;
 
-        DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write_data.pImageInfo      = &storage_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_bilateral_blur.write_ds->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_data.pImageInfo      = &storage_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_bilateral_blur.write_ds[i]->handle();
 
-        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
-    }
+            vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+        }
 
-    // read
-    {
-        VkDescriptorImageInfo sampler_image_info;
+        // read
+        {
+            VkDescriptorImageInfo sampler_image_info;
 
-        sampler_image_info.sampler     = backend->nearest_sampler()->handle();
-        sampler_image_info.imageView   = m_bilateral_blur.image_view->handle();
-        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+            sampler_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+            sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkWriteDescriptorSet write_data;
+            VkWriteDescriptorSet write_data;
 
-        DW_ZERO_MEMORY(write_data);
+            DW_ZERO_MEMORY(write_data);
 
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_data.pImageInfo      = &sampler_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_bilateral_blur.read_ds->handle();
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_data.pImageInfo      = &sampler_image_info;
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_bilateral_blur.read_ds[i]->handle();
 
-        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+            vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+        }
     }
 }
 
@@ -1073,7 +1083,7 @@ void RayTracedAO::disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkDescriptorSet descriptor_sets[] = {
         m_disocclusion_blur.write_ds->handle(),
-        m_bilateral_blur.read_ds->handle(),
+        m_bilateral_blur.read_ds[1]->handle(),
         m_temporal_accumulation.read_ds[m_common_resources->ping_pong]->handle(),
         m_g_buffer->output_ds()->handle()
     };
@@ -1104,40 +1114,87 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_bilateral_blur.image->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
+    // Vertical
+    {
+        DW_SCOPED_SAMPLE("Vertical", cmd_buf);
 
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_bilateral_blur.image[0]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
 
-    BilateralBlurPushConstants push_constants;
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
 
-    push_constants.z_buffer_params = m_common_resources->z_buffer_params;
-    push_constants.radius          = m_bilateral_blur.blur_radius;
-    push_constants.g_buffer_mip    = m_g_buffer_mip;
+        BilateralBlurPushConstants push_constants;
 
-    vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+        push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+        push_constants.direction       = glm::ivec2(1, 0);
+        push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.g_buffer_mip    = m_g_buffer_mip;
 
-    VkDescriptorSet descriptor_sets[] = {
-        m_bilateral_blur.write_ds->handle(),
-        m_temporal_accumulation.output_read_ds[m_common_resources->ping_pong]->handle(),
-        m_temporal_accumulation.read_ds[m_common_resources->ping_pong]->handle(),
-        m_g_buffer->output_ds()->handle()
-    };
+        vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+        VkDescriptorSet descriptor_sets[] = {
+            m_bilateral_blur.write_ds[0]->handle(),
+            m_temporal_accumulation.output_read_ds[m_common_resources->ping_pong]->handle(),
+            m_temporal_accumulation.read_ds[m_common_resources->ping_pong]->handle(),
+            m_g_buffer->output_ds()->handle()
+        };
 
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image->height()) / float(NUM_THREADS_Y))), 1);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_bilateral_blur.image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_bilateral_blur.image[0]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
+
+    // Horizontal
+    {
+        DW_SCOPED_SAMPLE("Horizontal", cmd_buf);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_bilateral_blur.image[1]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
+
+        BilateralBlurPushConstants push_constants;
+
+        push_constants.z_buffer_params = m_common_resources->z_buffer_params;
+        push_constants.direction       = glm::ivec2(0, 1);
+        push_constants.radius          = m_bilateral_blur.blur_radius;
+        push_constants.g_buffer_mip    = m_g_buffer_mip;
+
+        vkCmdPushConstants(cmd_buf->handle(), m_bilateral_blur.layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+        VkDescriptorSet descriptor_sets[] = {
+            m_bilateral_blur.write_ds[1]->handle(),
+            m_bilateral_blur.read_ds[0]->handle(),
+            m_temporal_accumulation.read_ds[m_common_resources->ping_pong]->handle(),
+            m_g_buffer->output_ds()->handle()
+        };
+
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_bilateral_blur.image[0]->height()) / float(NUM_THREADS_Y))), 1);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_bilateral_blur.image[1]->handle(),
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            subresource_range);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

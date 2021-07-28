@@ -95,10 +95,10 @@ private:
         int32_t                      blur_radius = 4;
         dw::vk::PipelineLayout::Ptr  layout;
         dw::vk::ComputePipeline::Ptr pipeline;
-        dw::vk::Image::Ptr           image;
-        dw::vk::ImageView::Ptr       image_view;
-        dw::vk::DescriptorSet::Ptr   read_ds;
-        dw::vk::DescriptorSet::Ptr   write_ds;
+        dw::vk::Image::Ptr           image[2];
+        dw::vk::ImageView::Ptr       image_view[2];
+        dw::vk::DescriptorSet::Ptr   read_ds[2];
+        dw::vk::DescriptorSet::Ptr   write_ds[2];
     };
 
     struct Upsample
