@@ -103,7 +103,7 @@ private:
         float                        sigma_depth        = 1.0f;
         float                        power              = 1.2f;
         int32_t                      radius             = 1;
-        int32_t                      filter_iterations  = 3;
+        int32_t                      filter_iterations  = 4;
         int32_t                      feedback_iteration = 1;
         int32_t                      read_idx           = 0;
         dw::vk::ComputePipeline::Ptr pipeline;

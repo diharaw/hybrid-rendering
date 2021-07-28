@@ -481,7 +481,7 @@ void main()
     {
         if (should_skip_denoise)
         {
-            uint idx                   = atomicAdd(ShadowTileDispatchArgs.num_groups_x, 1);
+            uint idx                  = atomicAdd(ShadowTileDispatchArgs.num_groups_x, 1);
             ShadowTileData.coord[idx] = current_coord;
         }
         else

@@ -127,6 +127,7 @@ void RayTracedShadows::gui()
     ImGui::InputFloat("Phi Visibility", &m_a_trous.phi_visibility);
     ImGui::InputFloat("Phi Normal", &m_a_trous.phi_normal);
     ImGui::InputFloat("Sigma Depth", &m_a_trous.sigma_depth);
+    ImGui::SliderInt("Filter Iterations", &m_a_trous.filter_iterations, 1, 5);
     ImGui::SliderFloat("Power", &m_a_trous.power, 1.0f, 50.0f);
 }
 
