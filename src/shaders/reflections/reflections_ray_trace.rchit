@@ -73,7 +73,9 @@ layout(push_constant) uniform PushConstants
     uint  num_frames;
     int   g_buffer_mip;
     int   sample_gi;
+    int   approximate_with_ddgi;
     float gi_intensity;
+    float rough_ddgi_intensity;
 }
 u_PushConstants;
 

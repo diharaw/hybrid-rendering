@@ -15,7 +15,9 @@ struct RayTracePushConstants
     uint32_t num_frames;
     int32_t  g_buffer_mip;
     int32_t  sample_gi;
+    int32_t  approximate_with_ddgi;
     float    gi_intensity;
+    float    rough_ddgi_intensity;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -118,7 +120,11 @@ void RayTracedReflections::gui()
     ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::Checkbox("Blur as Temporal Input", &m_temporal_accumulation.blur_as_input);
     ImGui::Checkbox("Sample GI", &m_ray_trace.sample_gi);
-    ImGui::SliderFloat("GI Intensity", &m_ray_trace.gi_intensity, 0.0f, 10.0f);
+    if (m_ray_trace.sample_gi)
+        ImGui::SliderFloat("GI Intensity", &m_ray_trace.gi_intensity, 0.0f, 10.0f);
+    ImGui::Checkbox("Approximate With DDGI", &m_ray_trace.approximate_with_ddgi);
+    if (m_ray_trace.approximate_with_ddgi)
+        ImGui::SliderFloat("Rough DDGI Intensity", &m_ray_trace.rough_ddgi_intensity, 0.0f, 10.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
     ImGui::SliderFloat("Lobe Trim", &m_ray_trace.trim, 0.0f, 1.0f);
     ImGui::InputFloat("Alpha", &m_temporal_accumulation.alpha);
@@ -867,7 +873,9 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* d
     push_constants.num_frames   = m_common_resources->num_frames;
     push_constants.g_buffer_mip = m_g_buffer_mip;
     push_constants.sample_gi    = m_ray_trace.sample_gi && !m_first_frame ? 1 : 0;
+    push_constants.approximate_with_ddgi    = m_ray_trace.approximate_with_ddgi && !m_first_frame ? 1 : 0;
     push_constants.gi_intensity = m_ray_trace.gi_intensity;
+    push_constants.rough_ddgi_intensity             = m_ray_trace.rough_ddgi_intensity;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 
