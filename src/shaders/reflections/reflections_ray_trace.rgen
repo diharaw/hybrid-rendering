@@ -179,7 +179,7 @@ void main()
     }
     else if (roughness > DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD && u_PushConstants.approximate_with_ddgi == 1)
     {
-        vec3 R = reflect(-Wo, N.xyz);
+        vec3 R                    = reflect(-Wo, N.xyz);
         p_ReflectionPayload.color = u_PushConstants.rough_ddgi_intensity * sample_irradiance(ddgi, P, R, Wo, s_Irradiance, s_Depth);
     }
     else
