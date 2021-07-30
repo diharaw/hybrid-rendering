@@ -20,6 +20,7 @@ public:
     const static OutputType  kOutputTypeEnums[];
     const static std::string kOutputTypeNames[];
 
+
 public:
     RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
     ~RayTracedReflections();
