@@ -20,7 +20,6 @@ public:
     const static OutputType  kOutputTypeEnums[];
     const static std::string kOutputTypeNames[];
 
-
 public:
     RayTracedReflections(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, GBuffer* g_buffer, RayTraceScale scale = RAY_TRACE_SCALE_HALF_RES);
     ~RayTracedReflections();
@@ -37,6 +36,7 @@ public:
 
 private:
     void create_images();
+    void create_buffers();
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipelines();
@@ -69,10 +69,15 @@ private:
         float                            alpha         = 0.01f;
         float                            moments_alpha = 0.2f;
         bool                             blur_as_input = false;
+        dw::vk::Buffer::Ptr              denoise_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              denoise_dispatch_args_buffer;
+        dw::vk::Buffer::Ptr              copy_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              copy_dispatch_args_buffer;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr indirect_buffer_ds_layout;
         dw::vk::Image::Ptr               current_output_image[2];
         dw::vk::Image::Ptr               current_moments_image[2];
         dw::vk::Image::Ptr               prev_image;
@@ -83,6 +88,13 @@ private:
         dw::vk::DescriptorSet::Ptr       current_read_ds[2];
         dw::vk::DescriptorSet::Ptr       output_only_read_ds[2];
         dw::vk::DescriptorSet::Ptr       prev_read_ds[2];
+        dw::vk::DescriptorSet::Ptr       indirect_buffer_ds;
+    };
+
+    struct CopyTiles
+    {
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
     };
 
     struct ATrous
@@ -124,6 +136,7 @@ private:
     bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
     TemporalAccumulation           m_temporal_accumulation;
+    CopyTiles                      m_copy_tiles;
     ATrous                         m_a_trous;
     Upsample                       m_upsample;
 };

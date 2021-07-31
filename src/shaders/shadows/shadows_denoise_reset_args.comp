@@ -18,13 +18,13 @@ layout(set = 0, binding = 1, std430) buffer DenoiseTileDispatchArgs_t
     uint num_groups_z;
 }
 DenoiseTileDispatchArgs;
-layout(set = 0, binding = 3, std430) buffer ShadowTileDispatchArgs_t
+layout(set = 0, binding = 3, std430) buffer CopyTileDispatchArgs_t
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
 }
-ShadowTileDispatchArgs;
+CopyTileDispatchArgs;
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -36,9 +36,9 @@ void main()
     DenoiseTileDispatchArgs.num_groups_y = 1;
     DenoiseTileDispatchArgs.num_groups_z = 1;
 
-    ShadowTileDispatchArgs.num_groups_x = 0;
-    ShadowTileDispatchArgs.num_groups_y = 1;
-    ShadowTileDispatchArgs.num_groups_z = 1;
+    CopyTileDispatchArgs.num_groups_x = 0;
+    CopyTileDispatchArgs.num_groups_y = 1;
+    CopyTileDispatchArgs.num_groups_z = 1;
 }
 
 // ------------------------------------------------------------------

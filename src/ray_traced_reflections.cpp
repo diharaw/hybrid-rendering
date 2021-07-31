@@ -8,6 +8,11 @@
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+static const uint32_t TEMPORAL_ACCUMULATION_NUM_THREADS_X = 8;
+static const uint32_t TEMPORAL_ACCUMULATION_NUM_THREADS_Y = 8;
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct RayTracePushConstants
 {
     float    bias;
@@ -29,6 +34,7 @@ struct TemporalAccumulationPushConstants
     float     alpha;
     float     moments_alpha;
     int32_t   g_buffer_mip;
+    int       approximate_with_ddgi;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -83,6 +89,7 @@ RayTracedReflections::RayTracedReflections(std::weak_ptr<dw::vk::Backend> backen
     m_g_buffer_mip = static_cast<uint32_t>(scale);
 
     create_images();
+    create_buffers();
     create_descriptor_sets();
     write_descriptor_sets();
     create_pipelines();
@@ -221,6 +228,21 @@ void RayTracedReflections::create_images()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+void RayTracedReflections::create_buffers()
+{
+    auto backend = m_backend.lock();
+
+    uint32_t default_args[] = { 1, 1, 1 };
+
+    m_temporal_accumulation.denoise_tile_coords_buffer   = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
+    m_temporal_accumulation.denoise_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0, default_args);
+
+    m_temporal_accumulation.copy_tile_coords_buffer   = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
+    m_temporal_accumulation.copy_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0, default_args);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::create_descriptor_sets()
 {
     auto backend = m_backend.lock();
@@ -256,6 +278,21 @@ void RayTracedReflections::create_descriptor_sets()
         m_temporal_accumulation.current_read_ds[i]     = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
         m_temporal_accumulation.prev_read_ds[i]        = backend->allocate_descriptor_set(m_temporal_accumulation.read_ds_layout);
         m_temporal_accumulation.output_only_read_ds[i] = backend->allocate_descriptor_set(m_common_resources->combined_sampler_ds_layout);
+    }
+
+    // Indirect Buffer
+    {
+        dw::vk::DescriptorSetLayout::Desc desc;
+
+        desc.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+        desc.add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+        m_temporal_accumulation.indirect_buffer_ds_layout = dw::vk::DescriptorSetLayout::create(backend, desc);
+
+        m_temporal_accumulation.indirect_buffer_ds = backend->allocate_descriptor_set(m_temporal_accumulation.indirect_buffer_ds_layout);
+        m_temporal_accumulation.indirect_buffer_ds->set_name("Temporal Accumulation Indirect Buffer");
     }
 
     // A-Trous
@@ -540,6 +577,102 @@ void RayTracedReflections::write_descriptor_sets()
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
+    // Indirect Buffer
+    {
+        std::vector<VkDescriptorBufferInfo> buffer_infos;
+        std::vector<VkWriteDescriptorSet>   write_datas;
+        VkWriteDescriptorSet                write_data;
+
+        buffer_infos.reserve(4);
+        write_datas.reserve(4);
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.denoise_tile_coords_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.denoise_tile_coords_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 0;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.denoise_dispatch_args_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.denoise_dispatch_args_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 1;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.copy_tile_coords_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.copy_tile_coords_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 2;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        {
+            VkDescriptorBufferInfo buffer_info;
+
+            buffer_info.range  = m_temporal_accumulation.copy_dispatch_args_buffer->size();
+            buffer_info.offset = 0;
+            buffer_info.buffer = m_temporal_accumulation.copy_dispatch_args_buffer->handle();
+
+            buffer_infos.push_back(buffer_info);
+
+            DW_ZERO_MEMORY(write_data);
+
+            write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_data.descriptorCount = 1;
+            write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write_data.pBufferInfo     = &buffer_infos.back();
+            write_data.dstBinding      = 3;
+            write_data.dstSet          = m_temporal_accumulation.indirect_buffer_ds->handle();
+
+            write_datas.push_back(write_data);
+        }
+
+        vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
+    }
+
     // A-Trous write
     {
         std::vector<VkDescriptorImageInfo> image_infos;
@@ -716,7 +849,8 @@ void RayTracedReflections::create_pipelines()
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
-
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
+        
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalAccumulationPushConstants));
 
         m_temporal_accumulation.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
@@ -739,6 +873,7 @@ void RayTracedReflections::create_pipelines()
         desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
 
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ATrousFilterPushConstants));
 
@@ -953,6 +1088,7 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
     push_constants.alpha         = m_temporal_accumulation.alpha;
     push_constants.moments_alpha = m_temporal_accumulation.moments_alpha;
     push_constants.g_buffer_mip  = m_g_buffer_mip;
+    push_constants.approximate_with_ddgi = m_ray_trace.approximate_with_ddgi && !m_first_frame ? 1 : 0;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
 
@@ -964,10 +1100,11 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
         m_g_buffer->history_ds()->handle(),
         m_ray_trace.read_ds->handle(),
         m_temporal_accumulation.blur_as_input ? m_temporal_accumulation.prev_read_ds[!m_common_resources->ping_pong]->handle() : m_temporal_accumulation.current_read_ds[!m_common_resources->ping_pong]->handle(),
-        m_common_resources->per_frame_ds->handle()
+        m_common_resources->per_frame_ds->handle(),
+        m_temporal_accumulation.indirect_buffer_ds->handle()
     };
 
-    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 6, descriptor_sets, 1, &dynamic_offset);
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 
@@ -1046,10 +1183,11 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
         VkDescriptorSet descriptor_sets[] = {
             m_a_trous.write_ds[write_idx]->handle(),
             i == 0 ? m_temporal_accumulation.output_only_read_ds[m_common_resources->ping_pong]->handle() : m_a_trous.read_ds[read_idx]->handle(),
-            m_g_buffer->output_ds()->handle()
+            m_g_buffer->output_ds()->handle(),
+            m_temporal_accumulation.indirect_buffer_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
 
         vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
 
