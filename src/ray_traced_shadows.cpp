@@ -222,13 +222,11 @@ void RayTracedShadows::create_buffers()
 {
     auto backend = m_backend.lock();
 
-    uint32_t default_args[] = { 1, 1, 1 };
-
     m_temporal_accumulation.denoise_tile_coords_buffer   = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
-    m_temporal_accumulation.denoise_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0, default_args);
+    m_temporal_accumulation.denoise_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0);
 
     m_temporal_accumulation.shadow_tile_coords_buffer   = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VMA_MEMORY_USAGE_GPU_ONLY, 0);
-    m_temporal_accumulation.shadow_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0, default_args);
+    m_temporal_accumulation.shadow_dispatch_args_buffer = dw::vk::Buffer::create(backend, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, sizeof(int32_t) * 3, VMA_MEMORY_USAGE_GPU_ONLY, 0);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
