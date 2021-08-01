@@ -42,6 +42,7 @@ private:
     void create_pipelines();
     void clear_images(dw::vk::CommandBuffer::Ptr cmd_buf);
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi);
+    void reset_args(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
     void a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -62,6 +63,12 @@ private:
         dw::vk::Image::Ptr              image;
         dw::vk::ImageView::Ptr          view;
         dw::vk::ShaderBindingTable::Ptr sbt;
+    };
+
+    struct ResetArgs
+    {
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
     };
 
     struct TemporalAccumulation
@@ -135,6 +142,7 @@ private:
     bool                           m_denoise     = true;
     bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
+    ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
     CopyTiles                      m_copy_tiles;
     ATrous                         m_a_trous;

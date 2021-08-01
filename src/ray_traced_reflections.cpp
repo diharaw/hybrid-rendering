@@ -47,6 +47,7 @@ struct ATrousFilterPushConstants
     float   phi_normal;
     float   sigma_depth;
     int32_t g_buffer_mip;
+    int32_t approximate_with_ddgi;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -112,6 +113,7 @@ void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi
 
     if (m_denoise)
     {
+        reset_args(cmd_buf);
         temporal_accumulation(cmd_buf);
         a_trous_filter(cmd_buf);
 
@@ -839,6 +841,25 @@ void RayTracedReflections::create_pipelines()
         m_ray_trace.pipeline = dw::vk::RayTracingPipeline::create(backend, desc);
     }
 
+    // Reset Args
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
+
+        m_reset_args.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_reset_args.pipeline_layout->set_name("Reset Args Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_denoise_reset_args.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_reset_args.pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_reset_args.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+    }
+
     // Reprojection
     {
         dw::vk::PipelineLayout::Desc desc;
@@ -864,6 +885,27 @@ void RayTracedReflections::create_pipelines()
         comp_desc.set_shader_stage(module, "main");
 
         m_temporal_accumulation.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
+    }
+
+    // Copy Tiles
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
+        desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
+
+        m_copy_tiles.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
+        m_copy_tiles.pipeline_layout->set_name("Copy Tiles Pipeline Layout");
+
+        dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(backend, "shaders/reflections_denoise_copy_tiles.comp.spv");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_copy_tiles.pipeline_layout);
+        comp_desc.set_shader_stage(module, "main");
+
+        m_copy_tiles.pipeline = dw::vk::ComputePipeline::create(backend, comp_desc);
     }
 
     // A-Trous Filter
@@ -1056,6 +1098,34 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* d
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+void RayTracedReflections::reset_args(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Reset Args", cmd_buf);
+
+    {
+        std::vector<VkBufferMemoryBarrier> buffer_barriers = {
+            buffer_memory_barrier(m_temporal_accumulation.denoise_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.denoise_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.copy_tile_coords_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            buffer_memory_barrier(m_temporal_accumulation.copy_dispatch_args_buffer, 0, VK_WHOLE_SIZE, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, {}, {}, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reset_args.pipeline->handle());
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_temporal_accumulation.indirect_buffer_ds->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_reset_args.pipeline_layout->handle(), 0, 1, descriptor_sets, 0, nullptr);
+
+    vkCmdDispatch(cmd_buf->handle(), 1, 1, 1);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Temporal Accumulation", cmd_buf);
@@ -1076,8 +1146,6 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
 
         pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
-
-    const uint32_t NUM_THREADS = 32;
 
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline->handle());
 
@@ -1106,7 +1174,7 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 7, descriptor_sets, 1, &dynamic_offset);
 
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), 1);
 
     {
         std::vector<VkMemoryBarrier> memory_barriers = {
@@ -1128,11 +1196,7 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("A-Trous Filter", cmd_buf);
 
-    const uint32_t NUM_THREADS = 32;
-
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline->handle());
 
     bool    ping_pong = false;
     int32_t read_idx  = 0;
@@ -1169,27 +1233,48 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
             pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         }
 
-        ATrousFilterPushConstants push_constants;
+        // Copy the required tiles
+        {
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_copy_tiles.pipeline->handle());
 
-        push_constants.radius       = m_a_trous.radius;
-        push_constants.step_size    = 1 << i;
-        push_constants.phi_color    = m_a_trous.phi_color;
-        push_constants.phi_normal   = m_a_trous.phi_normal;
-        push_constants.g_buffer_mip = m_g_buffer_mip;
-        push_constants.sigma_depth  = m_a_trous.sigma_depth;
+            VkDescriptorSet descriptor_sets[] = {
+                m_a_trous.write_ds[write_idx]->handle(),
+                i == 0 ? m_temporal_accumulation.output_only_read_ds[m_common_resources->ping_pong]->handle() : m_a_trous.read_ds[read_idx]->handle(),
+                m_temporal_accumulation.indirect_buffer_ds->handle()
+            };
 
-        vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_copy_tiles.pipeline_layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
-        VkDescriptorSet descriptor_sets[] = {
-            m_a_trous.write_ds[write_idx]->handle(),
-            i == 0 ? m_temporal_accumulation.output_only_read_ds[m_common_resources->ping_pong]->handle() : m_a_trous.read_ds[read_idx]->handle(),
-            m_g_buffer->output_ds()->handle(),
-            m_temporal_accumulation.indirect_buffer_ds->handle()
-        };
+            vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.copy_dispatch_args_buffer->handle(), 0);
+        }
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+        // A-Trous Filter
+        {
+            vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline->handle());
 
-        vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))), 1);
+            ATrousFilterPushConstants push_constants;
+
+            push_constants.radius                = m_a_trous.radius;
+            push_constants.step_size             = 1 << i;
+            push_constants.phi_color             = m_a_trous.phi_color;
+            push_constants.phi_normal            = m_a_trous.phi_normal;
+            push_constants.g_buffer_mip          = m_g_buffer_mip;
+            push_constants.sigma_depth           = m_a_trous.sigma_depth;
+            push_constants.approximate_with_ddgi = m_ray_trace.approximate_with_ddgi && !m_first_frame ? 1 : 0;
+
+            vkCmdPushConstants(cmd_buf->handle(), m_a_trous.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
+
+            VkDescriptorSet descriptor_sets[] = {
+                m_a_trous.write_ds[write_idx]->handle(),
+                i == 0 ? m_temporal_accumulation.output_only_read_ds[m_common_resources->ping_pong]->handle() : m_a_trous.read_ds[read_idx]->handle(),
+                m_g_buffer->output_ds()->handle(),
+                m_temporal_accumulation.indirect_buffer_ds->handle()
+            };
+
+            vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline_layout->handle(), 0, 4, descriptor_sets, 0, nullptr);
+
+            vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.denoise_dispatch_args_buffer->handle(), 0);
+        }
 
         ping_pong = !ping_pong;
 
@@ -1287,9 +1372,9 @@ void RayTracedReflections::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
-
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
+    
+    const uint32_t NUM_THREADS_X = 8;
+    const uint32_t NUM_THREADS_Y = 8;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_upsample.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_upsample.image->height()) / float(NUM_THREADS_Y))), 1);
 

@@ -72,6 +72,8 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_atrous.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_reprojection.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_upsample.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_reset_args.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/reflections/reflections_denoise_copy_tiles.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_probe_visualization.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_probe_visualization.frag
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_ray_trace.rgen

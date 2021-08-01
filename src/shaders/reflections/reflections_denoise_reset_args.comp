@@ -1,0 +1,44 @@
+#version 450
+
+// ------------------------------------------------------------------
+// INPUTS -----------------------------------------------------------
+// ------------------------------------------------------------------
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+// ------------------------------------------------------------------
+// DESCRIPTOR SETS --------------------------------------------------
+// ------------------------------------------------------------------
+
+// Current Reprojection Write DS
+layout(set = 0, binding = 1, std430) buffer DenoiseTileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+}
+DenoiseTileDispatchArgs;
+layout(set = 0, binding = 3, std430) buffer CopyTileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+}
+CopyTileDispatchArgs;
+
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    DenoiseTileDispatchArgs.num_groups_x = 0;
+    DenoiseTileDispatchArgs.num_groups_y = 1;
+    DenoiseTileDispatchArgs.num_groups_z = 1;
+
+    CopyTileDispatchArgs.num_groups_x = 0;
+    CopyTileDispatchArgs.num_groups_y = 1;
+    CopyTileDispatchArgs.num_groups_z = 1;
+}
+
+// ------------------------------------------------------------------
