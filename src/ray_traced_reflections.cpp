@@ -869,7 +869,7 @@ void RayTracedReflections::create_pipelines()
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.indirect_buffer_ds_layout);
-        
+
         desc.add_push_constant_range(VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TemporalAccumulationPushConstants));
 
         m_temporal_accumulation.pipeline_layout = dw::vk::PipelineLayout::create(backend, desc);
@@ -1156,11 +1156,11 @@ void RayTracedReflections::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_
 
     TemporalAccumulationPushConstants push_constants;
 
-    push_constants.camera_delta  = m_common_resources->camera_delta;
-    push_constants.frame_time    = m_common_resources->frame_time;
-    push_constants.alpha         = m_temporal_accumulation.alpha;
-    push_constants.moments_alpha = m_temporal_accumulation.moments_alpha;
-    push_constants.g_buffer_mip  = m_g_buffer_mip;
+    push_constants.camera_delta          = m_common_resources->camera_delta;
+    push_constants.frame_time            = m_common_resources->frame_time;
+    push_constants.alpha                 = m_temporal_accumulation.alpha;
+    push_constants.moments_alpha         = m_temporal_accumulation.moments_alpha;
+    push_constants.g_buffer_mip          = m_g_buffer_mip;
     push_constants.approximate_with_ddgi = m_ray_trace.approximate_with_ddgi && !m_first_frame ? 1 : 0;
 
     vkCmdPushConstants(cmd_buf->handle(), m_temporal_accumulation.pipeline_layout->handle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants), &push_constants);
@@ -1247,6 +1247,8 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         // Copy the required tiles
         {
+            DW_SCOPED_SAMPLE("Copy Tiles", cmd_buf);
+
             vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_copy_tiles.pipeline->handle());
 
             VkDescriptorSet descriptor_sets[] = {
@@ -1262,6 +1264,8 @@ void RayTracedReflections::a_trous_filter(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         // A-Trous Filter
         {
+            DW_SCOPED_SAMPLE("Iteration " + std::to_string(i), cmd_buf);
+
             vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_a_trous.pipeline->handle());
 
             ATrousFilterPushConstants push_constants;
@@ -1384,7 +1388,7 @@ void RayTracedReflections::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
     };
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
-    
+
     const uint32_t NUM_THREADS_X = 8;
     const uint32_t NUM_THREADS_Y = 8;
 

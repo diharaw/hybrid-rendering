@@ -443,11 +443,11 @@ void main()
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 
-    const float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
+    const float depth     = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
     const float roughness = texelFetch(s_GBuffer3, current_coord, u_PushConstants.g_buffer_mip).r;
 
     vec4 output_radiance = vec4(0.0f);
-    vec4 output_moments = vec4(0.0f);
+    vec4 output_moments  = vec4(0.0f);
 
     if (depth != 1.0f)
     {
@@ -510,13 +510,13 @@ void main()
         // temporal integration of radiance
         vec3 accumulated_color = mix(history_color, color, alpha);
 
-        output_moments = vec4(moments, history_length, 0.0f);
+        output_moments  = vec4(moments, history_length, 0.0f);
         output_radiance = vec4(accumulated_color, variance);
     }
 
     imageStore(i_Moments, ivec2(gl_GlobalInvocationID.xy), output_moments);
-    imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), output_radiance);   
-    
+    imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), output_radiance);
+
     // If all the threads are in within the roughness range, skip the A-Trous filter.
     bool should_skip_denoise = subgroupAll(depth == 1.0f) || subgroupAll(roughness < MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD) || (u_PushConstants.approximate_with_ddgi == 1 && subgroupAll(roughness > DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD));
 
