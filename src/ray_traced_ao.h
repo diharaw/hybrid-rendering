@@ -61,13 +61,24 @@ private:
         dw::vk::DescriptorSet::Ptr   bilinear_read_ds;
     };
 
+    struct ResetArgs
+    {
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
+        dw::vk::ComputePipeline::Ptr pipeline;
+    };
+
     struct TemporalAccumulation
     {
         float                            alpha = 0.01f;
+        dw::vk::Buffer::Ptr              denoise_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              denoise_dispatch_args_buffer;
+        dw::vk::Buffer::Ptr              disocclusion_tile_coords_buffer;
+        dw::vk::Buffer::Ptr              disocclusion_dispatch_args_buffer;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
+        dw::vk::DescriptorSetLayout::Ptr indirect_buffer_ds_layout;
         dw::vk::Image::Ptr               color_image[2];
         dw::vk::ImageView::Ptr           color_view[2];
         dw::vk::Image::Ptr               history_length_image[2];
@@ -75,6 +86,7 @@ private:
         dw::vk::DescriptorSet::Ptr       write_ds[2];
         dw::vk::DescriptorSet::Ptr       read_ds[2];
         dw::vk::DescriptorSet::Ptr       output_read_ds[2];
+        dw::vk::DescriptorSet::Ptr       indirect_buffer_ds;
     };
 
     struct DisocclusionBlur
