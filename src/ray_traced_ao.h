@@ -36,6 +36,7 @@ public:
 
 private:
     void create_images();
+    void create_buffers();
     void create_descriptor_sets();
     void write_descriptor_sets();
     void create_pipeline();
@@ -43,6 +44,7 @@ private:
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void denoise(dw::vk::CommandBuffer::Ptr cmd_buf);
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void reset_args(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
     void disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
     void bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
@@ -135,6 +137,7 @@ private:
     bool                           m_denoise     = true;
     bool                           m_first_frame = true;
     RayTrace                       m_ray_trace;
+    ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
     DisocclusionBlur               m_disocclusion_blur;
     BilateralBlur                  m_bilateral_blur;
