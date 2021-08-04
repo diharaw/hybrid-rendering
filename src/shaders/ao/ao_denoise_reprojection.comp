@@ -1,5 +1,6 @@
 #version 450
 
+#extension GL_KHR_shader_subgroup_vote : enable
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
@@ -61,6 +62,31 @@ layout(set = 6, binding = 0) uniform PerFrameUBO
     Light light;
 }
 u_GlobalUBO;
+
+layout(set = 7, binding = 0, std430) buffer DenoiseTileData_t
+{
+    ivec2 coord[];
+}
+DenoiseTileData;
+layout(set = 7, binding = 1, std430) buffer DenoiseTileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+}
+DenoiseTileDispatchArgs;
+layout(set = 7, binding = 2, std430) buffer DisocclusionTileData_t
+{
+    ivec2 coord[];
+}
+DisocclusionTileData;
+layout(set = 7, binding = 3, std430) buffer DisocclusionTileDispatchArgs_t
+{
+    uint num_groups_x;
+    uint num_groups_y;
+    uint num_groups_z;
+}
+DisocclusionTileDispatchArgs;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -394,47 +420,65 @@ void main()
 
     float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
-    if (depth == 1.0f)
-    {
-        imageStore(i_Output, current_coord, vec4(0.0f));
-        imageStore(i_HistoryLength, current_coord, uvec4(0));
-        return;
-    }
-
-    float ao = unpack_ao_hit_value(current_coord);
-
+    float out_ao = 1.0f;
     float history_length;
-    float history_ao;
-    bool  success = load_prev_data(current_coord,
-                                  depth,
-                                  history_ao,
-                                  history_length);
 
-    history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
-
-    if (success)
+    if (depth != 1.0f)
     {
-        float spatial_variance = mean;
-        spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
+        float ao = unpack_ao_hit_value(current_coord);
+        float history_ao;
+        bool  success = load_prev_data(current_coord,
+                                      depth,
+                                      history_ao,
+                                      history_length);
 
-        // Compute the clamping bounding box
-        const float std_deviation = sqrt(spatial_variance);
-        const float nmin          = mean - 0.5f * std_deviation;
-        const float nmax          = mean + 0.5f * std_deviation;
+        history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
 
-        history_ao = clamp(history_ao, nmin, nmax);
+        if (success)
+        {
+            float spatial_variance = mean;
+            spatial_variance       = max(spatial_variance - mean * mean, 0.0f);
+
+            // Compute the clamping bounding box
+            const float std_deviation = sqrt(spatial_variance);
+            const float nmin          = mean - 0.5f * std_deviation;
+            const float nmax          = mean + 0.5f * std_deviation;
+
+            history_ao = clamp(history_ao, nmin, nmax);
+        }
+
+        // this adjusts the alpha for the case where insufficient history is available.
+        // It boosts the temporal accumulation to give the samples equal weights in
+        // the beginning.
+        const float alpha = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
+
+        out_ao = mix(history_ao, ao, alpha);
     }
-
-    // this adjusts the alpha for the case where insufficient history is available.
-    // It boosts the temporal accumulation to give the samples equal weights in
-    // the beginning.
-    const float alpha = success ? max(u_PushConstants.alpha, 1.0 / history_length) : 1.0;
-
-    float out_ao = mix(history_ao, ao, alpha);
 
     // temporal integration
     imageStore(i_Output, current_coord, vec4(out_ao));
     imageStore(i_HistoryLength, current_coord, vec4(history_length));
+
+    // If at least one thread has an occlusion value, perform denoising.
+    bool should_denoise = subgroupAll(depth == 1.0f) || subgroupAny(out_ao < 1.0f);
+
+    // If at least one thread has disoccluded samples, perform the disocclusion blur.
+    bool has_disocclusion = subgroupAny(history_length == 1.0f);
+
+    if (gl_LocalInvocationIndex == 0)
+    {
+        if (should_denoise)
+        {
+            uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
+            DenoiseTileData.coord[idx] = current_coord;
+        }
+        
+        if (has_disocclusion)
+        {
+            uint idx                  = atomicAdd(DisocclusionTileDispatchArgs.num_groups_x, 1);
+            DisocclusionTileData.coord[idx] = current_coord;
+        }
+    }
 }
 
 // ------------------------------------------------------------------

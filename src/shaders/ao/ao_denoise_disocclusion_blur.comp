@@ -4,8 +4,8 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
-#define NUM_THREADS_X 32
-#define NUM_THREADS_Y 32
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
 #define MAX_RECONSTRUCTED_MIPS 4.0f
 
 // ------------------------------------------------------------------
@@ -29,6 +29,12 @@ layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Me
 layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
 layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
+
+layout(set = 4, binding = 2, std430) buffer DisocclusionTileData_t
+{
+    ivec2 coord[];
+}
+DisocclusionTileData;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -127,7 +133,7 @@ void main()
     const ivec2 size = textureSize(s_Input, 0);
 
     // Compute current pixel coord
-    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 current_coord = DisocclusionTileData.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
     const vec2  tex_coord     = pixel_center / vec2(size);
 

@@ -27,15 +27,23 @@ layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z 
 
 layout(set = 0, binding = 0, r16f) uniform image2D i_Output;
 
-layout(set = 1, binding = 0) uniform sampler2D s_Input;
+layout(set = 1, binding = 0, r16f) uniform image2D i_DisocclusionOutput;
 
-layout(set = 2, binding = 1) uniform sampler2D s_HistoryLength;
+layout(set = 2, binding = 0) uniform sampler2D s_Input;
+
+layout(set = 3, binding = 1) uniform sampler2D s_HistoryLength;
 
 // Current G-buffer DS
-layout(set = 3, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
-layout(set = 3, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
-layout(set = 3, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
-layout(set = 3, binding = 3) uniform sampler2D s_GBufferDepth;
+layout(set = 4, binding = 0) uniform sampler2D s_GBuffer1; // RGB: Albedo, A: Metallic
+layout(set = 4, binding = 1) uniform sampler2D s_GBuffer2; // RG: Normal, BA: Motion Vector
+layout(set = 4, binding = 2) uniform sampler2D s_GBuffer3; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
+layout(set = 4, binding = 3) uniform sampler2D s_GBufferDepth;
+
+layout(set = 5, binding = 0, std430) buffer DenoiseTileData_t
+{
+    ivec2 coord[];
+}
+DenoiseTileData;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -149,7 +157,7 @@ void main()
     ivec2 size = textureSize(s_GBuffer1, u_PushConstants.g_buffer_mip);
 
     // Compute current pixel coord
-    ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 current_coord = DenoiseTileData.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
 
     // Skip pixel if it belongs to the background
     float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
@@ -157,6 +165,7 @@ void main()
     if (depth == 1.0f)
     {
         imageStore(i_Output, current_coord, vec4(0.0f));
+        imageStore(i_DisocclusionOutput, current_coord, vec4(0.0f));
         return;
     }
 
@@ -165,6 +174,7 @@ void main()
 
     // Store blurred ao
     imageStore(i_Output, current_coord, vec4(ao));
+    imageStore(i_DisocclusionOutput, current_coord, vec4(ao));
 }
 
 // ------------------------------------------------------------------

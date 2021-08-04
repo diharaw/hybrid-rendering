@@ -936,6 +936,7 @@ void RayTracedAO::create_pipeline()
         dw::vk::PipelineLayout::Desc desc;
 
         desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
+        desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
         desc.add_descriptor_set_layout(m_temporal_accumulation.read_ds_layout);
         desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
@@ -1089,6 +1090,7 @@ void RayTracedAO::denoise(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Denoise", cmd_buf);
 
+    reset_args(cmd_buf);
     temporal_accumulation(cmd_buf);
     bilateral_blur(cmd_buf);
     disocclusion_blur(cmd_buf);
@@ -1126,8 +1128,8 @@ void RayTracedAO::upsample(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_upsample.layout->handle(), 0, 3, descriptor_sets, 0, nullptr);
 
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
+    const int NUM_THREADS_X = 8;
+    const int NUM_THREADS_Y = 8;
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_upsample.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_upsample.image->height()) / float(NUM_THREADS_Y))), 1);
 
@@ -1221,10 +1223,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_accumulation.pipeline_layout->handle(), 0, 8, descriptor_sets, 1, &dynamic_offset);
 
-    const int NUM_THREADS_X = 8;
-    const int NUM_THREADS_Y = 8;
-
-    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);
+    vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), 1);
 
     {
         std::vector<VkMemoryBarrier> memory_barriers = {
@@ -1255,13 +1254,6 @@ void RayTracedAO::disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_disocclusion_blur.image->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
-
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_disocclusion_blur.pipeline->handle());
 
     DisocclusionBlurPushConstants push_constants;
@@ -1284,8 +1276,8 @@ void RayTracedAO::disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_disocclusion_blur.layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
 
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
+    const int NUM_THREADS_X = 8;
+    const int NUM_THREADS_Y = 8;
 
     vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.disocclusion_dispatch_args_buffer->handle(), 0);
 
@@ -1319,6 +1311,25 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
 
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_disocclusion_blur.image->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            subresource_range);
+
+        {
+            VkClearColorValue color;
+
+            color.float32[0] = 1.0f;
+            color.float32[1] = 1.0f;
+            color.float32[2] = 1.0f;
+            color.float32[3] = 1.0f;
+
+            vkCmdClearColorImage(cmd_buf->handle(), m_bilateral_blur.image[0]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+            vkCmdClearColorImage(cmd_buf->handle(), m_disocclusion_blur.image->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        }
+
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
 
         BilateralBlurPushConstants push_constants;
@@ -1332,13 +1343,14 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VkDescriptorSet descriptor_sets[] = {
             m_bilateral_blur.write_ds[0]->handle(),
+            m_disocclusion_blur.write_ds->handle(),
             m_temporal_accumulation.output_read_ds[m_common_resources->ping_pong]->handle(),
             m_temporal_accumulation.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle(),
             m_temporal_accumulation.indirect_buffer_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
 
         vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.denoise_dispatch_args_buffer->handle(), 0);
 
@@ -1361,6 +1373,17 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
             VK_IMAGE_LAYOUT_GENERAL,
             subresource_range);
 
+        {
+            VkClearColorValue color;
+
+            color.float32[0] = 1.0f;
+            color.float32[1] = 1.0f;
+            color.float32[2] = 1.0f;
+            color.float32[3] = 1.0f;
+
+            vkCmdClearColorImage(cmd_buf->handle(), m_bilateral_blur.image[1]->handle(), VK_IMAGE_LAYOUT_GENERAL, &color, 1, &subresource_range);
+        }
+
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline->handle());
 
         BilateralBlurPushConstants push_constants;
@@ -1374,13 +1397,14 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VkDescriptorSet descriptor_sets[] = {
             m_bilateral_blur.write_ds[1]->handle(),
+            m_disocclusion_blur.write_ds->handle(),
             m_bilateral_blur.read_ds[0]->handle(),
             m_temporal_accumulation.read_ds[m_common_resources->ping_pong]->handle(),
             m_g_buffer->output_ds()->handle(),
             m_temporal_accumulation.indirect_buffer_ds->handle()
         };
 
-        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 5, descriptor_sets, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.layout->handle(), 0, 6, descriptor_sets, 0, nullptr);
 
         vkCmdDispatchIndirect(cmd_buf->handle(), m_temporal_accumulation.denoise_dispatch_args_buffer->handle(), 0);
 
