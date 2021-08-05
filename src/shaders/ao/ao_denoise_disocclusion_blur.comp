@@ -143,7 +143,7 @@ void main()
 
     if (center_depth == 1.0f)
     {
-        imageStore(i_Output, current_coord, vec4(0.0f));
+        imageStore(i_Output, current_coord, vec4(1.0f));
         return;
     }
 

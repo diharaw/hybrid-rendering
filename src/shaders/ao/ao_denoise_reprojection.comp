@@ -460,10 +460,10 @@ void main()
     imageStore(i_HistoryLength, current_coord, vec4(history_length));
 
     // If at least one thread has an occlusion value, perform denoising.
-    bool should_denoise = subgroupAll(depth == 1.0f) || subgroupAny(out_ao < 1.0f);
+    bool should_denoise = !subgroupAll(depth == 1.0f) && subgroupAny(out_ao < 1.0f);
 
     // If at least one thread has disoccluded samples, perform the disocclusion blur.
-    bool has_disocclusion = subgroupAny(history_length == 1.0f);
+    bool has_disocclusion = !subgroupAll(depth == 1.0f) && subgroupAny(history_length == 1.0f);
 
     if (gl_LocalInvocationIndex == 0)
     {

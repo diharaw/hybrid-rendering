@@ -1295,9 +1295,6 @@ void RayTracedAO::bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Bilateral Blur", cmd_buf);
 
-    const int NUM_THREADS_X = 8;
-    const int NUM_THREADS_Y = 8;
-
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
     // Vertical
