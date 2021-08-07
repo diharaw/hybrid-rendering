@@ -101,6 +101,8 @@ layout(push_constant) uniform PushConstants
 }
 u_PushConstants;
 
+shared uint g_should_denoise;
+
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
@@ -438,6 +440,10 @@ float compute_max_accumulated_frame(float history_length)
 
 void main()
 {
+    g_should_denoise = 0;
+
+    barrier();
+
     const ivec2 size          = textureSize(s_HistoryOutput, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
     const vec2  pixel_center  = vec2(current_coord) + vec2(0.5);
@@ -518,19 +524,30 @@ void main()
     imageStore(i_Output, ivec2(gl_GlobalInvocationID.xy), output_radiance);
 
     // If all the threads are in within the roughness range, skip the A-Trous filter.
-    bool should_skip_denoise = subgroupAll(depth == 1.0f) || subgroupAll(roughness < MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD) || (u_PushConstants.approximate_with_ddgi == 1 && subgroupAll(roughness > DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD));
+    if (depth != 1.0f && roughness >= MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD)
+    {
+        if (u_PushConstants.approximate_with_ddgi == 1)
+        {
+            if (roughness <= DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD)
+                g_should_denoise = 1;
+        }
+        else 
+            g_should_denoise = 1;
+    }                    
+
+    barrier();
 
     if (gl_LocalInvocationIndex == 0)
     {
-        if (should_skip_denoise)
-        {
-            uint idx                = atomicAdd(CopyTileDispatchArgs.num_groups_x, 1);
-            CopyTileData.coord[idx] = current_coord;
-        }
-        else
+        if (g_should_denoise == 1)
         {
             uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
             DenoiseTileData.coord[idx] = current_coord;
+        }
+        else
+        {
+            uint idx                = atomicAdd(CopyTileDispatchArgs.num_groups_x, 1);
+            CopyTileData.coord[idx] = current_coord;
         }
     }
 }

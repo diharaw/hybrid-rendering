@@ -1,6 +1,5 @@
 #version 450
 
-#extension GL_KHR_shader_subgroup_vote : enable
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
@@ -105,6 +104,8 @@ u_PushConstants;
 
 shared uint  g_ao_hit_masks[3][6];
 shared float g_mean_accumulation[8][24];
+shared uint g_should_denoise;
+shared uint g_has_disocclusion;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -112,6 +113,9 @@ shared float g_mean_accumulation[8][24];
 
 void populate_cache()
 {
+    g_should_denoise = 0;
+    g_has_disocclusion = 0;
+
     if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
     {
         const ivec2 coord = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
@@ -460,24 +464,25 @@ void main()
     imageStore(i_HistoryLength, current_coord, vec4(history_length));
 
     // If at least one thread has an occlusion value, perform denoising.
-    bool should_denoise = subgroupAny(out_ao > 0.0f && out_ao < 1.0f);
+    if (out_ao < 1.0f)
+        g_should_denoise = 1;
 
     // If at least one thread has disoccluded samples, perform the disocclusion blur.
-    bool has_disocclusion = subgroupAny(history_length == 1.0f);
+    if (history_length == 1.0f)
+        g_has_disocclusion = 1;
 
-    if (gl_LocalInvocationIndex == 0)
+    barrier();
+
+    if (g_should_denoise == 1 && gl_LocalInvocationIndex == 0)
     {
-        if (should_denoise)
-        {
-            uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
-            DenoiseTileData.coord[idx] = current_coord;
-        }
-        
-        if (has_disocclusion)
-        {
-            uint idx                  = atomicAdd(DisocclusionTileDispatchArgs.num_groups_x, 1);
-            DisocclusionTileData.coord[idx] = current_coord;
-        }
+        uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
+        DenoiseTileData.coord[idx] = current_coord;
+    }
+    
+    if (g_has_disocclusion == 1 && gl_LocalInvocationIndex == 0)
+    {
+        uint idx                  = atomicAdd(DisocclusionTileDispatchArgs.num_groups_x, 1);
+        DisocclusionTileData.coord[idx] = current_coord;
     }
 }
 
