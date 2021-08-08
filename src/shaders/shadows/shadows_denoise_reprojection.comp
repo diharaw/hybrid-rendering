@@ -1,6 +1,5 @@
 #version 450
 
-#extension GL_KHR_shader_subgroup_vote : enable
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
@@ -105,6 +104,7 @@ u_PushConstants;
 
 shared uint  g_shadow_hit_masks[3][6];
 shared float g_mean_accumulation[8][24];
+shared uint g_should_denoise;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -412,7 +412,11 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility,
 // ------------------------------------------------------------------
 
 void main()
-{
+{    
+    g_should_denoise = 0;
+
+    barrier();
+
     const ivec2 size          = textureSize(s_HistoryOutput, 0);
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
 
@@ -475,19 +479,22 @@ void main()
     imageStore(i_Output, current_coord, vec4(output_visibility_variance, 0.0f, 0.0f));
 
     // If all the threads are in shadow, skip the A-Trous filter.
-    bool should_skip_denoise = subgroupAll(depth == 1.0f) || subgroupAll(output_visibility_variance.x == 0.0f);
+    if (depth != 1.0f && output_visibility_variance.x > 0.0f && output_visibility_variance.x < 1.0f)
+        g_should_denoise = 1;
+
+    barrier();
 
     if (gl_LocalInvocationIndex == 0)
     {
-        if (should_skip_denoise)
-        {
-            uint idx                  = atomicAdd(ShadowTileDispatchArgs.num_groups_x, 1);
-            ShadowTileData.coord[idx] = current_coord;
-        }
-        else
+        if (g_should_denoise == 1)
         {
             uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
             DenoiseTileData.coord[idx] = current_coord;
+        }
+        else
+        {
+            uint idx                  = atomicAdd(ShadowTileDispatchArgs.num_groups_x, 1);
+            ShadowTileData.coord[idx] = current_coord;
         }
     }
 }
