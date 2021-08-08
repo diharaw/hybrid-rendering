@@ -479,7 +479,7 @@ void main()
     imageStore(i_Output, current_coord, vec4(output_visibility_variance, 0.0f, 0.0f));
 
     // If all the threads are in shadow, skip the A-Trous filter.
-    if (depth != 1.0f && output_visibility_variance.x > 0.0f && output_visibility_variance.x < 1.0f)
+    if (depth != 1.0f && output_visibility_variance.x > 0.0f)
         g_should_denoise = 1;
 
     barrier();
