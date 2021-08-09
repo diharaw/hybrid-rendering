@@ -531,9 +531,9 @@ void main()
             if (roughness <= DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD)
                 g_should_denoise = 1;
         }
-        else 
+        else
             g_should_denoise = 1;
-    }                    
+    }
 
     barrier();
 

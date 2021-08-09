@@ -104,8 +104,8 @@ u_PushConstants;
 
 shared uint  g_ao_hit_masks[3][6];
 shared float g_mean_accumulation[8][24];
-shared uint g_should_denoise;
-shared uint g_has_disocclusion;
+shared uint  g_should_denoise;
+shared uint  g_has_disocclusion;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -113,7 +113,7 @@ shared uint g_has_disocclusion;
 
 void populate_cache()
 {
-    g_should_denoise = 0;
+    g_should_denoise   = 0;
     g_has_disocclusion = 0;
 
     if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
@@ -424,7 +424,7 @@ void main()
 
     float depth = texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r;
 
-    float out_ao = 1.0f;
+    float out_ao         = 1.0f;
     float history_length = 0.0f;
 
     if (depth != 1.0f)
@@ -478,10 +478,10 @@ void main()
         uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
         DenoiseTileData.coord[idx] = current_coord;
     }
-    
+
     if (g_has_disocclusion == 1 && gl_LocalInvocationIndex == 0)
     {
-        uint idx                  = atomicAdd(DisocclusionTileDispatchArgs.num_groups_x, 1);
+        uint idx                        = atomicAdd(DisocclusionTileDispatchArgs.num_groups_x, 1);
         DisocclusionTileData.coord[idx] = current_coord;
     }
 }

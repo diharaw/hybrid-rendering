@@ -104,7 +104,7 @@ u_PushConstants;
 
 shared uint  g_shadow_hit_masks[3][6];
 shared float g_mean_accumulation[8][24];
-shared uint g_should_denoise;
+shared uint  g_should_denoise;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -412,7 +412,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility,
 // ------------------------------------------------------------------
 
 void main()
-{    
+{
     g_should_denoise = 0;
 
     barrier();
