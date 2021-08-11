@@ -908,11 +908,11 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.pipeline_layout->handle(), 0, 3, descriptor_sets, 1, dynamic_offsets);
 
-    const int NUM_THREADS_X = 32;
-    const int NUM_THREADS_Y = 32;
+    const int NUM_THREADS_X = is_irradiance ? m_probe_grid.irradiance_oct_size : m_probe_grid.depth_oct_size;
+    const int NUM_THREADS_Y = is_irradiance ? m_probe_grid.irradiance_oct_size : m_probe_grid.depth_oct_size;
 
-    const uint32_t dispatch_x = static_cast<uint32_t>(ceil(float(is_irradiance ? m_probe_grid.irradiance_image[0]->width() : m_probe_grid.depth_image[0]->width()) / float(NUM_THREADS_X)));
-    const uint32_t dispatch_y = static_cast<uint32_t>(ceil(float(is_irradiance ? m_probe_grid.irradiance_image[0]->height() : m_probe_grid.depth_image[0]->height()) / float(NUM_THREADS_Y)));
+    const uint32_t dispatch_x = static_cast<uint32_t>(ceil(float(m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y) / float(NUM_THREADS_X)));
+    const uint32_t dispatch_y = static_cast<uint32_t>(ceil(float(m_probe_grid.probe_counts.z) / float(NUM_THREADS_Y)));
 
     vkCmdDispatch(cmd_buf->handle(), dispatch_x, dispatch_y, 1);
 }
