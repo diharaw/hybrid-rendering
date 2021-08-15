@@ -61,7 +61,7 @@ const float FLT_EPS = 0.00000001;
 
 void main()
 {
-    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy) + (ivec2(gl_WorkGroupID.xy) * ivec2(2)) + ivec2(2);
 
     const int   relative_probe_id   = probe_id(current_coord, TEXTURE_WIDTH, PROBE_SIDE_LENGTH);
     const float energy_conservation = 0.95f;

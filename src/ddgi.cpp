@@ -665,6 +665,34 @@ void DDGI::create_pipelines()
         }
     }
 
+    // Probe Border Update
+    {
+        dw::vk::PipelineLayout::Desc desc;
+
+        desc.add_descriptor_set_layout(m_probe_grid.write_ds_layout);
+
+        m_border_update.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
+        m_border_update.pipeline_layout->set_name("Border Update Pipeline Layout");
+
+        dw::vk::ComputePipeline::Desc comp_desc;
+
+        comp_desc.set_pipeline_layout(m_border_update.pipeline_layout);
+
+        std::string shaders[] = {
+            "shaders/gi_irradiance_border_update.comp.spv",
+            "shaders/gi_depth_border_update.comp.spv"
+        };
+
+        for (int i = 0; i < 2; i++)
+        {
+            dw::vk::ShaderModule::Ptr module = dw::vk::ShaderModule::create_from_file(vk_backend, shaders[i]);
+
+            comp_desc.set_shader_stage(module, "main");
+
+            m_border_update.pipeline[i] = dw::vk::ComputePipeline::create(vk_backend, comp_desc);
+        }
+    }
+
     // Sample Probe Grid Update
     {
         dw::vk::PipelineLayout::Desc desc;
@@ -856,6 +884,7 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     probe_update(cmd_buf, true);
     probe_update(cmd_buf, false);
+    border_update(cmd_buf);
 
     dw::vk::utilities::set_image_layout(
         cmd_buf->handle(),
@@ -908,11 +937,47 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.pipeline_layout->handle(), 0, 3, descriptor_sets, 1, dynamic_offsets);
 
-    const int NUM_THREADS_X = is_irradiance ? m_probe_grid.irradiance_oct_size : m_probe_grid.depth_oct_size;
-    const int NUM_THREADS_Y = is_irradiance ? m_probe_grid.irradiance_oct_size : m_probe_grid.depth_oct_size;
+    const uint32_t dispatch_x = static_cast<uint32_t>(m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y);
+    const uint32_t dispatch_y = static_cast<uint32_t>(m_probe_grid.probe_counts.z);
 
-    const uint32_t dispatch_x = static_cast<uint32_t>(ceil(float(m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y) / float(NUM_THREADS_X)));
-    const uint32_t dispatch_y = static_cast<uint32_t>(ceil(float(m_probe_grid.probe_counts.z) / float(NUM_THREADS_Y)));
+    vkCmdDispatch(cmd_buf->handle(), dispatch_x, dispatch_y, 1);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::border_update(dw::vk::CommandBuffer::Ptr cmd_buf)
+{
+    DW_SCOPED_SAMPLE("Border Update", cmd_buf);
+
+    border_update(cmd_buf, true);
+    border_update(cmd_buf, false);
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+void DDGI::border_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance)
+{
+    DW_SCOPED_SAMPLE(is_irradiance ? "Irradiance" : "Depth", cmd_buf);
+
+    auto backend = m_backend.lock();
+
+    VkPipeline pipeline = m_border_update.pipeline[1]->handle();
+
+    if (is_irradiance)
+        pipeline = m_border_update.pipeline[0]->handle();
+
+    vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+
+    uint32_t write_idx = static_cast<uint32_t>(m_ping_pong);
+
+    VkDescriptorSet descriptor_sets[] = {
+        m_probe_grid.write_ds[write_idx]->handle()
+    };
+
+    vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_border_update.pipeline_layout->handle(), 0, 1, descriptor_sets, 0, nullptr);
+
+    const uint32_t dispatch_x = static_cast<uint32_t>(m_probe_grid.probe_counts.x * m_probe_grid.probe_counts.y);
+    const uint32_t dispatch_y = static_cast<uint32_t>(m_probe_grid.probe_counts.z);
 
     vkCmdDispatch(cmd_buf->handle(), dispatch_x, dispatch_y, 1);
 }

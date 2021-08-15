@@ -44,6 +44,8 @@ private:
     void ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf);
     void probe_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance);
+    void border_update(dw::vk::CommandBuffer::Ptr cmd_buf);
+    void border_update(dw::vk::CommandBuffer::Ptr cmd_buf, bool is_irradiance);
     void sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
@@ -108,6 +110,8 @@ private:
 
     struct BorderUpdate
     {
+        dw::vk::ComputePipeline::Ptr pipeline[2];
+        dw::vk::PipelineLayout::Ptr  pipeline_layout;
     };
 
     uint32_t                              m_last_scene_id = UINT32_MAX;

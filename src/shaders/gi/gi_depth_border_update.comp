@@ -1,0 +1,7 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+#define DEPTH_PROBE
+
+#include "gi_border_update.glsl"
