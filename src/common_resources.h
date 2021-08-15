@@ -43,7 +43,9 @@ enum SceneType
 enum LightType
 {
     LIGHT_TYPE_DIRECTIONAL,
-    LIGHT_TYPE_POINT
+    LIGHT_TYPE_POINT,
+    LIGHT_TYPE_SPOT,
+    LIGHT_TYPE_COUNT
 };
 
 enum VisualizationType

@@ -22,6 +22,7 @@ const std::vector<std::string> environment_types      = { "None", "Procedural Sk
 const std::vector<std::string> visualization_types    = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
 const std::vector<std::string> scene_types            = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
 const std::vector<std::string> ray_trace_scales       = { "Full-Res", "Half-Res", "Quarter-Res" };
+const std::vector<std::string> light_types       = { "Directional", "Point", "Spot" };
 
 struct Light
 {
@@ -993,10 +994,34 @@ private:
                 }
                 if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
                 {
+                    LightType type = m_light_type;
+
+                    if (ImGui::BeginCombo("Type", light_types[type].c_str()))
+                    {
+                        for (uint32_t i = 0; i < light_types.size(); i++)
+                        {
+                            const bool is_selected = (i == type);
+
+                            if (ImGui::Selectable(light_types[i].c_str(), is_selected))
+                                type = (LightType)i;
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    m_light_type = type;                        
+
                     ImGui::ColorEdit3("Color", &m_light_color.x);
                     ImGui::InputFloat("Intensity", &m_light_intensity);
                     ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
-                    ImGui::InputFloat3("Direction", &m_light_direction.x);
+
+                    if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
+                        ImGui::InputFloat3("Direction", &m_light_direction.x);
+                    else if (m_light_type == LIGHT_TYPE_POINT)
+                        ImGui::InputFloat3("Position", &m_light_position.x);
+                    
                     ImGui::Checkbox("Animation", &m_light_animation);
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1166,10 +1191,14 @@ private:
         m_ubo_data.current_prev_jitter = glm::vec4(m_temporal_aa->current_jitter(), m_temporal_aa->prev_jitter());
 
         set_light_radius(m_ubo_data.light, m_light_radius);
-        set_light_direction(m_ubo_data.light, m_light_direction);
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
-        set_light_type(m_ubo_data.light, LIGHT_TYPE_DIRECTIONAL);
+        set_light_type(m_ubo_data.light, m_light_type);
+
+        if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
+            set_light_direction(m_ubo_data.light, m_light_direction);
+        else if (m_light_type == LIGHT_TYPE_POINT)
+            set_light_position(m_ubo_data.light, m_light_position);
 
         m_main_camera->m_prev_view_projection = m_ubo_data.view_proj;
 
@@ -1312,9 +1341,11 @@ private:
     // Light
     float     m_light_radius    = 0.1f;
     glm::vec3 m_light_direction = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
+    glm::vec3 m_light_position  = glm::vec3(5.0f);
     glm::vec3 m_light_color     = glm::vec3(1.0f);
     float     m_light_intensity = 1.0f;
     bool      m_light_animation = false;
+    LightType m_light_type      = LIGHT_TYPE_DIRECTIONAL;
 
     // Uniforms.
     UBO m_ubo_data;
