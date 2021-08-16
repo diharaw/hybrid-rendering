@@ -50,10 +50,38 @@ layout(push_constant) uniform PushConstants
 u_PushConstants;
 
 // ------------------------------------------------------------------
+// SHARED MEMORY ----------------------------------------------------
+// ------------------------------------------------------------------
+
+shared vec4 g_ray_direction_depth[64];
+#if !defined(DEPTH_PROBE_UPDATE) 
+shared vec3 g_ray_hit_radiance[64];
+#endif
+
+// ------------------------------------------------------------------
 // CONSTANTS --------------------------------------------------------
 // ------------------------------------------------------------------
 
 const float FLT_EPS = 0.00000001;
+
+// ------------------------------------------------------------------
+// FUNCTIONS --------------------------------------------------------
+// ------------------------------------------------------------------
+
+void populate_cache(int relative_probe_id)
+{
+    if (gl_LocalInvocationIndex < 64)
+    {
+        ivec2 C = ivec2(uint(gl_LocalInvocationIndex), relative_probe_id);
+
+        g_ray_direction_depth[gl_LocalInvocationIndex] = texelFetch(s_InputDirectionDepth, C, 0);
+    #if !defined(DEPTH_PROBE_UPDATE) 
+        g_ray_hit_radiance[gl_LocalInvocationIndex] = texelFetch(s_InputRadiance, C, 0).xyz;
+    #endif 
+
+        barrier();
+    }
+}
 
 // ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
@@ -66,18 +94,17 @@ void main()
     const int   relative_probe_id   = probe_id(current_coord, TEXTURE_WIDTH, PROBE_SIDE_LENGTH);
     const float energy_conservation = 0.95f;
 
+    populate_cache(relative_probe_id);
+
     vec3  result       = vec3(0.0f);
     float total_weight = 0.0f;
 
     // For each ray
     for (int r = 0; r < ddgi.rays_per_probe; ++r)
     {
-        ivec2 C = ivec2(r, relative_probe_id);
-
-        vec4 ray_direction_depth = texelFetch(s_InputDirectionDepth, C, 0);
+        vec4 ray_direction_depth = g_ray_direction_depth[r];
 
         vec3  ray_direction      = ray_direction_depth.xyz;
-        vec3  ray_hit_radiance   = texelFetch(s_InputRadiance, C, 0).xyz * energy_conservation;
 
 #if defined(DEPTH_PROBE_UPDATE)            
         float ray_probe_distance = min(ddgi.max_distance, ray_direction_depth.w - 0.01f);
@@ -85,6 +112,8 @@ void main()
             // Detect misses and force depth
         if (ray_probe_distance == -1.0f)
             ray_probe_distance = ddgi.max_distance;
+#else        
+        vec3  ray_hit_radiance   = g_ray_hit_radiance[r] * energy_conservation;
 #endif
 
         vec3 texel_direction = oct_decode(normalized_oct_coord(current_coord, PROBE_SIDE_LENGTH));
