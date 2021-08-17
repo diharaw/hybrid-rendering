@@ -2,6 +2,8 @@
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
 
+#define CACHE_SIZE 64
+
 #if defined(DEPTH_PROBE_UPDATE)
     #define NUM_THREADS_X 16
     #define NUM_THREADS_Y 16
@@ -53,9 +55,9 @@ u_PushConstants;
 // SHARED MEMORY ----------------------------------------------------
 // ------------------------------------------------------------------
 
-shared vec4 g_ray_direction_depth[64];
+shared vec4 g_ray_direction_depth[CACHE_SIZE];
 #if !defined(DEPTH_PROBE_UPDATE) 
-shared vec3 g_ray_hit_radiance[64];
+shared vec3 g_ray_hit_radiance[CACHE_SIZE];
 #endif
 
 // ------------------------------------------------------------------
@@ -68,39 +70,27 @@ const float FLT_EPS = 0.00000001;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-void populate_cache(int relative_probe_id)
+void populate_cache(int relative_probe_id, uint offset, uint num_rays)
 {
-    if (gl_LocalInvocationIndex < 64)
+    if (gl_LocalInvocationIndex < num_rays)
     {
-        ivec2 C = ivec2(uint(gl_LocalInvocationIndex), relative_probe_id);
+        ivec2 C = ivec2(offset + uint(gl_LocalInvocationIndex), relative_probe_id);
 
         g_ray_direction_depth[gl_LocalInvocationIndex] = texelFetch(s_InputDirectionDepth, C, 0);
     #if !defined(DEPTH_PROBE_UPDATE) 
         g_ray_hit_radiance[gl_LocalInvocationIndex] = texelFetch(s_InputRadiance, C, 0).xyz;
     #endif 
-
-        barrier();
     }
 }
 
 // ------------------------------------------------------------------
-// MAIN -------------------------------------------------------------
-// ------------------------------------------------------------------
 
-void main()
+void gather_rays(ivec2 current_coord, uint num_rays, inout vec3 result, inout float total_weight)
 {
-    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy) + (ivec2(gl_WorkGroupID.xy) * ivec2(2)) + ivec2(2);
-
-    const int   relative_probe_id   = probe_id(current_coord, TEXTURE_WIDTH, PROBE_SIDE_LENGTH);
     const float energy_conservation = 0.95f;
 
-    populate_cache(relative_probe_id);
-
-    vec3  result       = vec3(0.0f);
-    float total_weight = 0.0f;
-
     // For each ray
-    for (int r = 0; r < ddgi.rays_per_probe; ++r)
+    for (int r = 0; r < num_rays; ++r)
     {
         vec4 ray_direction_depth = g_ray_direction_depth[r];
 
@@ -109,7 +99,7 @@ void main()
 #if defined(DEPTH_PROBE_UPDATE)            
         float ray_probe_distance = min(ddgi.max_distance, ray_direction_depth.w - 0.01f);
             
-            // Detect misses and force depth
+        // Detect misses and force depth
         if (ray_probe_distance == -1.0f)
             ray_probe_distance = ddgi.max_distance;
 #else        
@@ -137,7 +127,40 @@ void main()
             total_weight += weight;
         }
     }
+}
 
+// ------------------------------------------------------------------
+// MAIN -------------------------------------------------------------
+// ------------------------------------------------------------------
+
+void main()
+{
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy) + (ivec2(gl_WorkGroupID.xy) * ivec2(2)) + ivec2(2);
+
+    const int   relative_probe_id   = probe_id(current_coord, TEXTURE_WIDTH, PROBE_SIDE_LENGTH);
+    
+    vec3  result       = vec3(0.0f);
+    float total_weight = 0.0f;
+
+    uint remaining_rays = ddgi.rays_per_probe;
+    uint offset = 0;
+
+    while (remaining_rays > 0)
+    {
+        uint num_rays = min(CACHE_SIZE, remaining_rays);
+        
+        populate_cache(relative_probe_id, offset, num_rays);
+
+        barrier();
+
+        gather_rays(current_coord, num_rays, result, total_weight);
+
+        barrier();
+
+        remaining_rays -= num_rays;
+        offset += num_rays;
+    }
+    
     if (total_weight > FLT_EPS)
         result /= total_weight;
 
