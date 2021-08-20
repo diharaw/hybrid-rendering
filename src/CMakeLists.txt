@@ -44,7 +44,8 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/cubemap_sh_projection.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/equirectangular_to_cubemap.cpp
                              ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/hosek_wilkie_sky_model.cpp
-                             ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/ray_traced_scene.cpp)
+                             ${PROJECT_SOURCE_DIR}/external/dwSampleFramework/extras/ray_traced_scene.cpp
+                             ${PROJECT_SOURCE_DIR}/external/ImGuizmo/ImGuizmo.cpp)
 
 set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.frag

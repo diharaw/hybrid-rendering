@@ -3,6 +3,10 @@
 #include <profiler.h>
 #include <assimp/scene.h>
 #include <equirectangular_to_cubemap.h>
+#include <ImGuizmo.h>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <gtx/matrix_decompose.hpp>
+#include <gtc/quaternion.hpp>
 #include "g_buffer.h"
 #include "deferred_shading.h"
 #include "ray_traced_shadows.h"
@@ -13,6 +17,7 @@
 #include "temporal_aa.h"
 #include "utilities.h"
 
+#define EPSILON 0.0001f
 #define NUM_PILLARS 6
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
@@ -869,8 +874,23 @@ private:
 
     void debug_gui()
     {
+        ImGuizmo::BeginFrame();
+
         if (m_debug_gui)
         {
+            {
+                glm::mat4 view       = m_main_camera->m_view;
+                glm::mat4 projection = m_main_camera->m_projection;
+
+                ImGuizmo::SetOrthographic(false);
+                ImGuizmo::SetRect(0, 0, m_width, m_height);
+
+                static glm::vec3           m_snap              = glm::vec3(1.0f);
+                static bool                m_use_snap          = false;
+
+                ImGuizmo::Manipulate(&view[0][0], &projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, m_use_snap ? &m_snap[0] : NULL);
+            }
+
             if (ImGui::Begin("Hybrid Rendering"))
             {
                 if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1013,16 +1033,12 @@ private:
 
                     m_light_type = type;                        
 
-                    ImGui::ColorEdit3("Color", &m_light_color.x);
-                    ImGui::InputFloat("Intensity", &m_light_intensity);
-                    ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
-
                     if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
-                        ImGui::InputFloat3("Direction", &m_light_direction.x);
+                        directional_light_gui();
                     else if (m_light_type == LIGHT_TYPE_POINT)
-                        ImGui::InputFloat3("Position", &m_light_position.x);
-                    
-                    ImGui::Checkbox("Animation", &m_light_animation);
+                        point_light_gui();
+                    else if (m_light_type == LIGHT_TYPE_SPOT)
+                        spot_light_gui();
                 }
                 if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
                 {
@@ -1171,6 +1187,92 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void directional_light_gui()
+    {
+        m_light_transform_operation = ImGuizmo::OPERATION::ROTATE;
+
+        ImGui::ColorEdit3("Color", &m_light_color.x);
+        ImGui::InputFloat("Intensity", &m_light_intensity);
+        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+
+        glm::vec3 position;
+        glm::vec3 rotation;
+        glm::vec3 scale;
+
+        ImGuizmo::DecomposeMatrixToComponents(&m_light_transform[0][0], &position.x, &rotation.x, &scale.x);
+
+        ImGui::InputFloat3("Rotation", &rotation.x);
+
+        ImGuizmo::RecomposeMatrixFromComponents(&position.x, &rotation.x, &scale.x, &m_light_transform[0][0]);
+
+        glm::vec3 out_skew;
+        glm::vec4 out_persp;
+        glm::vec3 out_scale;
+        glm::quat out_orientation;
+        glm::vec3 out_position;
+
+        glm::decompose(m_light_transform, out_scale, out_orientation, out_position, out_skew, out_persp);
+
+        ImGui::Checkbox("Animation", &m_light_animation);
+
+        ImGui::Text("Direction: %f, %f, %f", m_light_direction.x, m_light_direction.y, m_light_direction.z);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void point_light_gui()
+    {
+        ImGui::ColorEdit3("Color", &m_light_color.x);
+        ImGui::InputFloat("Intensity", &m_light_intensity);
+        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+
+        m_light_transform_operation = ImGuizmo::TRANSLATE;
+
+        glm::vec3 position;
+        glm::vec3 rotation;
+        glm::vec3 scale;
+
+        ImGuizmo::DecomposeMatrixToComponents(&m_light_transform[0][0], &position.x, &rotation.x, &scale.x);
+
+        ImGui::InputFloat3("Position", &position.x);
+
+        ImGuizmo::RecomposeMatrixFromComponents(&position.x, &rotation.x, &scale.x, &m_light_transform[0][0]);
+
+        ImGui::Checkbox("Animation", &m_light_animation);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
+    void spot_light_gui()
+    {
+        ImGui::ColorEdit3("Color", &m_light_color.x);
+        ImGui::InputFloat("Intensity", &m_light_intensity);
+        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+
+        if (ImGui::RadioButton("Translate", m_light_transform_operation == ImGuizmo::TRANSLATE))
+            m_light_transform_operation = ImGuizmo::TRANSLATE;
+
+        ImGui::SameLine();
+
+        if (ImGui::RadioButton("Rotate", m_light_transform_operation == ImGuizmo::ROTATE))
+            m_light_transform_operation = ImGuizmo::ROTATE;
+
+        glm::vec3 position;
+        glm::vec3 rotation;
+        glm::vec3 scale;
+
+        ImGuizmo::DecomposeMatrixToComponents(&m_light_transform[0][0], &position.x, &rotation.x, &scale.x);
+
+        ImGui::InputFloat3("Position", &position.x);
+        ImGui::InputFloat3("Rotation", &rotation.x);
+
+        ImGuizmo::RecomposeMatrixFromComponents(&position.x, &rotation.x, &scale.x, &m_light_transform[0][0]);
+
+        ImGui::Checkbox("Animation", &m_light_animation);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void update_uniforms(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
@@ -1181,6 +1283,17 @@ private:
         m_common_resources->projection           = m_temporal_aa->enabled() ? current_jitter * m_main_camera->m_projection : m_main_camera->m_projection;
         m_common_resources->prev_view_projection = m_main_camera->m_prev_view_projection;
         m_common_resources->position             = m_main_camera->m_position;
+
+        m_light_direction = glm::normalize(glm::mat3(m_light_transform) * glm::vec3(0.0f, 1.0f, 0.0f));
+
+        if (m_light_direction.x == 1.0f || m_light_direction.x == -1.0f)
+            m_light_direction.x -= EPSILON;
+
+        if (m_light_direction.y == 1.0f || m_light_direction.y == -1.0f)
+            m_light_direction.y -= EPSILON;
+
+        if (m_light_direction.z == 1.0f || m_light_direction.z == -1.0f)
+            m_light_direction.z -= EPSILON;
 
         m_ubo_data.proj_inverse        = glm::inverse(m_common_resources->projection);
         m_ubo_data.view_inverse        = glm::inverse(m_common_resources->view);
@@ -1339,6 +1452,8 @@ private:
     float m_camera_y;
 
     // Light
+    ImGuizmo::OPERATION m_light_transform_operation = ImGuizmo::OPERATION::ROTATE;
+    glm::mat4 m_light_transform = glm::mat4(1.0f);
     float     m_light_radius    = 0.1f;
     glm::vec3 m_light_direction = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
     glm::vec3 m_light_position  = glm::vec3(5.0f);
