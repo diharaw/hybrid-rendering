@@ -22,6 +22,7 @@
 
 #define LIGHT_TYPE_DIRECTIONAL 0
 #define LIGHT_TYPE_POINT 1
+#define LIGHT_TYPE_SPOT 2
 
 #define MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD 0.05f
 #define DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD 0.75f
@@ -57,7 +58,8 @@ struct Light
 {
     vec4 data0;
     vec4 data1;
-    ivec4 data2;
+    vec4 data2;
+    vec4 data3;
 };
 
 vec3 light_direction(in Light light)
@@ -67,7 +69,7 @@ vec3 light_direction(in Light light)
 
 vec3 light_color(in Light light)
 {
-    return light.data1.xyz;
+    return light.data2.xyz;
 }
 
 float light_intensity(in Light light)
@@ -82,12 +84,22 @@ float light_radius(in Light light)
 
 vec3 light_position(in Light light)
 {
-    return light.data0.xyz;
+    return light.data1.xyz;
 }
 
 int light_type(in Light light)
 {
-    return light.data2.r;
+    return int(light.data3.x);
+}
+
+float light_cos_theta_outer(in Light light)
+{
+    return light.data2.y;
+}
+
+float light_cos_theta_inner(in Light light)
+{
+    return light.data2.z;
 }
 
 #endif

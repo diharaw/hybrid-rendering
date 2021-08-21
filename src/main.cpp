@@ -27,13 +27,14 @@ const std::vector<std::string> environment_types      = { "None", "Procedural Sk
 const std::vector<std::string> visualization_types    = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
 const std::vector<std::string> scene_types            = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
 const std::vector<std::string> ray_trace_scales       = { "Full-Res", "Half-Res", "Quarter-Res" };
-const std::vector<std::string> light_types       = { "Directional", "Point", "Spot" };
+const std::vector<std::string> light_types            = { "Directional", "Point", "Spot" };
 
 struct Light
 {
-    glm::vec4  data0;
-    glm::vec4  data1;
-    glm::ivec4 data2;
+    glm::vec4 data0;
+    glm::vec4 data1;
+    glm::vec4 data2;
+    glm::vec4 data3;
 };
 
 void set_light_direction(Light& light, glm::vec3 value)
@@ -45,16 +46,16 @@ void set_light_direction(Light& light, glm::vec3 value)
 
 void set_light_position(Light& light, glm::vec3 value)
 {
-    light.data0.x = value.x;
-    light.data0.y = value.y;
-    light.data0.z = value.z;
+    light.data1.x = value.x;
+    light.data1.y = value.y;
+    light.data1.z = value.z;
 }
 
 void set_light_color(Light& light, glm::vec3 value)
 {
-    light.data1.x = value.x;
-    light.data1.y = value.y;
-    light.data1.z = value.z;
+    light.data2.x = value.x;
+    light.data2.y = value.y;
+    light.data2.z = value.z;
 }
 
 void set_light_intensity(Light& light, float value)
@@ -69,7 +70,7 @@ void set_light_radius(Light& light, float value)
 
 void set_light_type(Light& light, LightType value)
 {
-    light.data2.r = value;
+    light.data3.x = value;
 }
 
 // Uniform buffer data structure.
@@ -879,16 +880,9 @@ private:
         if (m_debug_gui)
         {
             {
-                glm::mat4 view       = m_main_camera->m_view;
-                glm::mat4 projection = m_main_camera->m_projection;
-
                 ImGuizmo::SetOrthographic(false);
                 ImGuizmo::SetRect(0, 0, m_width, m_height);
-
-                static glm::vec3           m_snap              = glm::vec3(1.0f);
-                static bool                m_use_snap          = false;
-
-                ImGuizmo::Manipulate(&view[0][0], &projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, m_use_snap ? &m_snap[0] : NULL);
+                ImGuizmo::Manipulate(&m_main_camera->m_view[0][0], &m_main_camera->m_projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, NULL);
             }
 
             if (ImGui::Begin("Hybrid Rendering"))
@@ -1031,7 +1025,10 @@ private:
                         ImGui::EndCombo();
                     }
 
-                    m_light_type = type;                        
+                    if (m_light_type != type)
+                        reset_light();
+
+                    m_light_type = type;
 
                     if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
                         directional_light_gui();
@@ -1273,6 +1270,13 @@ private:
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
+    void reset_light()
+    {
+        m_light_transform = glm::mat4(1.0f);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------------------------
+
     void update_uniforms(dw::vk::CommandBuffer::Ptr cmd_buf)
     {
         DW_SCOPED_SAMPLE("Update Uniforms", cmd_buf);
@@ -1285,15 +1289,7 @@ private:
         m_common_resources->position             = m_main_camera->m_position;
 
         m_light_direction = glm::normalize(glm::mat3(m_light_transform) * glm::vec3(0.0f, 1.0f, 0.0f));
-
-        if (m_light_direction.x == 1.0f || m_light_direction.x == -1.0f)
-            m_light_direction.x -= EPSILON;
-
-        if (m_light_direction.y == 1.0f || m_light_direction.y == -1.0f)
-            m_light_direction.y -= EPSILON;
-
-        if (m_light_direction.z == 1.0f || m_light_direction.z == -1.0f)
-            m_light_direction.z -= EPSILON;
+        m_light_position  = glm::vec3(m_light_transform[3][0], m_light_transform[3][1], m_light_transform[3][2]);
 
         m_ubo_data.proj_inverse        = glm::inverse(m_common_resources->projection);
         m_ubo_data.view_inverse        = glm::inverse(m_common_resources->view);
@@ -1307,11 +1303,8 @@ private:
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
         set_light_type(m_ubo_data.light, m_light_type);
-
-        if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
-            set_light_direction(m_ubo_data.light, m_light_direction);
-        else if (m_light_type == LIGHT_TYPE_POINT)
-            set_light_position(m_ubo_data.light, m_light_position);
+        set_light_direction(m_ubo_data.light, m_light_direction);
+        set_light_position(m_ubo_data.light, m_light_position);
 
         m_main_camera->m_prev_view_projection = m_ubo_data.view_proj;
 
@@ -1453,14 +1446,14 @@ private:
 
     // Light
     ImGuizmo::OPERATION m_light_transform_operation = ImGuizmo::OPERATION::ROTATE;
-    glm::mat4 m_light_transform = glm::mat4(1.0f);
-    float     m_light_radius    = 0.1f;
-    glm::vec3 m_light_direction = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
-    glm::vec3 m_light_position  = glm::vec3(5.0f);
-    glm::vec3 m_light_color     = glm::vec3(1.0f);
-    float     m_light_intensity = 1.0f;
-    bool      m_light_animation = false;
-    LightType m_light_type      = LIGHT_TYPE_DIRECTIONAL;
+    glm::mat4           m_light_transform           = glm::mat4(1.0f);
+    float               m_light_radius              = 0.1f;
+    glm::vec3           m_light_direction           = glm::normalize(glm::vec3(0.568f, 0.707f, -0.421f));
+    glm::vec3           m_light_position            = glm::vec3(5.0f);
+    glm::vec3           m_light_color               = glm::vec3(1.0f);
+    float               m_light_intensity           = 1.0f;
+    bool                m_light_animation           = false;
+    LightType           m_light_type                = LIGHT_TYPE_DIRECTIONAL;
 
     // Uniforms.
     UBO m_ubo_data;

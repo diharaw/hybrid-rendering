@@ -305,6 +305,10 @@ vec3 sample_irradiance(in DDGIUniforms ddgi, vec3 P, vec3 N, vec3 Wo, sampler2D 
     }
 
     vec3 net_irradiance = sum_irradiance / sum_weight;
+    
+    net_irradiance.x = isnan(net_irradiance.x) ? 0.5f : net_irradiance.x;
+    net_irradiance.y = isnan(net_irradiance.y) ? 0.5f : net_irradiance.y;
+    net_irradiance.z = isnan(net_irradiance.z) ? 0.5f : net_irradiance.z;
 
     // Go back to linear irradiance
 #   if LINEAR_BLENDING == 0
