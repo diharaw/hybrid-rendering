@@ -4,6 +4,7 @@
 #include <assimp/scene.h>
 #include <equirectangular_to_cubemap.h>
 #include <ImGuizmo.h>
+#include <math.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <gtx/matrix_decompose.hpp>
 #include <gtc/quaternion.hpp>
@@ -71,6 +72,16 @@ void set_light_radius(Light& light, float value)
 void set_light_type(Light& light, LightType value)
 {
     light.data3.x = value;
+}
+
+void set_light_cos_theta_outer(Light& light, float value)
+{
+    light.data3.y = value;
+}
+
+void set_light_cos_theta_inner(Light& light, float value)
+{
+    light.data3.z = value;
 }
 
 // Uniform buffer data structure.
@@ -1245,6 +1256,8 @@ private:
         ImGui::ColorEdit3("Color", &m_light_color.x);
         ImGui::InputFloat("Intensity", &m_light_intensity);
         ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+        ImGui::SliderFloat("Inner Cone Angle", &m_light_cone_angle_inner, 1.0f, 100.0f);
+        ImGui::SliderFloat("Outer Cone Angle", &m_light_cone_angle_outer, 1.0f, 100.0f);
 
         if (ImGui::RadioButton("Translate", m_light_transform_operation == ImGuizmo::TRANSLATE))
             m_light_transform_operation = ImGuizmo::TRANSLATE;
@@ -1305,6 +1318,8 @@ private:
         set_light_type(m_ubo_data.light, m_light_type);
         set_light_direction(m_ubo_data.light, m_light_direction);
         set_light_position(m_ubo_data.light, m_light_position);
+        set_light_cos_theta_inner(m_ubo_data.light, cosf(glm::radians(m_light_cone_angle_inner)));
+        set_light_cos_theta_outer(m_ubo_data.light, cosf(glm::radians(m_light_cone_angle_outer)));
 
         m_main_camera->m_prev_view_projection = m_ubo_data.view_proj;
 
@@ -1452,6 +1467,8 @@ private:
     glm::vec3           m_light_position            = glm::vec3(5.0f);
     glm::vec3           m_light_color               = glm::vec3(1.0f);
     float               m_light_intensity           = 1.0f;
+    float               m_light_cone_angle_inner    = 40.0f;
+    float               m_light_cone_angle_outer    = 50.0f;
     bool                m_light_animation           = false;
     LightType           m_light_type                = LIGHT_TYPE_DIRECTIONAL;
 

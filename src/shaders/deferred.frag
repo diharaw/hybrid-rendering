@@ -223,6 +223,61 @@ vec3 octohedral_to_direction(vec2 e)
 }
 
 // ------------------------------------------------------------------------
+
+vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 world_pos, vec3 Wo, vec3 F0, float visibility)
+{
+    Light light = ubo.light;
+
+    vec3 Li = light_color(light) * light_intensity(light);
+    vec3 Wi = light_direction(light);
+    vec3 Wh = normalize(Wo + Wi);
+    
+    // Cook-Torrance BRDF
+    float NDF = distribution_ggx(N, Wh, roughness);
+    float G   = geometry_smith(N, Wo, Wi, roughness);
+    vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
+    
+    vec3  nominator   = NDF * G * F;
+    float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
+    vec3  specular    = nominator / max(EPSILON, denominator);
+    
+    // kS is equal to Fresnel
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metallic;
+    
+    // scale light by NdotL
+    float NdotL = max(dot(N, Wi), 0.0);
+    
+    // add to outgoing radiance Lo
+    return (kD * albedo / M_PI + specular) * Li * NdotL * visibility; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+}
+
+// ------------------------------------------------------------------------
+
+vec3 indirect_lighting(vec3 N, vec3 albedo, float roughness, float metallic, float ao, vec3 Wo, vec3 F0)
+{    
+    const vec3 R  = reflect(-Wo, N);
+
+    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    vec3 irradiance = u_PushConstants.gi == 1 ? textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb : evaluate_sh9_irradiance(N);
+    vec3 diffuse    = irradiance * albedo;
+
+    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
+    const float MAX_REFLECTION_LOD = 4.0;
+    vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
+    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y) * IndirectSpecularStrength;
+
+    return (kD * diffuse + specular) * ao;
+}
+
+// ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
 // ------------------------------------------------------------------------
 
@@ -241,63 +296,18 @@ void main()
 
     const vec3 N  = octohedral_to_direction(g_buffer_data_2.rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
-    const vec3 R  = reflect(-Wo, N);
-
+    
     vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
-    vec3 direct   = vec3(0.0f);
-    vec3 indirect = vec3(0.0f);
+    vec3 Lo = vec3(0.0f);
 
     // Direct Lighting
-    {
-        Light light = ubo.light;
-
-        vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = light_direction(light);
-        vec3 Wh = normalize(Wo + Wi);
-
-        // Cook-Torrance BRDF
-        float NDF = distribution_ggx(N, Wh, roughness);
-        float G   = geometry_smith(N, Wo, Wi, roughness);
-        vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
-
-        vec3  nominator   = NDF * G * F;
-        float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
-        vec3  specular    = nominator / max(EPSILON, denominator);
-
-        // kS is equal to Fresnel
-        vec3 kS = F;
-        vec3 kD = vec3(1.0) - kS;
-        kD *= 1.0 - metallic;
-
-        // scale light by NdotL
-        float NdotL = max(dot(N, Wi), 0.0);
-
-        // add to outgoing radiance Lo
-        direct += (kD * albedo / M_PI + specular) * Li * NdotL * visibility; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
-    }
+    Lo += direct_lighting(N, albedo, roughness, metallic, world_pos, Wo, F0, visibility);
 
     // Indirect lighting
-    vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
+    //Lo += indirect_lighting(N, albedo, roughness, metallic, ao, Wo, F0);
 
-    vec3 kS = F;
-    vec3 kD = 1.0 - kS;
-    kD *= 1.0 - metallic;
-
-    vec3 irradiance = u_PushConstants.gi == 1 ? textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb : evaluate_sh9_irradiance(N);
-    vec3 diffuse    = irradiance * albedo;
-
-    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
-    const float MAX_REFLECTION_LOD = 4.0;
-    vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
-    vec3        specular           = prefilteredColor * (F * brdf.x + brdf.y) * IndirectSpecularStrength;
-
-    indirect = (kD * diffuse + specular) * ao;
-
-    vec3 Li = direct + indirect;
-
-    FS_OUT_Color = vec4(Li, 1.0);
+    FS_OUT_Color = vec4(Lo, 1.0);
 }
 
 // ------------------------------------------------------------------------
