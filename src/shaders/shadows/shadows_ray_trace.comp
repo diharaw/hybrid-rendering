@@ -115,6 +115,35 @@ uint query_visibility(vec3 world_pos, vec3 direction)
 
 // ------------------------------------------------------------------------
 
+uint query_distance(vec3 world_pos, vec3 direction, float t_max)
+{
+    float t_min     = 0.01f;
+    uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
+
+    // Initializes a ray query object but does not start traversal
+    rayQueryEXT ray_query;
+
+    rayQueryInitializeEXT(ray_query,
+                          u_TopLevelAS,
+                          ray_flags,
+                          0xFF,
+                          world_pos,
+                          t_min,
+                          direction,
+                          t_max);
+
+    // Start traversal: return false if traversal is complete
+    while (rayQueryProceedEXT(ray_query)) {}
+    
+    // Returns type of committed (true) intersection
+    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+        return rayQueryGetIntersectionTEXT(ray_query, true) < t_max ? 0 : 1; 
+
+    return 1;
+}
+
+// ------------------------------------------------------------------------
+
 vec2 next_sample(ivec2 coord)
 {
     return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), 0, s_SobolSequence, s_ScramblingRankingTile),
@@ -205,7 +234,7 @@ void main()
             float attenuation = (1.0f / (light_distance * light_distance)) * max(dot(normal, shadow_ray_dir), 0.0f);
 
             if (attenuation > 0.0f)
-                result = query_visibility(ray_origin, shadow_ray_dir);
+                result = query_distance(ray_origin, shadow_ray_dir, light_distance);
         }
         else if (type == LIGHT_TYPE_SPOT)
         {
@@ -230,7 +259,7 @@ void main()
             float attenuation = (angle_attenuation / (light_distance * light_distance)) * max(dot(normal, shadow_ray_dir), 0.0f);
 
             if (attenuation > 0.0f)
-                result = query_visibility(ray_origin, shadow_ray_dir);
+                result = query_distance(ray_origin, shadow_ray_dir, light_distance);
         }
     }
 

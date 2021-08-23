@@ -217,6 +217,35 @@ float query_visibility(vec3 world_pos, vec3 direction)
 
 // ------------------------------------------------------------------------
 
+float query_distance(vec3 world_pos, vec3 direction, float t_max)
+{
+    float t_min     = 0.01f;
+    uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
+
+    // Initializes a ray query object but does not start traversal
+    rayQueryEXT ray_query;
+
+    rayQueryInitializeEXT(ray_query,
+                          u_TopLevelAS,
+                          ray_flags,
+                          0xFF,
+                          world_pos,
+                          t_min,
+                          direction,
+                          t_max);
+
+    // Start traversal: return false if traversal is complete
+    while (rayQueryProceedEXT(ray_query)) {}
+    
+    // Returns type of committed (true) intersection
+    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+        return rayQueryGetIntersectionTEXT(ray_query, true) < t_max ? 0.0f : 1.0f; 
+
+    return 1.0f;
+}
+
+// ------------------------------------------------------------------------
+
 vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughness)
 {
     vec3 L = vec3(0.0f);
@@ -227,30 +256,62 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
     float tmax       = 10000.0;
     vec3  ray_origin = P + N * 0.1f;
 
-    // Directional Light
+    // Punctual Light
     {
         const Light light = ubo.light;
+        const int type = light_type(light);
 
-        vec3 Li = light_color(light) * light_intensity(light);
+        if (type == LIGHT_TYPE_DIRECTIONAL)
+        {
+            vec3 Li = light_color(light) * light_intensity(light);
+            vec3  Wi = light_direction(light);
+            vec3 Wh = normalize(Wo + Wi);
 
-        vec3 light_tangent   = normalize(cross(light_direction(light), vec3(0.0f, 1.0f, 0.0f)));
-        vec3 light_bitangent = normalize(cross(light_tangent, light_direction(light)));
+            Li *= query_visibility(ray_origin, Wi);
 
-        // calculate disk point
-        vec2  rnd_sample   = next_vec2(p_GIPayload.rng);
-        float point_radius = light_radius(light) * sqrt(rnd_sample.x);
-        float point_angle  = rnd_sample.y * 2.0f * M_PI;
-        vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-        vec3  Wi           = normalize(light_direction(light) + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+            vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
+            float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
 
-        vec3 Wh = normalize(Wo + Wi);
+            L += p_GIPayload.T * brdf * cos_theta * Li;
+        }
+        else if (type == LIGHT_TYPE_POINT)
+        {
+            vec3  to_light       = light_position(light) - P;
+            float light_distance = length(to_light);
+            float attenuation = (1.0f / (light_distance * light_distance));
 
-        Li *= query_visibility(ray_origin, Wi);
+            vec3 Li = light_color(light) * light_intensity(light);
+            vec3  Wi      = normalize(to_light);
+            vec3 Wh = normalize(Wo + Wi);
 
-        vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
-        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
+            Li *= query_distance(ray_origin, Wi, light_distance);
 
-        L += p_GIPayload.T * brdf * cos_theta * Li;
+            vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
+            float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
+
+            L += p_GIPayload.T * brdf * cos_theta * Li * attenuation;
+        }
+        else
+        {
+            vec3 to_light = light_position(light) - P;
+            float light_distance = length(to_light);
+        
+            vec3 Li = light_color(light) * light_intensity(light);
+            vec3 Wi = normalize(to_light);
+            vec3 Wh = normalize(Wo + Wi);
+    
+            float angle_attenuation = dot(Wi, light_direction(light));
+            angle_attenuation = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
+
+            float attenuation = (angle_attenuation / (light_distance * light_distance));
+
+            Li *= query_distance(ray_origin, Wi, light_distance);
+
+            vec3  brdf      = evaluate_uber(albedo, roughness, N, F0, Wo, Wh, Wi);
+            float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
+
+            L += p_GIPayload.T * brdf * cos_theta * Li * attenuation;
+        }
     }
 
     // Sky Light

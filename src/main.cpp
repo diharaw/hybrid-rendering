@@ -1301,7 +1301,7 @@ private:
         m_common_resources->prev_view_projection = m_main_camera->m_prev_view_projection;
         m_common_resources->position             = m_main_camera->m_position;
 
-        m_light_direction = glm::normalize(glm::mat3(m_light_transform) * glm::vec3(0.0f, 1.0f, 0.0f));
+        m_light_direction = glm::normalize(glm::mat3(m_light_transform) * glm::vec3(0.0f, -1.0f, 0.0f));
         m_light_position  = glm::vec3(m_light_transform[3][0], m_light_transform[3][1], m_light_transform[3][2]);
 
         m_ubo_data.proj_inverse        = glm::inverse(m_common_resources->projection);
