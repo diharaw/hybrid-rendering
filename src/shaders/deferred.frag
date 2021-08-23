@@ -227,31 +227,31 @@ vec3 octohedral_to_direction(vec2 e)
 vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 world_pos, vec3 Wo, vec3 F0, float visibility)
 {
     const Light light = ubo.light;
-    const int type = light_type(light);
+    const int   type  = light_type(light);
 
     if (type == LIGHT_TYPE_DIRECTIONAL)
     {
         vec3 Li = light_color(light) * light_intensity(light);
         vec3 Wi = light_direction(light);
         vec3 Wh = normalize(Wo + Wi);
-    
+
         // Cook-Torrance BRDF
         float NDF = distribution_ggx(N, Wh, roughness);
         float G   = geometry_smith(N, Wo, Wi, roughness);
         vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
-    
+
         vec3  nominator   = NDF * G * F;
         float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
         vec3  specular    = nominator / max(EPSILON, denominator);
-    
+
         // kS is equal to Fresnel
         vec3 kS = F;
         vec3 kD = vec3(1.0) - kS;
         kD *= 1.0 - metallic;
-    
+
         // scale light by NdotL
         float NdotL = max(dot(N, Wi), 0.0);
-    
+
         // add to outgoing radiance Lo
         return (kD * albedo / M_PI + specular) * Li * NdotL * visibility; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
     }
@@ -259,43 +259,43 @@ vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 
     {
         vec3  to_light       = light_position(light) - world_pos;
         float light_distance = length(to_light);
-        float attenuation = (1.0f / (light_distance * light_distance));
+        float attenuation    = (1.0f / (light_distance * light_distance));
 
         vec3 Li = light_color(light) * light_intensity(light);
-        vec3  Wi      = normalize(to_light);
+        vec3 Wi = normalize(to_light);
         vec3 Wh = normalize(Wo + Wi);
-     
+
         // Cook-Torrance BRDF
         float NDF = distribution_ggx(N, Wh, roughness);
         float G   = geometry_smith(N, Wo, Wi, roughness);
         vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
-    
+
         vec3  nominator   = NDF * G * F;
         float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
         vec3  specular    = nominator / max(EPSILON, denominator);
-    
+
         // kS is equal to Fresnel
         vec3 kS = F;
         vec3 kD = vec3(1.0) - kS;
         kD *= 1.0 - metallic;
-    
+
         // scale light by NdotL
         float NdotL = max(dot(N, Wi), 0.0);
-    
+
         // add to outgoing radiance Lo
         return (kD * albedo / M_PI + specular) * Li * NdotL * visibility * attenuation; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
     }
     else
     {
-        vec3 to_light = light_position(light) - world_pos;
+        vec3  to_light       = light_position(light) - world_pos;
         float light_distance = length(to_light);
-        
+
         vec3 Li = light_color(light) * light_intensity(light);
         vec3 Wi = normalize(to_light);
         vec3 Wh = normalize(Wo + Wi);
-    
+
         float angle_attenuation = dot(Wi, light_direction(light));
-        angle_attenuation = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
+        angle_attenuation       = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
 
         float attenuation = (angle_attenuation / (light_distance * light_distance));
 
@@ -303,19 +303,19 @@ vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 
         float NDF = distribution_ggx(N, Wh, roughness);
         float G   = geometry_smith(N, Wo, Wi, roughness);
         vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
-    
+
         vec3  nominator   = NDF * G * F;
         float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
         vec3  specular    = nominator / max(EPSILON, denominator);
-    
+
         // kS is equal to Fresnel
         vec3 kS = F;
         vec3 kD = vec3(1.0) - kS;
         kD *= 1.0 - metallic;
-    
+
         // scale light by NdotL
         float NdotL = max(dot(N, Wi), 0.0);
-    
+
         // add to outgoing radiance Lo
         return (kD * albedo / M_PI + specular) * Li * NdotL * visibility * attenuation; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
     }
@@ -324,8 +324,8 @@ vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 
 // ------------------------------------------------------------------------
 
 vec3 indirect_lighting(vec3 N, vec3 albedo, float roughness, float metallic, float ao, vec3 Wo, vec3 F0)
-{    
-    const vec3 R  = reflect(-Wo, N);
+{
+    const vec3 R = reflect(-Wo, N);
 
     vec3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
 
@@ -364,7 +364,7 @@ void main()
 
     const vec3 N  = octohedral_to_direction(g_buffer_data_2.rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
-    
+
     vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
     vec3 Lo = vec3(0.0f);

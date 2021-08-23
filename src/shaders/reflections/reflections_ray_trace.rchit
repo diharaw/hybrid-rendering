@@ -317,10 +317,10 @@ float query_distance(vec3 world_pos, vec3 direction, float t_max)
 
     // Start traversal: return false if traversal is complete
     while (rayQueryProceedEXT(ray_query)) {}
-    
+
     // Returns type of committed (true) intersection
     if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-        return rayQueryGetIntersectionTEXT(ray_query, true) < t_max ? 0.0f : 1.0f; 
+        return rayQueryGetIntersectionTEXT(ray_query, true) < t_max ? 0.0f : 1.0f;
 
     return 1.0f;
 }
@@ -340,12 +340,12 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
     // Punctual Light
     {
         const Light light = ubo.light;
-        const int type = light_type(light);
+        const int   type  = light_type(light);
 
         if (type == LIGHT_TYPE_DIRECTIONAL)
         {
             vec3 Li = light_color(light) * light_intensity(light);
-            vec3  Wi = light_direction(light);
+            vec3 Wi = light_direction(light);
             vec3 Wh = normalize(Wo + Wi);
 
             Li *= query_visibility(ray_origin, Wi);
@@ -359,10 +359,10 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         {
             vec3  to_light       = light_position(light) - P;
             float light_distance = length(to_light);
-            float attenuation = (1.0f / (light_distance * light_distance));
+            float attenuation    = (1.0f / (light_distance * light_distance));
 
             vec3 Li = light_color(light) * light_intensity(light);
-            vec3  Wi      = normalize(to_light);
+            vec3 Wi = normalize(to_light);
             vec3 Wh = normalize(Wo + Wi);
 
             Li *= query_distance(ray_origin, Wi, light_distance);
@@ -374,15 +374,15 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         }
         else
         {
-            vec3 to_light = light_position(light) - P;
+            vec3  to_light       = light_position(light) - P;
             float light_distance = length(to_light);
-        
+
             vec3 Li = light_color(light) * light_intensity(light);
             vec3 Wi = normalize(to_light);
             vec3 Wh = normalize(Wo + Wi);
-    
+
             float angle_attenuation = dot(Wi, light_direction(light));
-            angle_attenuation = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
+            angle_attenuation       = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
 
             float attenuation = (angle_attenuation / (light_distance * light_distance));
 
