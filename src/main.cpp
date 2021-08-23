@@ -1316,10 +1316,10 @@ private:
         set_light_color(m_ubo_data.light, m_light_color);
         set_light_intensity(m_ubo_data.light, m_light_intensity);
         set_light_type(m_ubo_data.light, m_light_type);
-        set_light_direction(m_ubo_data.light, m_light_direction);
+        set_light_direction(m_ubo_data.light, -m_light_direction);
         set_light_position(m_ubo_data.light, m_light_position);
-        set_light_cos_theta_inner(m_ubo_data.light, cosf(glm::radians(m_light_cone_angle_inner)));
-        set_light_cos_theta_outer(m_ubo_data.light, cosf(glm::radians(m_light_cone_angle_outer)));
+        set_light_cos_theta_inner(m_ubo_data.light, glm::cos(glm::radians(m_light_cone_angle_inner)));
+        set_light_cos_theta_outer(m_ubo_data.light, glm::cos(glm::radians(m_light_cone_angle_outer)));
 
         m_main_camera->m_prev_view_projection = m_ubo_data.view_proj;
 
@@ -1333,7 +1333,7 @@ private:
     {
         if (m_common_resources->current_environment_type == ENVIRONMENT_TYPE_PROCEDURAL_SKY)
         {
-            m_common_resources->sky_environment->hosek_wilkie_sky_model->update(cmd_buf, m_light_direction);
+            m_common_resources->sky_environment->hosek_wilkie_sky_model->update(cmd_buf, -m_light_direction);
 
             {
                 DW_SCOPED_SAMPLE("Generate Skybox Mipmap", cmd_buf);

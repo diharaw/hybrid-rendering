@@ -305,7 +305,7 @@ void main()
     Lo += direct_lighting(N, albedo, roughness, metallic, world_pos, Wo, F0, visibility);
 
     // Indirect lighting
-    //Lo += indirect_lighting(N, albedo, roughness, metallic, ao, Wo, F0);
+    Lo += indirect_lighting(N, albedo, roughness, metallic, ao, Wo, F0);
 
     FS_OUT_Color = vec4(Lo, 1.0);
 }

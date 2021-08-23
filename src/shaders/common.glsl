@@ -94,12 +94,12 @@ int light_type(in Light light)
 
 float light_cos_theta_outer(in Light light)
 {
-    return light.data2.y;
+    return light.data3.y;
 }
 
 float light_cos_theta_inner(in Light light)
 {
-    return light.data2.z;
+    return light.data3.z;
 }
 
 #endif
