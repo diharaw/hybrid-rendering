@@ -1216,7 +1216,6 @@ private:
                         ImGui::TreePop();
                     }
                 }
-
                 if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
                     dw::profiler::ui();
 
@@ -1254,8 +1253,6 @@ private:
         glm::decompose(m_light_transform, out_scale, out_orientation, out_position, out_skew, out_persp);
 
         ImGui::Checkbox("Animation", &m_light_animation);
-
-        ImGui::Text("Direction: %f, %f, %f", m_light_direction.x, m_light_direction.y, m_light_direction.z);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1264,7 +1261,7 @@ private:
     {
         ImGui::ColorEdit3("Color", &m_light_color.x);
         ImGui::InputFloat("Intensity", &m_light_intensity);
-        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 10.0f);
 
         m_light_transform_operation = ImGuizmo::TRANSLATE;
 
@@ -1287,7 +1284,7 @@ private:
     {
         ImGui::ColorEdit3("Color", &m_light_color.x);
         ImGui::InputFloat("Intensity", &m_light_intensity);
-        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 0.1f);
+        ImGui::SliderFloat("Radius", &m_light_radius, 0.0f, 10.0f);
         ImGui::SliderFloat("Inner Cone Angle", &m_light_cone_angle_inner, 1.0f, 100.0f);
         ImGui::SliderFloat("Outer Cone Angle", &m_light_cone_angle_outer, 1.0f, 100.0f);
 
