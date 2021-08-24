@@ -895,74 +895,30 @@ private:
                 ImGuizmo::SetRect(0, 0, m_width, m_height);
                 ImGuizmo::Manipulate(&m_main_camera->m_view[0][0], &m_main_camera->m_projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, NULL);
             }
+            
+            bool             open         = true;
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
 
-            if (ImGui::Begin("Hybrid Rendering"))
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImVec2(m_width * 0.3f, m_height));
+
+            if (ImGui::Begin("Hybrid Rendering", &open, window_flags))
             {
                 if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    if (ImGui::BeginCombo("Scene", scene_types[m_common_resources->current_scene_type].c_str()))
+                    if (ImGui::TreeNode("General"))
                     {
-                        for (uint32_t i = 0; i < scene_types.size(); i++)
+                        if (ImGui::BeginCombo("Scene", scene_types[m_common_resources->current_scene_type].c_str()))
                         {
-                            const bool is_selected = (i == m_common_resources->current_scene_type);
-
-                            if (ImGui::Selectable(scene_types[i].c_str(), is_selected))
+                            for (uint32_t i = 0; i < scene_types.size(); i++)
                             {
-                                m_common_resources->current_scene_type = (SceneType)i;
-                                set_active_scene();
-                            }
+                                const bool is_selected = (i == m_common_resources->current_scene_type);
 
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
-
-                    if (ImGui::BeginCombo("Environment", environment_types[m_common_resources->current_environment_type].c_str()))
-                    {
-                        for (uint32_t i = 0; i < environment_types.size(); i++)
-                        {
-                            const bool is_selected = (i == m_common_resources->current_environment_type);
-
-                            if (ImGui::Selectable(environment_types[i].c_str(), is_selected))
-                            {
-                                m_common_resources->current_environment_type = (EnvironmentType)i;
-                                m_common_resources->current_skybox_ds        = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
-                            }
-
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
-
-                    if (ImGui::BeginCombo("Visualization", visualization_types[m_common_resources->current_visualization_type].c_str()))
-                    {
-                        for (uint32_t i = 0; i < visualization_types.size(); i++)
-                        {
-                            const bool is_selected = (i == m_common_resources->current_visualization_type);
-
-                            if (ImGui::Selectable(visualization_types[i].c_str(), is_selected))
-                                m_common_resources->current_visualization_type = (VisualizationType)i;
-
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
-
-                    if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
-                    {
-                        RayTracedReflections::OutputType type = m_ray_traced_reflections->current_output();
-
-                        if (ImGui::BeginCombo("Buffers", RayTracedReflections::kOutputTypeNames[type].c_str()))
-                        {
-                            for (uint32_t i = 0; i < RayTracedReflections::kNumOutputTypes; i++)
-                            {
-                                const bool is_selected = (i == type);
-
-                                if (ImGui::Selectable(RayTracedReflections::kOutputTypeNames[i].c_str(), is_selected))
-                                    type = (RayTracedReflections::OutputType)i;
+                                if (ImGui::Selectable(scene_types[i].c_str(), is_selected))
+                                {
+                                    m_common_resources->current_scene_type = (SceneType)i;
+                                    set_active_scene();
+                                }
 
                                 if (is_selected)
                                     ImGui::SetItemDefaultFocus();
@@ -970,20 +926,17 @@ private:
                             ImGui::EndCombo();
                         }
 
-                        m_ray_traced_reflections->set_current_output(type);
-                    }
-                    else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_SHADOWS)
-                    {
-                        RayTracedShadows::OutputType type = m_ray_traced_shadows->current_output();
-
-                        if (ImGui::BeginCombo("Buffers", RayTracedShadows::kOutputTypeNames[type].c_str()))
+                        if (ImGui::BeginCombo("Environment", environment_types[m_common_resources->current_environment_type].c_str()))
                         {
-                            for (uint32_t i = 0; i < RayTracedShadows::kNumOutputTypes; i++)
+                            for (uint32_t i = 0; i < environment_types.size(); i++)
                             {
-                                const bool is_selected = (i == type);
+                                const bool is_selected = (i == m_common_resources->current_environment_type);
 
-                                if (ImGui::Selectable(RayTracedShadows::kOutputTypeNames[i].c_str(), is_selected))
-                                    type = (RayTracedShadows::OutputType)i;
+                                if (ImGui::Selectable(environment_types[i].c_str(), is_selected))
+                                {
+                                    m_common_resources->current_environment_type = (EnvironmentType)i;
+                                    m_common_resources->current_skybox_ds        = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
+                                }
 
                                 if (is_selected)
                                     ImGui::SetItemDefaultFocus();
@@ -991,20 +944,14 @@ private:
                             ImGui::EndCombo();
                         }
 
-                        m_ray_traced_shadows->set_current_output(type);
-                    }
-                    else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_AMBIENT_OCCLUSION)
-                    {
-                        RayTracedAO::OutputType type = m_ray_traced_ao->current_output();
-
-                        if (ImGui::BeginCombo("Buffers", RayTracedAO::kOutputTypeNames[type].c_str()))
+                        if (ImGui::BeginCombo("Visualization", visualization_types[m_common_resources->current_visualization_type].c_str()))
                         {
-                            for (uint32_t i = 0; i < RayTracedAO::kNumOutputTypes; i++)
+                            for (uint32_t i = 0; i < visualization_types.size(); i++)
                             {
-                                const bool is_selected = (i == type);
+                                const bool is_selected = (i == m_common_resources->current_visualization_type);
 
-                                if (ImGui::Selectable(RayTracedAO::kOutputTypeNames[i].c_str(), is_selected))
-                                    type = (RayTracedAO::OutputType)i;
+                                if (ImGui::Selectable(visualization_types[i].c_str(), is_selected))
+                                    m_common_resources->current_visualization_type = (VisualizationType)i;
 
                                 if (is_selected)
                                     ImGui::SetItemDefaultFocus();
@@ -1012,179 +959,264 @@ private:
                             ImGui::EndCombo();
                         }
 
-                        m_ray_traced_ao->set_current_output(type);
-                    }
-
-                    m_tone_map->gui();
-                }
-                if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    LightType type = m_light_type;
-
-                    if (ImGui::BeginCombo("Type", light_types[type].c_str()))
-                    {
-                        for (uint32_t i = 0; i < light_types.size(); i++)
+                        if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
                         {
-                            const bool is_selected = (i == type);
+                            RayTracedReflections::OutputType type = m_ray_traced_reflections->current_output();
 
-                            if (ImGui::Selectable(light_types[i].c_str(), is_selected))
-                                type = (LightType)i;
-
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
-
-                    if (m_light_type != type)
-                        reset_light();
-
-                    m_light_type = type;
-
-                    if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
-                        directional_light_gui();
-                    else if (m_light_type == LIGHT_TYPE_POINT)
-                        point_light_gui();
-                    else if (m_light_type == LIGHT_TYPE_SPOT)
-                        spot_light_gui();
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Shadows", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("Ray Traced Shadows");
-
-                    RayTraceScale scale = m_ray_traced_shadows->scale();
-
-                    if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
-                    {
-                        for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
-                        {
-                            const bool is_selected = (i == scale);
-
-                            if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                            if (ImGui::BeginCombo("Buffers", RayTracedReflections::kOutputTypeNames[type].c_str()))
                             {
-                                m_vk_backend->wait_idle();
-                                m_ray_traced_shadows.reset();
-                                m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                for (uint32_t i = 0; i < RayTracedReflections::kNumOutputTypes; i++)
+                                {
+                                    const bool is_selected = (i == type);
+
+                                    if (ImGui::Selectable(RayTracedReflections::kOutputTypeNames[i].c_str(), is_selected))
+                                        type = (RayTracedReflections::OutputType)i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
                             }
 
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                            m_ray_traced_reflections->set_current_output(type);
                         }
-                        ImGui::EndCombo();
-                    }
-
-                    bool enabled = m_deferred_shading->use_ray_traced_shadows();
-                    if (ImGui::Checkbox("Enabled", &enabled))
-                        m_deferred_shading->set_use_ray_traced_shadows(enabled);
-                    m_ray_traced_shadows->gui();
-
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Reflections", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("Ray Traced Reflections");
-
-                    RayTraceScale scale = m_ray_traced_reflections->scale();
-
-                    if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
-                    {
-                        for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                        else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_SHADOWS)
                         {
-                            const bool is_selected = (i == scale);
+                            RayTracedShadows::OutputType type = m_ray_traced_shadows->current_output();
 
-                            if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                            if (ImGui::BeginCombo("Buffers", RayTracedShadows::kOutputTypeNames[type].c_str()))
                             {
-                                m_vk_backend->wait_idle();
-                                m_ray_traced_reflections.reset();
-                                m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                for (uint32_t i = 0; i < RayTracedShadows::kNumOutputTypes; i++)
+                                {
+                                    const bool is_selected = (i == type);
+
+                                    if (ImGui::Selectable(RayTracedShadows::kOutputTypeNames[i].c_str(), is_selected))
+                                        type = (RayTracedShadows::OutputType)i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
                             }
 
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                            m_ray_traced_shadows->set_current_output(type);
                         }
-                        ImGui::EndCombo();
-                    }
-
-                    bool enabled = m_deferred_shading->use_ray_traced_reflections();
-                    if (ImGui::Checkbox("Enabled", &enabled))
-                        m_deferred_shading->set_use_ray_traced_reflections(enabled);
-
-                    m_ray_traced_reflections->gui();
-
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Ray Traced Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("Ray Traced Ambient Occlusion");
-
-                    RayTraceScale scale = m_ray_traced_ao->scale();
-
-                    if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
-                    {
-                        for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                        else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_AMBIENT_OCCLUSION)
                         {
-                            const bool is_selected = (i == scale);
+                            RayTracedAO::OutputType type = m_ray_traced_ao->current_output();
 
-                            if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                            if (ImGui::BeginCombo("Buffers", RayTracedAO::kOutputTypeNames[type].c_str()))
                             {
-                                m_vk_backend->wait_idle();
-                                m_ray_traced_ao.reset();
-                                m_ray_traced_ao = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                for (uint32_t i = 0; i < RayTracedAO::kNumOutputTypes; i++)
+                                {
+                                    const bool is_selected = (i == type);
+
+                                    if (ImGui::Selectable(RayTracedAO::kOutputTypeNames[i].c_str(), is_selected))
+                                        type = (RayTracedAO::OutputType)i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
                             }
 
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                            m_ray_traced_ao->set_current_output(type);
                         }
-                        ImGui::EndCombo();
+
+                        m_tone_map->gui();
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
                     }
-
-                    bool enabled = m_deferred_shading->use_ray_traced_ao();
-                    if (ImGui::Checkbox("Enabled", &enabled))
-                        m_deferred_shading->set_use_ray_traced_ao(enabled);
-
-                    m_ray_traced_ao->gui();
-                    ImGui::PopID();
-                }
-                if (ImGui::CollapsingHeader("Global Illumination", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    ImGui::PushID("GUI_Global_Illumination");
-
-                    RayTraceScale scale = m_ddgi->scale();
-
-                    if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                    if (ImGui::TreeNode("Light"))
                     {
-                        for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                        LightType type = m_light_type;
+
+                        if (ImGui::BeginCombo("Type", light_types[type].c_str()))
                         {
-                            const bool is_selected = (i == scale);
-
-                            if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                            for (uint32_t i = 0; i < light_types.size(); i++)
                             {
-                                m_vk_backend->wait_idle();
-                                m_ddgi.reset();
-                                m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
-                                set_active_scene();
+                                const bool is_selected = (i == type);
+
+                                if (ImGui::Selectable(light_types[i].c_str(), is_selected))
+                                    type = (LightType)i;
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
                             }
-
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                            ImGui::EndCombo();
                         }
-                        ImGui::EndCombo();
+
+                        if (m_light_type != type)
+                            reset_light();
+
+                        m_light_type = type;
+
+                        if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
+                            directional_light_gui();
+                        else if (m_light_type == LIGHT_TYPE_POINT)
+                            point_light_gui();
+                        else if (m_light_type == LIGHT_TYPE_SPOT)
+                            spot_light_gui();
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
                     }
+                    if (ImGui::TreeNode("Ray Traced Shadows"))
+                    {
+                        ImGui::PushID("Ray Traced Shadows");
 
-                    bool enabled = m_deferred_shading->use_ddgi();
-                    if (ImGui::Checkbox("Enabled", &enabled))
-                        m_deferred_shading->set_use_ddgi(enabled);
+                        RayTraceScale scale = m_ray_traced_shadows->scale();
 
-                    bool visualize_probe_grid = m_deferred_shading->visualize_probe_grid();
-                    if (ImGui::Checkbox("Visualize Probe Grid", &visualize_probe_grid))
-                        m_deferred_shading->set_visualize_probe_grid(visualize_probe_grid);
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
 
-                    m_ddgi->gui();
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ray_traced_shadows.reset();
+                                    m_ray_traced_shadows = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
 
-                    ImGui::PopID();
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+
+                        }
+
+                        bool enabled = m_deferred_shading->use_ray_traced_shadows();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ray_traced_shadows(enabled);
+                        m_ray_traced_shadows->gui();
+
+                        ImGui::PopID();
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
+                    }
+                    if (ImGui::TreeNode("Ray Traced Reflections"))
+                    {
+                        ImGui::PushID("Ray Traced Reflections");
+
+                        RayTraceScale scale = m_ray_traced_reflections->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ray_traced_reflections.reset();
+                                    m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        bool enabled = m_deferred_shading->use_ray_traced_reflections();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ray_traced_reflections(enabled);
+
+                        m_ray_traced_reflections->gui();
+
+                        ImGui::PopID();
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
+                    }
+                    if (ImGui::TreeNode("Ray Traced Ambient Occlusion"))
+                    {
+                        ImGui::PushID("Ray Traced Ambient Occlusion");
+
+                        RayTraceScale scale = m_ray_traced_ao->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ray_traced_ao.reset();
+                                    m_ray_traced_ao = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        bool enabled = m_deferred_shading->use_ray_traced_ao();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ray_traced_ao(enabled);
+
+                        m_ray_traced_ao->gui();
+                        ImGui::PopID();
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
+                    }
+                    if (ImGui::TreeNode("Global Illumination"))
+                    {
+                        ImGui::PushID("GUI_Global_Illumination");
+
+                        RayTraceScale scale = m_ddgi->scale();
+
+                        if (ImGui::BeginCombo("Scale", ray_trace_scales[scale].c_str()))
+                        {
+                            for (uint32_t i = 0; i < ray_trace_scales.size(); i++)
+                            {
+                                const bool is_selected = (i == scale);
+
+                                if (ImGui::Selectable(ray_trace_scales[i].c_str(), is_selected))
+                                {
+                                    m_vk_backend->wait_idle();
+                                    m_ddgi.reset();
+                                    m_ddgi = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get(), (RayTraceScale)i));
+                                    set_active_scene();
+                                }
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        bool enabled = m_deferred_shading->use_ddgi();
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            m_deferred_shading->set_use_ddgi(enabled);
+
+                        bool visualize_probe_grid = m_deferred_shading->visualize_probe_grid();
+                        if (ImGui::Checkbox("Visualize Probe Grid", &visualize_probe_grid))
+                            m_deferred_shading->set_visualize_probe_grid(visualize_probe_grid);
+
+                        m_ddgi->gui();
+
+                        ImGui::PopID();
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
+                    }
+                    if (ImGui::TreeNode("TAA"))
+                    {
+                        m_temporal_aa->gui();
+                        ImGui::TreePop();
+                    }
                 }
-                if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen))
-                    m_temporal_aa->gui();
+
                 if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
                     dw::profiler::ui();
 
