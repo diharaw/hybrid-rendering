@@ -22,6 +22,7 @@
 #define NUM_PILLARS 6
 #define CAMERA_NEAR_PLANE 1.0f
 #define CAMERA_FAR_PLANE 1000.0f
+#define CAMERA_SPEED_MULTIPLIER 0.1f
 
 const std::vector<std::string> environment_map_images = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
 const std::vector<std::string> environment_types      = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
@@ -246,15 +247,15 @@ protected:
     {
         // Handle forward movement.
         if (code == GLFW_KEY_W)
-            m_heading_speed = m_camera_speed;
+            m_heading_speed = m_camera_speed * CAMERA_SPEED_MULTIPLIER;
         else if (code == GLFW_KEY_S)
-            m_heading_speed = -m_camera_speed;
+            m_heading_speed = -m_camera_speed * CAMERA_SPEED_MULTIPLIER;
 
         // Handle sideways movement.
         if (code == GLFW_KEY_A)
-            m_sideways_speed = -m_camera_speed;
+            m_sideways_speed = -m_camera_speed * CAMERA_SPEED_MULTIPLIER;
         else if (code == GLFW_KEY_D)
-            m_sideways_speed = m_camera_speed;
+            m_sideways_speed = m_camera_speed * CAMERA_SPEED_MULTIPLIER;
 
         if (code == GLFW_KEY_SPACE)
             m_mouse_look = true;
@@ -1066,6 +1067,13 @@ private:
                         ImGui::TreePop();
                         ImGui::Separator();
                     }
+                    if (ImGui::TreeNode("Camera"))
+                    {
+                        ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
+
+                        ImGui::TreePop();
+                        ImGui::Separator();
+                    }
                     if (ImGui::TreeNode("Ray Traced Shadows"))
                     {
                         ImGui::PushID("Ray Traced Shadows");
@@ -1609,7 +1617,7 @@ private:
     float                       m_heading_speed      = 0.0f;
     float                       m_sideways_speed     = 0.0f;
     float                       m_camera_sensitivity = 0.05f;
-    float                       m_camera_speed       = 0.2f;
+    float                       m_camera_speed       = 2.0f;
     float                       m_offset             = 0.1f;
     bool                        m_debug_gui          = false;
 
