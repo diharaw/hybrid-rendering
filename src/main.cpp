@@ -932,6 +932,9 @@ private:
                             {
                                 const bool is_selected = (i == m_common_resources->current_environment_type);
 
+                                if (i == ENVIRONMENT_TYPE_PROCEDURAL_SKY && m_light_type != LIGHT_TYPE_DIRECTIONAL)
+                                    continue;
+
                                 if (ImGui::Selectable(environment_types[i].c_str(), is_selected))
                                 {
                                     m_common_resources->current_environment_type = (EnvironmentType)i;
@@ -1337,6 +1340,8 @@ private:
             {
                 m_light_radius    = 2.5f;
                 m_light_intensity = 500.0f;
+                m_light_cone_angle_inner = 40.0f;
+                m_light_cone_angle_outer = 50.0f;
 
                 glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
                 glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 2.5f, 15.0f));
@@ -1350,16 +1355,27 @@ private:
             {
                 m_light_radius    = 0.1f;
                 m_light_intensity = 1.0f;
+
+                m_light_transform = glm::rotate(m_light_transform, glm::radians(-35.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(-60.0f), glm::vec3(1.0f, 0.0f, 0.0f));
             }
             else if (m_light_type == LIGHT_TYPE_POINT)
             {
                 m_light_radius    = 2.5f;
                 m_light_intensity = 500.0f;
+
+                m_light_transform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 10.0f, 0.0f));
             }
             else if (m_light_type == LIGHT_TYPE_SPOT)
             {
                 m_light_radius    = 2.5f;
-                m_light_intensity = 500.0f;
+                m_light_intensity = 5000.0f;
+                m_light_cone_angle_inner = 40.0f;
+                m_light_cone_angle_outer = 50.0f;
+
+                glm::mat4 R       = glm::rotate(glm::mat4(1.0f), glm::radians(75.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                glm::mat4 T       = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 15.0f, 20.0f));
+
+                m_light_transform = T * R;
             }
         }
         else if (m_common_resources->current_scene_type == SCENE_TYPE_SPONZA)
@@ -1397,17 +1413,34 @@ private:
             {
                 m_light_radius    = 0.1f;
                 m_light_intensity = 1.0f;
+
+                m_light_transform = glm::rotate(m_light_transform, glm::radians(-45.0f), glm::vec3(0.0f, 0.0f, 1.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(15.0f), glm::vec3(0.0f, 1.0f, 0.0f));
             }
             else if (m_light_type == LIGHT_TYPE_POINT)
             {
                 m_light_radius    = 2.5f;
                 m_light_intensity = 500.0f;
+
+                m_light_transform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 15.0f, 0.0f));
             }
             else if (m_light_type == LIGHT_TYPE_SPOT)
             {
                 m_light_radius    = 2.5f;
                 m_light_intensity = 500.0f;
+                m_light_cone_angle_inner = 40.0f;
+                m_light_cone_angle_outer = 50.0f;
+
+                glm::mat4 R = glm::rotate(m_light_transform, glm::radians(-30.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                glm::mat4 T       = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 6.0f, 20.0f));
+
+                m_light_transform = T * R;
             }
+        }
+
+        if (m_common_resources->current_environment_type == ENVIRONMENT_TYPE_PROCEDURAL_SKY && m_light_type != LIGHT_TYPE_DIRECTIONAL)
+        {
+            m_common_resources->current_environment_type = ENVIRONMENT_TYPE_NONE;
+            m_common_resources->current_skybox_ds        = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
         }
     }
 
