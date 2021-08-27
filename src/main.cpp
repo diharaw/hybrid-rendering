@@ -24,28 +24,76 @@
 #define CAMERA_FAR_PLANE 1000.0f
 #define CAMERA_SPEED_MULTIPLIER 0.1f
 
-const std::vector<std::string> environment_map_images = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
-const std::vector<std::string> environment_types      = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
-const std::vector<std::string> visualization_types    = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
-const std::vector<std::string> scene_types            = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
-const std::vector<std::string> ray_trace_scales       = { "Full-Res", "Half-Res", "Quarter-Res" };
-const std::vector<std::string> light_types            = { "Directional", "Point", "Spot" };
-const std::vector<std::string> camera_types           = { "Free", "Animated", "Fixed" };
-const std::vector<glm::vec3>   fixed_camera_position_vectors = {
-    glm::vec3(-22.061460f, 16.624475f, 23.893597f),
-    glm::vec3(-0.337131f, 15.421529f, 39.524925f),
-    glm::vec3(9.907501f, 8.313064f, -18.302629f)
+const std::vector<std::string>            environment_map_images        = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
+const std::vector<std::string>            environment_types             = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
+const std::vector<std::string>            visualization_types           = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
+const std::vector<std::string>            scene_types                   = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
+const std::vector<std::string>            ray_trace_scales              = { "Full-Res", "Half-Res", "Quarter-Res" };
+const std::vector<std::string>            light_types                   = { "Directional", "Point", "Spot" };
+const std::vector<std::string>            camera_types                  = { "Free", "Animated", "Fixed" };
+const std::vector<std::vector<glm::vec3>> fixed_camera_position_vectors = {
+    { glm::vec3(-22.061460f, 16.624475f, 23.893597f),
+      glm::vec3(-0.337131f, 15.421529f, 39.524925f),
+      glm::vec3(9.907501f, 8.313064f, -18.302629f),
+      glm::vec3(10.431265f, 4.411600f, -6.578662f) },
+
+    { glm::vec3(-42.599087f, 5.077470f, 3.662686f),
+      glm::vec3(42.569202f, 5.680231f, 1.135333f),
+      glm::vec3(-0.088592f, 18.299492f, 31.712112f),
+      glm::vec3(-10.971692f, 4.040000f, -1.099626f) },
+
+    { glm::vec3(349.689911f, 50.013187f, -47.142761f),
+      glm::vec3(255.940018f, 181.126541f, -14.534848f),
+      glm::vec3(25.954714f, 36.763203f, 153.194244f),
+      glm::vec3(-391.294556f, 179.648758f, 141.655914f) },
+
+    { glm::vec3(-2.880592f, 12.838152f, 28.133095f),
+      glm::vec3(-4.044456f, 3.885819f, 14.471013f),
+      glm::vec3(-10.408246f, 4.111171f, 8.519235f),
+      glm::vec3(-10.283543f, 6.659785f, 2.117568f) }
 };
-const std::vector<glm::vec3>   fixed_camera_forward_vectors = {
-    glm::vec3(0.593151f, -0.521760f, -0.613138f),
-    glm::vec3(-0.006306f, -0.425798f, -0.904796f),
-    glm::vec3(-0.353051f, -0.351048f, 0.867249f)
-}; 
-const std::vector<glm::vec3> fixed_camera_right_vectors = {
-    glm::vec3(0.718724f, -0.000000f, 0.695295f),
-    glm::vec3(0.999976f, 0.000000f, -0.006970f),
-    glm::vec3(-0.926194f, 0.000000f, -0.377048f)
-}; 
+const std::vector<std::vector<glm::vec3>> fixed_camera_forward_vectors = {
+    { glm::vec3(0.593151f, -0.521760f, -0.613138f),
+      glm::vec3(-0.006306f, -0.425798f, -0.904796f),
+      glm::vec3(-0.353051f, -0.351048f, 0.867249f),
+      glm::vec3(-0.800752f, -0.151261f, 0.579584f) },
+
+    { glm::vec3(0.926363f, -0.233447f, -0.295558f),
+      glm::vec3(-0.956285f, -0.235149f, -0.173853f),
+      glm::vec3(0.003158f, -0.457108f, -0.889406f),
+      glm::vec3(-0.593590f, -0.287377f, -0.751709f) },
+
+    { glm::vec3(-0.927807f, -0.008728f, 0.372960f),
+      glm::vec3(-0.890209f, -0.455542f, -0.003118f),
+      glm::vec3(0.932927f, -0.008722f, -0.359960f),
+      glm::vec3(0.723851f, -0.095842f, -0.683267f) },
+
+    { glm::vec3(-0.005560f, -0.393157f, -0.919454f),
+      glm::vec3(0.725216f, -0.146966f, -0.672653f),
+      glm::vec3(-0.739586f, -0.270623f, -0.616259f),
+      glm::vec3(0.787594f, -0.314029f, -0.530172f) }
+};
+const std::vector<std::vector<glm::vec3>> fixed_camera_right_vectors = {
+    { glm::vec3(0.718724f, -0.000000f, 0.695295f),
+      glm::vec3(0.999976f, 0.000000f, -0.006970f),
+      glm::vec3(-0.926194f, 0.000000f, -0.377048f),
+      glm::vec3(-0.586330f, 0.000000f, -0.810072f) },
+
+    { glm::vec3(0.303957f, -0.000000f, 0.952686f),
+      glm::vec3(0.178869f, 0.000000f, -0.983873f),
+      glm::vec3(0.999994f, -0.000000f, 0.003551f),
+      glm::vec3(0.784814f, 0.000000f, -0.619732f) },
+
+    { glm::vec3(-0.372974f, 0.000000f, -0.927842f),
+      glm::vec3(0.003502f, 0.000000f, -0.999994f),
+      glm::vec3(0.359974f, -0.000000f, 0.932963f),
+      glm::vec3(0.686427f, -0.000000f, 0.727199f) },
+
+    { glm::vec3(0.999982f, 0.000000f, -0.006047f),
+      glm::vec3(0.680037f, -0.000000f, 0.733178f),
+      glm::vec3(0.640146f, 0.000000f, -0.768253f),
+      glm::vec3(0.558420f, -0.000000f, 0.829558f) }
+};
 
 struct Light
 {
@@ -924,7 +972,7 @@ private:
                 ImGuizmo::SetRect(0, 0, m_width, m_height);
                 ImGuizmo::Manipulate(&m_main_camera->m_view[0][0], &m_main_camera->m_projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, NULL);
             }
-            
+
             bool             open         = true;
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
 
@@ -1083,7 +1131,7 @@ private:
                         {
                             m_light_type = type;
                             reset_light();
-                        }    
+                        }
 
                         if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
                             directional_light_gui();
@@ -1123,7 +1171,7 @@ private:
 
                             if (ImGui::BeginCombo("Current Angle", std::to_string(current_angle).c_str()))
                             {
-                                for (uint32_t i = 0; i < fixed_camera_forward_vectors.size(); i++)
+                                for (uint32_t i = 0; i < fixed_camera_forward_vectors[m_common_resources->current_scene_type].size(); i++)
                                 {
                                     const bool is_selected = (i == current_angle);
 
@@ -1138,9 +1186,9 @@ private:
 
                             m_current_fixed_camera_angle = current_angle;
                         }
-            
+
                         ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
-                        
+
                         // TEMP
                         if (ImGui::Button("Print Camera Vec3s"))
                         {
@@ -1148,7 +1196,7 @@ private:
                             printf("Forward = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_forward.x, m_main_camera->m_forward.y, m_main_camera->m_forward.z);
                             printf("Right = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_right.x, m_main_camera->m_right.y, m_main_camera->m_right.z);
                         }
-                        
+
                         ImGui::TreePop();
                         ImGui::Separator();
                     }
@@ -1175,7 +1223,6 @@ private:
                                     ImGui::SetItemDefaultFocus();
                             }
                             ImGui::EndCombo();
-
                         }
 
                         bool enabled = m_deferred_shading->use_ray_traced_shadows();
@@ -1424,8 +1471,8 @@ private:
             }
             else if (m_light_type == LIGHT_TYPE_SPOT)
             {
-                m_light_radius    = 2.5f;
-                m_light_intensity = 500.0f;
+                m_light_radius           = 2.5f;
+                m_light_intensity        = 500.0f;
                 m_light_cone_angle_inner = 40.0f;
                 m_light_cone_angle_outer = 50.0f;
 
@@ -1453,13 +1500,13 @@ private:
             }
             else if (m_light_type == LIGHT_TYPE_SPOT)
             {
-                m_light_radius    = 2.5f;
-                m_light_intensity = 5000.0f;
+                m_light_radius           = 2.5f;
+                m_light_intensity        = 5000.0f;
                 m_light_cone_angle_inner = 40.0f;
                 m_light_cone_angle_outer = 50.0f;
 
-                glm::mat4 R       = glm::rotate(glm::mat4(1.0f), glm::radians(75.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-                glm::mat4 T       = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 15.0f, 20.0f));
+                glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(75.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 15.0f, 20.0f));
 
                 m_light_transform = T * R;
             }
@@ -1482,8 +1529,8 @@ private:
             }
             else if (m_light_type == LIGHT_TYPE_SPOT)
             {
-                m_light_radius    = 6.5f;
-                m_light_intensity = 500000.0f;
+                m_light_radius           = 6.5f;
+                m_light_intensity        = 500000.0f;
                 m_light_cone_angle_inner = 10.0f;
                 m_light_cone_angle_outer = 30.0f;
 
@@ -1511,13 +1558,13 @@ private:
             }
             else if (m_light_type == LIGHT_TYPE_SPOT)
             {
-                m_light_radius    = 2.5f;
-                m_light_intensity = 500.0f;
+                m_light_radius           = 2.5f;
+                m_light_intensity        = 500.0f;
                 m_light_cone_angle_inner = 40.0f;
                 m_light_cone_angle_outer = 50.0f;
 
                 glm::mat4 R = glm::rotate(m_light_transform, glm::radians(-30.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-                glm::mat4 T       = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 6.0f, 20.0f));
+                glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 6.0f, 20.0f));
 
                 m_light_transform = T * R;
             }
@@ -1623,21 +1670,21 @@ private:
             {
                 // Activate Mouse Look
                 m_main_camera->set_rotatation_delta(glm::vec3((float)(m_camera_y),
-                                                        (float)(m_camera_x),
-                                                        (float)(0.0f)));
+                                                              (float)(m_camera_x),
+                                                              (float)(0.0f)));
             }
             else
             {
                 m_main_camera->set_rotatation_delta(glm::vec3((float)(0),
-                                                        (float)(0),
-                                                        (float)(0)));
+                                                              (float)(0),
+                                                              (float)(0)));
             }
 
             m_main_camera->update();
         }
         else if (m_camera_type == CAMERA_TYPE_FIXED)
-            m_main_camera->update_from_frame(fixed_camera_position_vectors[m_current_fixed_camera_angle], fixed_camera_forward_vectors[m_current_fixed_camera_angle], fixed_camera_right_vectors[m_current_fixed_camera_angle]);
- 
+            m_main_camera->update_from_frame(fixed_camera_position_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], fixed_camera_forward_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], fixed_camera_right_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle]);
+
         m_common_resources->frame_time    = m_delta_seconds;
         m_common_resources->camera_delta  = m_main_camera->m_position - m_common_resources->prev_position;
         m_common_resources->prev_position = m_main_camera->m_position;
@@ -1647,6 +1694,8 @@ private:
 
     void set_active_scene()
     {
+        m_current_fixed_camera_angle = 0;
+
         if (m_common_resources->current_scene_type == SCENE_TYPE_PILLARS)
         {
             m_ddgi->set_normal_bias(1.0f);
@@ -1693,7 +1742,7 @@ private:
     std::unique_ptr<ToneMap>              m_tone_map;
 
     // Camera.
-    CameraType                  m_camera_type = CAMERA_TYPE_FREE;
+    CameraType                  m_camera_type                = CAMERA_TYPE_FREE;
     uint32_t                    m_current_fixed_camera_angle = 0;
     std::unique_ptr<dw::Camera> m_main_camera;
     bool                        m_mouse_look         = false;
