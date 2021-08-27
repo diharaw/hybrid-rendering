@@ -48,6 +48,13 @@ enum LightType
     LIGHT_TYPE_COUNT
 };
 
+enum CameraType
+{
+    CAMERA_TYPE_FREE,
+    CAMERA_TYPE_ANIMATED,
+    CAMERA_TYPE_FIXED
+};
+
 enum VisualizationType
 {
     VISUALIZATION_TYPE_FINAL,

@@ -30,6 +30,22 @@ const std::vector<std::string> visualization_types    = { "Final", "Shadows", "A
 const std::vector<std::string> scene_types            = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
 const std::vector<std::string> ray_trace_scales       = { "Full-Res", "Half-Res", "Quarter-Res" };
 const std::vector<std::string> light_types            = { "Directional", "Point", "Spot" };
+const std::vector<std::string> camera_types           = { "Free", "Animated", "Fixed" };
+const std::vector<glm::vec3>   fixed_camera_position_vectors = {
+    glm::vec3(-22.061460f, 16.624475f, 23.893597f),
+    glm::vec3(-0.337131f, 15.421529f, 39.524925f),
+    glm::vec3(9.907501f, 8.313064f, -18.302629f)
+};
+const std::vector<glm::vec3>   fixed_camera_forward_vectors = {
+    glm::vec3(0.593151f, -0.521760f, -0.613138f),
+    glm::vec3(-0.006306f, -0.425798f, -0.904796f),
+    glm::vec3(-0.353051f, -0.351048f, 0.867249f)
+}; 
+const std::vector<glm::vec3> fixed_camera_right_vectors = {
+    glm::vec3(0.718724f, -0.000000f, 0.695295f),
+    glm::vec3(0.999976f, 0.000000f, -0.006970f),
+    glm::vec3(-0.926194f, 0.000000f, -0.377048f)
+}; 
 
 struct Light
 {
@@ -245,20 +261,23 @@ protected:
 
     void key_pressed(int code) override
     {
-        // Handle forward movement.
-        if (code == GLFW_KEY_W)
-            m_heading_speed = m_camera_speed * CAMERA_SPEED_MULTIPLIER;
-        else if (code == GLFW_KEY_S)
-            m_heading_speed = -m_camera_speed * CAMERA_SPEED_MULTIPLIER;
+        if (m_camera_type == CAMERA_TYPE_FREE)
+        {
+            // Handle forward movement.
+            if (code == GLFW_KEY_W)
+                m_heading_speed = m_camera_speed * CAMERA_SPEED_MULTIPLIER;
+            else if (code == GLFW_KEY_S)
+                m_heading_speed = -m_camera_speed * CAMERA_SPEED_MULTIPLIER;
 
-        // Handle sideways movement.
-        if (code == GLFW_KEY_A)
-            m_sideways_speed = -m_camera_speed * CAMERA_SPEED_MULTIPLIER;
-        else if (code == GLFW_KEY_D)
-            m_sideways_speed = m_camera_speed * CAMERA_SPEED_MULTIPLIER;
+            // Handle sideways movement.
+            if (code == GLFW_KEY_A)
+                m_sideways_speed = -m_camera_speed * CAMERA_SPEED_MULTIPLIER;
+            else if (code == GLFW_KEY_D)
+                m_sideways_speed = m_camera_speed * CAMERA_SPEED_MULTIPLIER;
 
-        if (code == GLFW_KEY_SPACE)
-            m_mouse_look = true;
+            if (code == GLFW_KEY_SPACE)
+                m_mouse_look = true;
+        }
 
         if (code == GLFW_KEY_G)
             m_debug_gui = !m_debug_gui;
@@ -268,13 +287,16 @@ protected:
 
     void key_released(int code) override
     {
-        // Handle forward movement.
-        if (code == GLFW_KEY_W || code == GLFW_KEY_S)
-            m_heading_speed = 0.0f;
+        if (m_camera_type == CAMERA_TYPE_FREE)
+        {
+            // Handle forward movement.
+            if (code == GLFW_KEY_W || code == GLFW_KEY_S)
+                m_heading_speed = 0.0f;
 
-        // Handle sideways movement.
-        if (code == GLFW_KEY_A || code == GLFW_KEY_D)
-            m_sideways_speed = 0.0f;
+            // Handle sideways movement.
+            if (code == GLFW_KEY_A || code == GLFW_KEY_D)
+                m_sideways_speed = 0.0f;
+        }
 
         if (code == GLFW_KEY_SPACE)
             m_mouse_look = false;
@@ -284,18 +306,24 @@ protected:
 
     void mouse_pressed(int code) override
     {
-        // Enable mouse look.
-        if (code == GLFW_MOUSE_BUTTON_RIGHT)
-            m_mouse_look = true;
+        if (m_camera_type == CAMERA_TYPE_FREE)
+        {
+            // Enable mouse look.
+            if (code == GLFW_MOUSE_BUTTON_RIGHT)
+                m_mouse_look = true;
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
 
     void mouse_released(int code) override
     {
-        // Disable mouse look.
-        if (code == GLFW_MOUSE_BUTTON_RIGHT)
-            m_mouse_look = false;
+        if (m_camera_type == CAMERA_TYPE_FREE)
+        {
+            // Disable mouse look.
+            if (code == GLFW_MOUSE_BUTTON_RIGHT)
+                m_mouse_look = false;
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1069,8 +1097,58 @@ private:
                     }
                     if (ImGui::TreeNode("Camera"))
                     {
-                        ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
+                        CameraType type = m_camera_type;
 
+                        if (ImGui::BeginCombo("Type", camera_types[type].c_str()))
+                        {
+                            for (uint32_t i = 0; i < camera_types.size(); i++)
+                            {
+                                const bool is_selected = (i == type);
+
+                                if (ImGui::Selectable(camera_types[i].c_str(), is_selected))
+                                    type = (CameraType)i;
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        if (type != m_camera_type)
+                            m_camera_type = type;
+
+                        if (m_camera_type == CAMERA_TYPE_FIXED)
+                        {
+                            uint32_t current_angle = m_current_fixed_camera_angle;
+
+                            if (ImGui::BeginCombo("Current Angle", std::to_string(current_angle).c_str()))
+                            {
+                                for (uint32_t i = 0; i < fixed_camera_forward_vectors.size(); i++)
+                                {
+                                    const bool is_selected = (i == current_angle);
+
+                                    if (ImGui::Selectable(std::to_string(i).c_str(), is_selected))
+                                        current_angle = i;
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            m_current_fixed_camera_angle = current_angle;
+                        }
+            
+                        ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
+                        
+                        // TEMP
+                        if (ImGui::Button("Print Camera Vec3s"))
+                        {
+                            printf("Position = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_position.x, m_main_camera->m_position.y, m_main_camera->m_position.z);
+                            printf("Forward = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_forward.x, m_main_camera->m_forward.y, m_main_camera->m_forward.z);
+                            printf("Right = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_right.x, m_main_camera->m_right.y, m_main_camera->m_right.z);
+                        }
+                        
                         ImGui::TreePop();
                         ImGui::Separator();
                     }
@@ -1530,33 +1608,36 @@ private:
     {
         m_temporal_aa->update();
 
-        dw::Camera* current = m_main_camera.get();
-
-        float forward_delta = m_heading_speed * m_delta;
-        float right_delta   = m_sideways_speed * m_delta;
-
-        current->set_translation_delta(current->m_forward, forward_delta);
-        current->set_translation_delta(current->m_right, right_delta);
-
-        m_camera_x = m_mouse_delta_x * m_camera_sensitivity;
-        m_camera_y = m_mouse_delta_y * m_camera_sensitivity;
-
-        if (m_mouse_look)
+        if (m_camera_type == CAMERA_TYPE_FREE)
         {
-            // Activate Mouse Look
-            current->set_rotatation_delta(glm::vec3((float)(m_camera_y),
-                                                    (float)(m_camera_x),
-                                                    (float)(0.0f)));
-        }
-        else
-        {
-            current->set_rotatation_delta(glm::vec3((float)(0),
-                                                    (float)(0),
-                                                    (float)(0)));
-        }
+            float forward_delta = m_heading_speed * m_delta;
+            float right_delta   = m_sideways_speed * m_delta;
 
-        current->update();
+            m_main_camera->set_translation_delta(m_main_camera->m_forward, forward_delta);
+            m_main_camera->set_translation_delta(m_main_camera->m_right, right_delta);
 
+            m_camera_x = m_mouse_delta_x * m_camera_sensitivity;
+            m_camera_y = m_mouse_delta_y * m_camera_sensitivity;
+
+            if (m_mouse_look)
+            {
+                // Activate Mouse Look
+                m_main_camera->set_rotatation_delta(glm::vec3((float)(m_camera_y),
+                                                        (float)(m_camera_x),
+                                                        (float)(0.0f)));
+            }
+            else
+            {
+                m_main_camera->set_rotatation_delta(glm::vec3((float)(0),
+                                                        (float)(0),
+                                                        (float)(0)));
+            }
+
+            m_main_camera->update();
+        }
+        else if (m_camera_type == CAMERA_TYPE_FIXED)
+            m_main_camera->update_from_frame(fixed_camera_position_vectors[m_current_fixed_camera_angle], fixed_camera_forward_vectors[m_current_fixed_camera_angle], fixed_camera_right_vectors[m_current_fixed_camera_angle]);
+ 
         m_common_resources->frame_time    = m_delta_seconds;
         m_common_resources->camera_delta  = m_main_camera->m_position - m_common_resources->prev_position;
         m_common_resources->prev_position = m_main_camera->m_position;
@@ -1612,6 +1693,8 @@ private:
     std::unique_ptr<ToneMap>              m_tone_map;
 
     // Camera.
+    CameraType                  m_camera_type = CAMERA_TYPE_FREE;
+    uint32_t                    m_current_fixed_camera_angle = 0;
     std::unique_ptr<dw::Camera> m_main_camera;
     bool                        m_mouse_look         = false;
     float                       m_heading_speed      = 0.0f;
