@@ -8,6 +8,7 @@ A simple Raster/Ray-Trace hybrid renderer using the Vulkan KHR ray-tracing exten
 
 ## Dependencies
 * [dwSampleFramework](https://github.com/diharaw/dwSampleFramework) 
+* [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo)
 
 ## License
 ```
