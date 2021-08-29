@@ -14,6 +14,7 @@
 #include "ray_traced_ao.h"
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
+#include "ground_truth_path_tracer.h"
 #include "tone_map.h"
 #include "temporal_aa.h"
 #include "utilities.h"
@@ -26,7 +27,7 @@
 
 const std::vector<std::string>            environment_map_images        = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
 const std::vector<std::string>            environment_types             = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
-const std::vector<std::string>            visualization_types           = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination" };
+const std::vector<std::string>            visualization_types           = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Ground Truth" };
 const std::vector<std::string>            scene_types                   = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
 const std::vector<std::string>            ray_trace_scales              = { "Full-Res", "Half-Res", "Quarter-Res" };
 const std::vector<std::string>            light_types                   = { "Directional", "Point", "Spot" };
@@ -202,14 +203,15 @@ protected:
         create_descriptor_sets();
         write_descriptor_sets();
 
-        m_g_buffer               = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
-        m_ray_traced_shadows     = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_ao          = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ray_traced_reflections = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_ddgi                   = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_deferred_shading       = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_temporal_aa            = std::unique_ptr<TemporalAA>(new TemporalAA(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
-        m_tone_map               = std::unique_ptr<ToneMap>(new ToneMap(m_vk_backend, m_common_resources.get()));
+        m_g_buffer                 = std::unique_ptr<GBuffer>(new GBuffer(m_vk_backend, m_common_resources.get(), m_width, m_height));
+        m_ray_traced_shadows       = std::unique_ptr<RayTracedShadows>(new RayTracedShadows(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ray_traced_ao            = std::unique_ptr<RayTracedAO>(new RayTracedAO(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ray_traced_reflections   = std::unique_ptr<RayTracedReflections>(new RayTracedReflections(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ddgi                     = std::unique_ptr<DDGI>(new DDGI(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_ground_truth_path_tracer = std::unique_ptr<GroundTruthPathTracer>(new GroundTruthPathTracer(m_vk_backend, m_common_resources.get()));
+        m_deferred_shading         = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_temporal_aa              = std::unique_ptr<TemporalAA>(new TemporalAA(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
+        m_tone_map                 = std::unique_ptr<ToneMap>(new ToneMap(m_vk_backend, m_common_resources.get()));
 
         set_active_scene();
         create_camera();
@@ -259,12 +261,14 @@ protected:
                                        m_ray_traced_shadows.get(),
                                        m_ray_traced_reflections.get(),
                                        m_ddgi.get());
+            m_ground_truth_path_tracer->render(cmd_buf);
             m_temporal_aa->render(cmd_buf,
                                   m_deferred_shading.get(),
                                   m_ray_traced_ao.get(),
                                   m_ray_traced_shadows.get(),
                                   m_ray_traced_reflections.get(),
                                   m_ddgi.get(),
+                                  m_ground_truth_path_tracer.get(),
                                   m_delta_seconds);
             m_tone_map->render(cmd_buf,
                                m_temporal_aa.get(),
@@ -273,6 +277,7 @@ protected:
                                m_ray_traced_shadows.get(),
                                m_ray_traced_reflections.get(),
                                m_ddgi.get(),
+                               m_ground_truth_path_tracer.get(),
                                [this](dw::vk::CommandBuffer::Ptr cmd_buf) {
                                    render_gui(cmd_buf);
                                });
@@ -298,6 +303,7 @@ protected:
         m_temporal_aa.reset();
         m_deferred_shading.reset();
         m_g_buffer.reset();
+        m_ground_truth_path_tracer.reset();
         m_ray_traced_shadows.reset();
         m_ray_traced_ao.reset();
         m_ray_traced_reflections.reset();
@@ -970,7 +976,8 @@ private:
             {
                 ImGuizmo::SetOrthographic(false);
                 ImGuizmo::SetRect(0, 0, m_width, m_height);
-                ImGuizmo::Manipulate(&m_main_camera->m_view[0][0], &m_main_camera->m_projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, NULL);
+                if (ImGuizmo::Manipulate(&m_main_camera->m_view[0][0], &m_main_camera->m_projection[0][0], m_light_transform_operation, ImGuizmo::WORLD, &m_light_transform[0][0], NULL, NULL))
+                    m_ground_truth_path_tracer->restart_accumulation();
             }
 
             bool             open         = true;
@@ -1016,6 +1023,7 @@ private:
                                 {
                                     m_common_resources->current_environment_type = (EnvironmentType)i;
                                     m_common_resources->current_skybox_ds        = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
+                                    m_ground_truth_path_tracer->restart_accumulation();
                                 }
 
                                 if (is_selected)
@@ -1102,6 +1110,8 @@ private:
 
                             m_ray_traced_ao->set_current_output(type);
                         }
+                        else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_GROUND_TRUTH)
+                            m_ground_truth_path_tracer->gui();
 
                         m_tone_map->gui();
 
@@ -1163,7 +1173,10 @@ private:
                         }
 
                         if (type != m_camera_type)
+                        {
                             m_camera_type = type;
+                            m_ground_truth_path_tracer->restart_accumulation();
+                        }
 
                         if (m_camera_type == CAMERA_TYPE_FIXED)
                         {
@@ -1176,7 +1189,10 @@ private:
                                     const bool is_selected = (i == current_angle);
 
                                     if (ImGui::Selectable(std::to_string(i).c_str(), is_selected))
+                                    {
                                         current_angle = i;
+                                        m_ground_truth_path_tracer->restart_accumulation();
+                                    }
 
                                     if (is_selected)
                                         ImGui::SetItemDefaultFocus();
@@ -1188,14 +1204,6 @@ private:
                         }
 
                         ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
-
-                        // TEMP
-                        if (ImGui::Button("Print Camera Vec3s"))
-                        {
-                            printf("Position = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_position.x, m_main_camera->m_position.y, m_main_camera->m_position.z);
-                            printf("Forward = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_forward.x, m_main_camera->m_forward.y, m_main_camera->m_forward.z);
-                            printf("Right = glm::vec3(%ff, %ff, %ff)\n", m_main_camera->m_right.x, m_main_camera->m_right.y, m_main_camera->m_right.z);
-                        }
 
                         ImGui::TreePop();
                         ImGui::Separator();
@@ -1575,6 +1583,8 @@ private:
             m_common_resources->current_environment_type = ENVIRONMENT_TYPE_NONE;
             m_common_resources->current_skybox_ds        = m_common_resources->skybox_ds[m_common_resources->current_environment_type];
         }
+
+        m_ground_truth_path_tracer->restart_accumulation();
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1658,10 +1668,13 @@ private:
         if (m_camera_type == CAMERA_TYPE_FREE)
         {
             float forward_delta = m_heading_speed * m_delta;
-            float right_delta   = m_sideways_speed * m_delta;
+            float sideways_delta   = m_sideways_speed * m_delta;
 
             m_main_camera->set_translation_delta(m_main_camera->m_forward, forward_delta);
-            m_main_camera->set_translation_delta(m_main_camera->m_right, right_delta);
+            m_main_camera->set_translation_delta(m_main_camera->m_right, sideways_delta);
+
+            if (forward_delta != 0.0f || sideways_delta != 0.0f)
+                m_ground_truth_path_tracer->restart_accumulation();
 
             m_camera_x = m_mouse_delta_x * m_camera_sensitivity;
             m_camera_y = m_mouse_delta_y * m_camera_sensitivity;
@@ -1672,6 +1685,7 @@ private:
                 m_main_camera->set_rotatation_delta(glm::vec3((float)(m_camera_y),
                                                               (float)(m_camera_x),
                                                               (float)(0.0f)));
+                m_ground_truth_path_tracer->restart_accumulation();
             }
             else
             {
@@ -1731,15 +1745,16 @@ private:
     // -----------------------------------------------------------------------------------------------------------------------------------
 
 private:
-    std::unique_ptr<CommonResources>      m_common_resources;
-    std::unique_ptr<GBuffer>              m_g_buffer;
-    std::unique_ptr<DeferredShading>      m_deferred_shading;
-    std::unique_ptr<RayTracedShadows>     m_ray_traced_shadows;
-    std::unique_ptr<RayTracedAO>          m_ray_traced_ao;
-    std::unique_ptr<RayTracedReflections> m_ray_traced_reflections;
-    std::unique_ptr<DDGI>                 m_ddgi;
-    std::unique_ptr<TemporalAA>           m_temporal_aa;
-    std::unique_ptr<ToneMap>              m_tone_map;
+    std::unique_ptr<CommonResources>       m_common_resources;
+    std::unique_ptr<GBuffer>               m_g_buffer;
+    std::unique_ptr<DeferredShading>       m_deferred_shading;
+    std::unique_ptr<RayTracedShadows>      m_ray_traced_shadows;
+    std::unique_ptr<RayTracedAO>           m_ray_traced_ao;
+    std::unique_ptr<RayTracedReflections>  m_ray_traced_reflections;
+    std::unique_ptr<DDGI>                  m_ddgi;
+    std::unique_ptr<GroundTruthPathTracer> m_ground_truth_path_tracer;
+    std::unique_ptr<TemporalAA>            m_temporal_aa;
+    std::unique_ptr<ToneMap>               m_tone_map;
 
     // Camera.
     CameraType                  m_camera_type                = CAMERA_TYPE_FREE;

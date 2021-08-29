@@ -5,6 +5,7 @@
 #include "ray_traced_shadows.h"
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
+#include "ground_truth_path_tracer.h"
 #include "utilities.h"
 #include <imgui.h>
 #include <profiler.h>
@@ -88,6 +89,7 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
                         RayTracedShadows*          shadows,
                         RayTracedReflections*      reflections,
                         DDGI*                      ddgi,
+                        GroundTruthPathTracer*     ground_truth_path_tracer,
                         float                      delta_seconds)
 {
     if (m_enabled)
@@ -142,7 +144,7 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
             read_ds = ao->output_ds()->handle();
         else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
             read_ds = reflections->output_ds()->handle();
-        else
+        else 
             read_ds = ddgi->output_ds()->handle();
 
         VkDescriptorSet descriptor_sets[] = {

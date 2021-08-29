@@ -199,10 +199,12 @@ vec3 fetch_normal(in Material material, in vec3 tangent, in vec3 bitangent, in v
 
 float fetch_roughness(in Material material, in vec2 texcoord)
 {
+    #define MIN_ROUGHNESS 0.1f
+
     if (material.texture_indices0.z == -1)
-        return material.roughness_metallic.r;
+        return max(material.roughness_metallic.r, MIN_ROUGHNESS);
     else
-        return texture(s_Textures[nonuniformEXT(material.texture_indices0.z)], texcoord)[material.texture_indices1.z];
+        return max(texture(s_Textures[nonuniformEXT(material.texture_indices0.z)], texcoord)[material.texture_indices1.z], MIN_ROUGHNESS);
 }
 
 // ------------------------------------------------------------------------

@@ -85,7 +85,10 @@ set(SHADER_SOURCES ${PROJECT_SOURCE_DIR}/src/shaders/g_buffer.vert
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_irradiance_probe_update.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_depth_border_update.comp
                    ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_irradiance_border_update.comp
-                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_sample_probe_grid.comp)
+                   ${PROJECT_SOURCE_DIR}/src/shaders/gi/gi_sample_probe_grid.comp
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ground_truth/ground_truth_path_trace.rgen
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ground_truth/ground_truth_path_trace.rchit
+                   ${PROJECT_SOURCE_DIR}/src/shaders/ground_truth/ground_truth_path_trace.rmiss)
 
 if(APPLE)
     add_executable(HybridRendering MACOSX_BUNDLE ${HYBRID_RENDERING_SOURCES} ${SHADER_SOURCES} ${ASSET_SOURCES})

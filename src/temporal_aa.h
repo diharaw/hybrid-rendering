@@ -10,6 +10,7 @@ class RayTracedAO;
 class RayTracedShadows;
 class RayTracedReflections;
 class DDGI;
+class GroundTruthPathTracer;
 
 class TemporalAA
 {
@@ -24,6 +25,7 @@ public:
                                       RayTracedShadows*          shadows,
                                       RayTracedReflections*      reflections,
                                       DDGI*                      ddgi,
+                                      GroundTruthPathTracer*     ground_truth_path_tracer,
                                       float                      delta_seconds);
     void                       gui();
     dw::vk::DescriptorSet::Ptr output_ds();

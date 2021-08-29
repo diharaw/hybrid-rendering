@@ -5,6 +5,7 @@
 #include "ray_traced_shadows.h"
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
+#include "ground_truth_path_tracer.h"
 #include "utilities.h"
 #include <imgui.h>
 #include <profiler.h>
@@ -46,6 +47,7 @@ void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
                      RayTracedShadows*                               shadows,
                      RayTracedReflections*                           reflections,
                      DDGI*                                           ddgi,
+                     GroundTruthPathTracer*                          ground_truth_path_tracer,
                      std::function<void(dw::vk::CommandBuffer::Ptr)> gui_callback)
 {
     DW_SCOPED_SAMPLE("Tone Map", cmd_buf);
@@ -99,7 +101,7 @@ void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
 
     VkDescriptorSet read_ds;
 
-    if (temporal_aa->enabled())
+    if (temporal_aa->enabled() && m_common_resources->current_visualization_type != VISUALIZATION_TYPE_GROUND_TRUTH)
         read_ds = temporal_aa->output_ds()->handle();
     else
     {
@@ -111,8 +113,10 @@ void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
             read_ds = ao->output_ds()->handle();
         else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
             read_ds = reflections->output_ds()->handle();
-        else
+        else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_GLOBAL_ILLUIMINATION)
             read_ds = ddgi->output_ds()->handle();
+        else
+            read_ds = ground_truth_path_tracer->output_ds()->handle();
     }
 
     VkDescriptorSet descriptor_sets[] = {

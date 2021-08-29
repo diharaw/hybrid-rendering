@@ -46,6 +46,14 @@ struct IndirectDiffusePayload
     RNG rng;
 };
 
+struct PathTracePayload
+{
+    vec3 L;
+    vec3 T;
+    uint depth;
+    RNG rng;
+};
+
 struct GIPayload
 {
     vec3  L;

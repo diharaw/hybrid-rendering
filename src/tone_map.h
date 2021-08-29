@@ -11,6 +11,7 @@ class RayTracedAO;
 class RayTracedShadows;
 class RayTracedReflections;
 class DDGI;
+class GroundTruthPathTracer;
 
 class ToneMap
 {
@@ -25,6 +26,7 @@ public:
                 RayTracedShadows*                               shadows,
                 RayTracedReflections*                           reflections,
                 DDGI*                                           ddgi,
+                GroundTruthPathTracer* ground_truth_path_tracer,
                 std::function<void(dw::vk::CommandBuffer::Ptr)> gui_callback);
     void gui();
 
