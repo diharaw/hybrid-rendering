@@ -270,7 +270,7 @@ protected:
                                   m_ddgi.get(),
                                   m_ground_truth_path_tracer.get(),
                                   m_delta_seconds);
-            m_tone_map->render(cmd_buf,
+            m_tone_map->render (cmd_buf,
                                m_temporal_aa.get(),
                                m_deferred_shading.get(),
                                m_ray_traced_ao.get(),
@@ -1204,7 +1204,18 @@ private:
                         }
 
                         ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
+                        
+                        if (ImGui::Checkbox("Side to Side motion", &m_side_to_side_motion))
+                        {
+                            if (m_side_to_side_motion)
+                                m_side_to_side_motion_time = 0.0f;
 
+                            m_side_to_side_start_pos = m_main_camera->m_position;
+                        }
+
+                        if (m_side_to_side_motion)
+                            ImGui::SliderFloat("Side to Side distance", &m_side_to_side_motion_distance, 0.1f, 20.0f);
+                        
                         ImGui::TreePop();
                         ImGui::Separator();
                     }
@@ -1667,8 +1678,8 @@ private:
 
         if (m_camera_type == CAMERA_TYPE_FREE)
         {
-            float forward_delta = m_heading_speed * m_delta;
-            float sideways_delta   = m_sideways_speed * m_delta;
+            float forward_delta  = m_heading_speed * m_delta;
+            float sideways_delta = m_sideways_speed * m_delta;
 
             m_main_camera->set_translation_delta(m_main_camera->m_forward, forward_delta);
             m_main_camera->set_translation_delta(m_main_camera->m_right, sideways_delta);
@@ -1692,6 +1703,12 @@ private:
                 m_main_camera->set_rotatation_delta(glm::vec3((float)(0),
                                                               (float)(0),
                                                               (float)(0)));
+            }
+
+            if (m_side_to_side_motion)
+            {
+                m_main_camera->set_position(m_side_to_side_start_pos + m_main_camera->m_right * sinf(static_cast<float>(m_side_to_side_motion_time)) * m_side_to_side_motion_distance);
+                m_side_to_side_motion_time += m_delta * 0.005f;
             }
 
             m_main_camera->update();
@@ -1766,6 +1783,10 @@ private:
     float                       m_camera_sensitivity = 0.05f;
     float                       m_camera_speed       = 2.0f;
     float                       m_offset             = 0.1f;
+    float                       m_side_to_side_motion_time       = 0.0f;
+    float                       m_side_to_side_motion_distance = 5.0f;
+    glm::vec3                   m_side_to_side_start_pos   = glm::vec3(0.0f);
+    bool                        m_side_to_side_motion = false;
     bool                        m_debug_gui          = false;
 
     // Camera orientation.

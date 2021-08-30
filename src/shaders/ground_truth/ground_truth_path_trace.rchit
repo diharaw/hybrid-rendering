@@ -226,7 +226,7 @@ vec3 sample_uber(in vec3 albedo, in vec3 F0, in vec3 N, in float roughness, in v
 
         if (roughness < MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD)
             Wi = reflect(-Wo, N);
-        else 
+        else
             Wi = reflect(-Wo, Wh);
 
         float NdotL = max(dot(N, Wi), 0.0);
@@ -328,16 +328,16 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
             vec3 Li = light_color(light) * light_intensity(light);
 
             // calculate disk point
-            vec2 rng = next_vec2(p_Payload.rng);
+            vec2  rng          = next_vec2(p_Payload.rng);
             float point_radius = light_radius(light) * sqrt(rng.x);
-            float point_angle = rng.y * 2.0f * M_PI;
-            vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+            float point_angle  = rng.y * 2.0f * M_PI;
+            vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
 
-            vec3 light_dir = light_direction(light);
-            vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+            vec3 light_dir       = light_direction(light);
+            vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
             vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-            vec3 Wi = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-            vec3 Wh = normalize(Wo + Wi);
+            vec3 Wi              = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
+            vec3 Wh              = normalize(Wo + Wi);
 
             Li *= query_visibility(ray_origin, Wi);
 
@@ -348,22 +348,22 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         }
         else if (type == LIGHT_TYPE_POINT)
         {
-            vec3  to_light       = light_position(light) - P;
-            float light_distance = length(to_light);
-            float attenuation    = (1.0f / (light_distance * light_distance));
+            vec3  to_light             = light_position(light) - P;
+            float light_distance       = length(to_light);
+            float attenuation          = (1.0f / (light_distance * light_distance));
             float current_light_radius = light_radius(light) / light_distance;
 
             vec3 Li = light_color(light) * light_intensity(light);
 
-            vec3 light_dir = normalize(to_light);
-            vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+            vec3 light_dir       = normalize(to_light);
+            vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
             vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
 
             // calculate disk point
-            vec2 rng = next_vec2(p_Payload.rng);
+            vec2  rng          = next_vec2(p_Payload.rng);
             float point_radius = current_light_radius * sqrt(rng.x);
-            float point_angle = rng.y * 2.0f * M_PI;
-            vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+            float point_angle  = rng.y * 2.0f * M_PI;
+            vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
 
             vec3 Wi = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
             vec3 Wh = normalize(Wo + Wi);
@@ -377,21 +377,21 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
         }
         else
         {
-            vec3  to_light       = light_position(light) - P;
-            float light_distance = length(to_light);
+            vec3  to_light             = light_position(light) - P;
+            float light_distance       = length(to_light);
             float current_light_radius = light_radius(light) / light_distance;
 
             vec3 Li = light_color(light) * light_intensity(light);
 
-            vec3 light_dir = normalize(to_light);
-            vec3 light_tangent = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
+            vec3 light_dir       = normalize(to_light);
+            vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
             vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
 
             // calculate disk point
-            vec2 rng = next_vec2(p_Payload.rng);
+            vec2  rng          = next_vec2(p_Payload.rng);
             float point_radius = current_light_radius * sqrt(rng.x);
-            float point_angle = rng.y * 2.0f * M_PI;
-            vec2 disk_point = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
+            float point_angle  = rng.y * 2.0f * M_PI;
+            vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
 
             vec3 Wi = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
             vec3 Wh = normalize(Wo + Wi);
@@ -413,10 +413,10 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roughn
     // Sky Light
     {
         vec2  rng = next_vec2(p_Payload.rng);
-        vec3  Wi         = sample_cosine_lobe(N, rng);
-        vec3  Li         = texture(s_Cubemap, Wi).rgb;
-        float pdf        = pdf_cosine_lobe(dot(N, Wi));
-        vec3  Wh         = normalize(Wo + Wi);
+        vec3  Wi  = sample_cosine_lobe(N, rng);
+        vec3  Li  = texture(s_Cubemap, Wi).rgb;
+        float pdf = pdf_cosine_lobe(dot(N, Wi));
+        vec3  Wh  = normalize(Wo + Wi);
 
         // fire shadow ray for visiblity
         Li *= query_visibility(ray_origin, Wi);
@@ -439,7 +439,7 @@ vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 albedo, float roug
 
     vec3 brdf = sample_uber(albedo, F0, N, roughness, Wo, p_Payload.rng, Wi, pdf);
 
-    float cos_theta = clamp(dot(N, Wo), 0.0, 1.0);
+    float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
 
     p_IndirectPayload.L = vec3(0.0f);
     p_IndirectPayload.T = p_Payload.T * (brdf * cos_theta) / pdf;

@@ -144,7 +144,7 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
             read_ds = ao->output_ds()->handle();
         else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_REFLECTIONS)
             read_ds = reflections->output_ds()->handle();
-        else 
+        else
             read_ds = ddgi->output_ds()->handle();
 
         VkDescriptorSet descriptor_sets[] = {
