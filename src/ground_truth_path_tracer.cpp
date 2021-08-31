@@ -10,6 +10,7 @@ struct PathTracePushConstants
 {
     uint32_t num_frames;
     uint32_t max_ray_bounces;
+    float    roughness_multiplier;
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -65,8 +66,9 @@ void GroundTruthPathTracer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         PathTracePushConstants push_constants;
 
-        push_constants.num_frames      = m_frame_idx++;
-        push_constants.max_ray_bounces = m_path_trace.max_ray_bounces;
+        push_constants.num_frames           = m_frame_idx++;
+        push_constants.max_ray_bounces      = m_path_trace.max_ray_bounces;
+        push_constants.roughness_multiplier = m_common_resources->roughness_multiplier;
 
         vkCmdPushConstants(cmd_buf->handle(), m_path_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 

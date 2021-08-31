@@ -31,10 +31,11 @@ layout(location = 2) out vec4 FS_OUT_GBuffer3; // R: Roughness, G: Curvature, B:
 
 layout(push_constant) uniform PushConstants
 {
-    mat4 model;
-    mat4 prev_model;
-    uint material_idx;
-    uint mesh_id;
+    mat4  model;
+    mat4  prev_model;
+    uint  material_idx;
+    uint  mesh_id;
+    float roughness_multiplier;
 }
 u_PushConstants;
 
@@ -102,7 +103,7 @@ void main()
     FS_OUT_GBuffer2 = vec4(packed_normal, motion_vector);
 
     // G-Buffer 3
-    float roughness = fetch_roughness(material, FS_IN_TexCoord);
+    float roughness = fetch_roughness(material, FS_IN_TexCoord) * u_PushConstants.roughness_multiplier;
     float linear_z  = gl_FragCoord.z / gl_FragCoord.w;
     float curvature = compute_curvature(linear_z);
     float mesh_id   = float(u_PushConstants.mesh_id);

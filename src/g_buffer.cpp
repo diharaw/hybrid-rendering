@@ -2,6 +2,7 @@
 #include "common_resources.h"
 #include <profiler.h>
 #include <macros.h>
+#include <imgui.h>
 
 #define GBUFFER_MIP_LEVELS 9
 
@@ -11,6 +12,7 @@ struct GBufferPushConstants
     glm::mat4 prev_model;
     uint32_t  material_index;
     uint32_t  mesh_id;
+    float     roughness_multiplier;
 };
 
 GBuffer::GBuffer(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, uint32_t input_width, uint32_t input_height) :
@@ -155,10 +157,11 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
                 GBufferPushConstants push_constants;
 
-                push_constants.model          = instance.transform;
-                push_constants.prev_model     = instance.transform;
-                push_constants.material_index = m_common_resources->current_scene()->material_index(mat->id());
-                push_constants.mesh_id        = mesh_id;
+                push_constants.model                = instance.transform;
+                push_constants.prev_model           = instance.transform;
+                push_constants.material_index       = m_common_resources->current_scene()->material_index(mat->id());
+                push_constants.mesh_id              = mesh_id;
+                push_constants.roughness_multiplier = m_common_resources->roughness_multiplier;
 
                 vkCmdPushConstants(cmd_buf->handle(), m_pipeline_layout->handle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GBufferPushConstants), &push_constants);
 

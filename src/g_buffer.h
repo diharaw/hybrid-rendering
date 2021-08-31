@@ -10,8 +10,7 @@ public:
     GBuffer(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, uint32_t input_width, uint32_t input_height);
     ~GBuffer();
 
-    void render(dw::vk::CommandBuffer::Ptr cmd_buf);
-
+    void                             render(dw::vk::CommandBuffer::Ptr cmd_buf);
     dw::vk::DescriptorSetLayout::Ptr ds_layout();
     dw::vk::DescriptorSet::Ptr       output_ds();
     dw::vk::DescriptorSet::Ptr       history_ds();

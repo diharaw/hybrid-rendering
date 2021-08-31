@@ -90,8 +90,9 @@ struct CommonResources
     int32_t           num_frames                 = 0;
     size_t            ubo_size                   = 0;
     glm::vec4         z_buffer_params;
-    glm::vec3         camera_delta = glm::vec3(0.0f);
-    float             frame_time   = 0.0f;
+    glm::vec3         camera_delta         = glm::vec3(0.0f);
+    float             frame_time           = 0.0f;
+    float             roughness_multiplier = 1.0f;
     glm::vec3         position;
     glm::vec3         prev_position;
     glm::mat4         view;

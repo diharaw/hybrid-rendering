@@ -48,8 +48,9 @@ layout(set = 4, binding = 0) uniform samplerCube s_Cubemap;
 
 layout(push_constant) uniform PushConstants
 {
-    uint num_frames;
-    uint max_ray_bounces;
+    uint  num_frames;
+    uint  max_ray_bounces;
+    float roughness_multiplier;
 }
 u_PushConstants;
 
@@ -494,7 +495,7 @@ void main()
     transform_vertex(instance, vertex);
 
     const vec3  albedo    = fetch_albedo(material, vertex.tex_coord.xy).rgb;
-    const float roughness = fetch_roughness(material, vertex.tex_coord.xy);
+    const float roughness = fetch_roughness(material, vertex.tex_coord.xy) * u_PushConstants.roughness_multiplier;
     const float metallic  = fetch_metallic(material, vertex.tex_coord.xy);
 
     const vec3 N  = normalize(fetch_normal(material, vertex.tangent.xyz, vertex.tangent.xyz, vertex.normal.xyz, vertex.tex_coord.xy));

@@ -270,7 +270,7 @@ protected:
                                   m_ddgi.get(),
                                   m_ground_truth_path_tracer.get(),
                                   m_delta_seconds);
-            m_tone_map->render (cmd_buf,
+            m_tone_map->render(cmd_buf,
                                m_temporal_aa.get(),
                                m_deferred_shading.get(),
                                m_ray_traced_ao.get(),
@@ -981,7 +981,7 @@ private:
             }
 
             bool             open         = true;
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar;
 
             ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
             ImGui::SetNextWindowSize(ImVec2(m_width * 0.3f, m_height));
@@ -1113,6 +1113,8 @@ private:
                         else if (m_common_resources->current_visualization_type == VISUALIZATION_TYPE_GROUND_TRUTH)
                             m_ground_truth_path_tracer->gui();
 
+                        ImGui::SliderFloat("Roughness Multiplier", &m_common_resources->roughness_multiplier, 0.0f, 1.0f);
+
                         m_tone_map->gui();
 
                         ImGui::TreePop();
@@ -1204,7 +1206,7 @@ private:
                         }
 
                         ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
-                        
+
                         if (ImGui::Checkbox("Side to Side motion", &m_side_to_side_motion))
                         {
                             if (m_side_to_side_motion)
@@ -1215,7 +1217,7 @@ private:
 
                         if (m_side_to_side_motion)
                             ImGui::SliderFloat("Side to Side distance", &m_side_to_side_motion_distance, 0.1f, 20.0f);
-                        
+
                         ImGui::TreePop();
                         ImGui::Separator();
                     }
@@ -1777,17 +1779,17 @@ private:
     CameraType                  m_camera_type                = CAMERA_TYPE_FREE;
     uint32_t                    m_current_fixed_camera_angle = 0;
     std::unique_ptr<dw::Camera> m_main_camera;
-    bool                        m_mouse_look         = false;
-    float                       m_heading_speed      = 0.0f;
-    float                       m_sideways_speed     = 0.0f;
-    float                       m_camera_sensitivity = 0.05f;
-    float                       m_camera_speed       = 2.0f;
-    float                       m_offset             = 0.1f;
-    float                       m_side_to_side_motion_time       = 0.0f;
+    bool                        m_mouse_look                   = false;
+    float                       m_heading_speed                = 0.0f;
+    float                       m_sideways_speed               = 0.0f;
+    float                       m_camera_sensitivity           = 0.05f;
+    float                       m_camera_speed                 = 2.0f;
+    float                       m_offset                       = 0.1f;
+    float                       m_side_to_side_motion_time     = 0.0f;
     float                       m_side_to_side_motion_distance = 5.0f;
-    glm::vec3                   m_side_to_side_start_pos   = glm::vec3(0.0f);
-    bool                        m_side_to_side_motion = false;
-    bool                        m_debug_gui          = false;
+    glm::vec3                   m_side_to_side_start_pos       = glm::vec3(0.0f);
+    bool                        m_side_to_side_motion          = false;
+    bool                        m_debug_gui                    = false;
 
     // Camera orientation.
     float m_camera_x;
