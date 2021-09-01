@@ -28,7 +28,7 @@
 const std::vector<std::string>            environment_map_images        = { "textures/Arches_E_PineTree_3k.hdr", "textures/BasketballCourt_3k.hdr", "textures/Etnies_Park_Center_3k.hdr", "textures/LA_Downtown_Helipad_GoldenHour_3k.hdr" };
 const std::vector<std::string>            environment_types             = { "None", "Procedural Sky", "Arches Pine Tree", "Basketball Court", "Etnies Park Central", "LA Downtown Helipad" };
 const std::vector<std::string>            visualization_types           = { "Final", "Shadows", "Ambient Occlusion", "Reflections", "Global Illumination", "Ground Truth" };
-const std::vector<std::string>            scene_types                   = { "Pillars", "Reflections Test", "Sponza", "Pica Pica" };
+const std::vector<std::string>            scene_types                   = { "Shadows Test", "Reflections Test", "Global Illumination Test", "Pica Pica", "Sponza" };
 const std::vector<std::string>            ray_trace_scales              = { "Full-Res", "Half-Res", "Quarter-Res" };
 const std::vector<std::string>            light_types                   = { "Directional", "Point", "Spot" };
 const std::vector<std::string>            camera_types                  = { "Free", "Animated", "Fixed" };
@@ -904,24 +904,24 @@ private:
         {
             std::vector<dw::RayTracedScene::Instance> instances;
 
-            dw::Mesh::Ptr sponza = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
+            dw::Mesh::Ptr gi_test = dw::Mesh::load(m_vk_backend, "mesh/global_illumination_test.gltf");
 
-            if (!sponza)
+            if (!gi_test)
             {
                 DW_LOG_ERROR("Failed to load mesh");
                 return false;
             }
 
-            sponza->initialize_for_ray_tracing(m_vk_backend);
+            gi_test->initialize_for_ray_tracing(m_vk_backend);
 
-            m_common_resources->meshes.push_back(sponza);
+            m_common_resources->meshes.push_back(gi_test);
 
-            dw::RayTracedScene::Instance sponza_instance;
+            dw::RayTracedScene::Instance gi_test_instance;
 
-            sponza_instance.mesh      = sponza;
-            sponza_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+            gi_test_instance.mesh               = gi_test;
+            gi_test_instance.transform = glm::mat4(1.0f);
 
-            instances.push_back(sponza_instance);
+            instances.push_back(gi_test_instance);
 
             m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
         }
@@ -947,6 +947,31 @@ private:
             pica_pica_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
             instances.push_back(pica_pica_instance);
+
+            m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
+        }
+
+        {
+            std::vector<dw::RayTracedScene::Instance> instances;
+
+            dw::Mesh::Ptr sponza = dw::Mesh::load(m_vk_backend, "mesh/sponza.obj");
+
+            if (!sponza)
+            {
+                DW_LOG_ERROR("Failed to load mesh");
+                return false;
+            }
+
+            sponza->initialize_for_ray_tracing(m_vk_backend);
+
+            m_common_resources->meshes.push_back(sponza);
+
+            dw::RayTracedScene::Instance sponza_instance;
+
+            sponza_instance.mesh      = sponza;
+            sponza_instance.transform = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+
+            instances.push_back(sponza_instance);
 
             m_common_resources->scenes.push_back(dw::RayTracedScene::create(m_vk_backend, instances));
         }
@@ -1474,7 +1499,7 @@ private:
     {
         m_light_transform = glm::mat4(1.0f);
 
-        if (m_common_resources->current_scene_type == SCENE_TYPE_PILLARS)
+        if (m_common_resources->current_scene_type == SCENE_TYPE_SHADOWS_TEST)
         {
             if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
             {
@@ -1729,7 +1754,7 @@ private:
     {
         m_current_fixed_camera_angle = 0;
 
-        if (m_common_resources->current_scene_type == SCENE_TYPE_PILLARS)
+        if (m_common_resources->current_scene_type == SCENE_TYPE_SHADOWS_TEST)
         {
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);

@@ -33,10 +33,11 @@ enum EnvironmentType
 
 enum SceneType
 {
-    SCENE_TYPE_PILLARS,
+    SCENE_TYPE_SHADOWS_TEST,
     SCENE_TYPE_REFLECTIONS_TEST,
-    SCENE_TYPE_SPONZA,
+    SCENE_TYPE_GLOBAL_ILLUMINATION_TEST,
     SCENE_TYPE_PICA_PICA,
+    SCENE_TYPE_SPONZA,
     SCENE_TYPE_COUNT
 };
 
@@ -82,7 +83,7 @@ struct HDREnvironment
 
 struct CommonResources
 {
-    SceneType         current_scene_type         = SCENE_TYPE_PILLARS;
+    SceneType         current_scene_type         = SCENE_TYPE_SHADOWS_TEST;
     VisualizationType current_visualization_type = VISUALIZATION_TYPE_FINAL;
     EnvironmentType   current_environment_type   = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
     bool              first_frame                = true;
