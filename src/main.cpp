@@ -43,15 +43,20 @@ const std::vector<std::vector<glm::vec3>> fixed_camera_position_vectors = {
       glm::vec3(-0.088592f, 18.299492f, 31.712112f),
       glm::vec3(-10.971692f, 4.040000f, -1.099626f) },
 
-    { glm::vec3(349.689911f, 50.013187f, -47.142761f),
-      glm::vec3(255.940018f, 181.126541f, -14.534848f),
-      glm::vec3(25.954714f, 36.763203f, 153.194244f),
-      glm::vec3(-391.294556f, 179.648758f, 141.655914f) },
+    { glm::vec3(5.589866f, 5.565732f, 8.097699f),
+      glm::vec3(-8.616280f, 4.837910f, 9.911291f),
+      glm::vec3(10.316762f, 5.566028f, 1.504511f),
+      glm::vec3(11.364138f, 9.322021f, -6.157114f) },
 
     { glm::vec3(-2.880592f, 12.838152f, 28.133095f),
       glm::vec3(-4.044456f, 3.885819f, 14.471013f),
       glm::vec3(-10.408246f, 4.111171f, 8.519235f),
-      glm::vec3(-10.283543f, 6.659785f, 2.117568f) }
+      glm::vec3(-10.283543f, 6.659785f, 2.117568f) },
+
+    { glm::vec3(349.689911f, 50.013187f, -47.142761f),
+      glm::vec3(255.940018f, 181.126541f, -14.534848f),
+      glm::vec3(25.954714f, 36.763203f, 153.194244f),
+      glm::vec3(-391.294556f, 179.648758f, 141.655914f) }
 };
 const std::vector<std::vector<glm::vec3>> fixed_camera_forward_vectors = {
     { glm::vec3(0.593151f, -0.521760f, -0.613138f),
@@ -64,15 +69,20 @@ const std::vector<std::vector<glm::vec3>> fixed_camera_forward_vectors = {
       glm::vec3(0.003158f, -0.457108f, -0.889406f),
       glm::vec3(-0.593590f, -0.287377f, -0.751709f) },
 
-    { glm::vec3(-0.927807f, -0.008728f, 0.372960f),
-      glm::vec3(-0.890209f, -0.455542f, -0.003118f),
-      glm::vec3(0.932927f, -0.008722f, -0.359960f),
-      glm::vec3(0.723851f, -0.095842f, -0.683267f) },
+      { glm::vec3(-0.747366f, -0.139174f, -0.649672f),
+      glm::vec3(0.361111f, -0.127066f, -0.923825f),
+      glm::vec3(-0.994886f, -0.098450f, -0.022578f),
+      glm::vec3(-0.760210f, -0.417866f, 0.497463f) },
 
     { glm::vec3(-0.005560f, -0.393157f, -0.919454f),
       glm::vec3(0.725216f, -0.146966f, -0.672653f),
       glm::vec3(-0.739586f, -0.270623f, -0.616259f),
-      glm::vec3(0.787594f, -0.314029f, -0.530172f) }
+      glm::vec3(0.787594f, -0.314029f, -0.530172f) },
+
+    { glm::vec3(-0.927807f, -0.008728f, 0.372960f),
+      glm::vec3(-0.890209f, -0.455542f, -0.003118f),
+      glm::vec3(0.932927f, -0.008722f, -0.359960f),
+      glm::vec3(0.723851f, -0.095842f, -0.683267f) }
 };
 const std::vector<std::vector<glm::vec3>> fixed_camera_right_vectors = {
     { glm::vec3(0.718724f, -0.000000f, 0.695295f),
@@ -85,15 +95,20 @@ const std::vector<std::vector<glm::vec3>> fixed_camera_right_vectors = {
       glm::vec3(0.999994f, -0.000000f, 0.003551f),
       glm::vec3(0.784814f, 0.000000f, -0.619732f) },
 
-    { glm::vec3(-0.372974f, 0.000000f, -0.927842f),
-      glm::vec3(0.003502f, 0.000000f, -0.999994f),
-      glm::vec3(0.359974f, -0.000000f, 0.932963f),
-      glm::vec3(0.686427f, -0.000000f, 0.727199f) },
-
+    { glm::vec3(0.656057f, 0.000000f, -0.754711f),
+      glm::vec3(0.931375f, -0.000000f, 0.364062f),
+      glm::vec3(0.022688f, 0.000000f, -0.999743f),
+      glm::vec3(-0.547560f, 0.000000f, -0.836766f) },
+    
     { glm::vec3(0.999982f, 0.000000f, -0.006047f),
       glm::vec3(0.680037f, -0.000000f, 0.733178f),
       glm::vec3(0.640146f, 0.000000f, -0.768253f),
-      glm::vec3(0.558420f, -0.000000f, 0.829558f) }
+      glm::vec3(0.558420f, -0.000000f, 0.829558f) },
+
+    { glm::vec3(-0.372974f, 0.000000f, -0.927842f),
+      glm::vec3(0.003502f, 0.000000f, -0.999994f),
+      glm::vec3(0.359974f, -0.000000f, 0.932963f),
+      glm::vec3(0.686427f, -0.000000f, 0.727199f) }
 };
 
 struct Light
@@ -212,10 +227,10 @@ protected:
         m_deferred_shading         = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_temporal_aa              = std::unique_ptr<TemporalAA>(new TemporalAA(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_tone_map                 = std::unique_ptr<ToneMap>(new ToneMap(m_vk_backend, m_common_resources.get()));
-
-        set_active_scene();
+        
         create_camera();
-
+        set_active_scene();
+        
         return true;
     }
 
@@ -1457,8 +1472,6 @@ private:
         ImGui::InputFloat3("Position", &position.x);
 
         ImGuizmo::RecomposeMatrixFromComponents(&position.x, &rotation.x, &scale.x, &m_light_transform[0][0]);
-
-        ImGui::Checkbox("Animation", &m_light_animation);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1490,7 +1503,8 @@ private:
 
         ImGuizmo::RecomposeMatrixFromComponents(&position.x, &rotation.x, &scale.x, &m_light_transform[0][0]);
 
-        ImGui::Checkbox("Animation", &m_light_animation);
+        if (m_common_resources->current_scene_type == SCENE_TYPE_GLOBAL_ILLUMINATION_TEST)
+            ImGui::Checkbox("Animation", &m_light_animation);
     }
 
     // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1553,6 +1567,35 @@ private:
 
                 glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(75.0f), glm::vec3(1.0f, 0.0f, 0.0f));
                 glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 15.0f, 20.0f));
+
+                m_light_transform = T * R;
+            }
+        }
+        else if (m_common_resources->current_scene_type == SCENE_TYPE_GLOBAL_ILLUMINATION_TEST)
+        {
+            if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
+            {
+                m_light_radius    = 0.1f;
+                m_light_intensity = 1.0f;
+
+                m_light_transform = glm::rotate(m_light_transform, glm::radians(50.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(50.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+            }
+            else if (m_light_type == LIGHT_TYPE_POINT)
+            {
+                m_light_radius    = 2.5f;
+                m_light_intensity = 100.0f;
+
+                m_light_transform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 4.0f, 2.0f));
+            }
+            else if (m_light_type == LIGHT_TYPE_SPOT)
+            {
+                m_light_radius           = 2.5f;
+                m_light_intensity        = 1000.0f;
+                m_light_cone_angle_inner = 8.0f;
+                m_light_cone_angle_outer = 20.0f;
+
+                glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(70.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(-8.25f, 7.5f, 6.0f));
 
                 m_light_transform = T * R;
             }
@@ -1688,12 +1731,26 @@ private:
     {
         if (m_light_animation)
         {
-            double time = glfwGetTime() * 0.5f;
+            if (m_common_resources->current_scene_type == SCENE_TYPE_GLOBAL_ILLUMINATION_TEST && m_light_type == LIGHT_TYPE_SPOT)
+            {
+                float t = sinf(m_light_animation_time) * 0.5f + 0.5f;
 
-            m_light_direction.x = sinf(time);
-            m_light_direction.z = cosf(time);
-            m_light_direction.y = 1.0f;
-            m_light_direction   = glm::normalize(m_light_direction);
+                glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(70.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::mix(glm::vec3(-8.25f, 7.5f, 6.0f), glm::vec3(0.25f, 7.5f, 6.0f), t));
+
+                m_light_transform = T * R;
+            }
+            else if(m_light_type == LIGHT_TYPE_DIRECTIONAL)
+            {
+                double time = glfwGetTime() * 0.5f;
+
+                m_light_direction.x = sinf(time);
+                m_light_direction.z = cosf(time);
+                m_light_direction.y = 1.0f;
+                m_light_direction   = glm::normalize(m_light_direction);
+            }
+
+            m_light_animation_time += m_delta_seconds;
         }
     }
 
@@ -1753,34 +1810,58 @@ private:
     void set_active_scene()
     {
         m_current_fixed_camera_angle = 0;
+        m_light_animation_time       = 0.0f;
 
         if (m_common_resources->current_scene_type == SCENE_TYPE_SHADOWS_TEST)
         {
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->set_infinite_bounce_intensity(1.7f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(0.5f);
+            m_camera_speed = 2.0f;
+            m_main_camera->set_position(glm::vec3(0.321986f, 7.552417f, 28.927477f));
         }
         else if (m_common_resources->current_scene_type == SCENE_TYPE_REFLECTIONS_TEST)
         {
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->set_infinite_bounce_intensity(1.7f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(0.5f);
+            m_camera_speed = 0.1f;
+            m_main_camera->set_position(glm::vec3(1.449991f, 8.761821f, 33.413113f));
+        }
+        else if (m_common_resources->current_scene_type == SCENE_TYPE_GLOBAL_ILLUMINATION_TEST)
+        {
+            m_ddgi->set_normal_bias(1.0f);
+            m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->set_infinite_bounce_intensity(0.8f);
+            m_ddgi->restart_accumulation();
+            m_deferred_shading->set_probe_visualization_scale(0.5f);
+            m_light_type = LIGHT_TYPE_SPOT;
+            m_camera_speed = 0.1f;
+            m_main_camera->set_position(glm::vec3(1.628197f, 4.763937f, 4.361343f));
         }
         else if (m_common_resources->current_scene_type == SCENE_TYPE_SPONZA)
         {
             m_ddgi->set_normal_bias(0.1f);
             m_ddgi->set_probe_distance(50.0f);
+            m_ddgi->set_infinite_bounce_intensity(1.7f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(5.0f);
+            m_camera_speed = 2.0f;
+            m_main_camera->set_position(glm::vec3(279.537201f, 35.164913f, -20.101242f));
         }
         else if (m_common_resources->current_scene_type == SCENE_TYPE_PICA_PICA)
         {
             m_ddgi->set_normal_bias(1.0f);
             m_ddgi->set_probe_distance(4.0f);
+            m_ddgi->set_infinite_bounce_intensity(1.7f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(0.5f);
+            m_camera_speed = 1.0f;
+            m_main_camera->set_position(glm::vec3(-8.837002f, 8.267305f, 18.703117f));
         }
 
         reset_light();
@@ -1830,6 +1911,7 @@ private:
     float               m_light_intensity           = 1.0f;
     float               m_light_cone_angle_inner    = 40.0f;
     float               m_light_cone_angle_outer    = 50.0f;
+    float               m_light_animation_time      = 0.0f;
     bool                m_light_animation           = false;
     LightType           m_light_type                = LIGHT_TYPE_DIRECTIONAL;
 

@@ -53,7 +53,7 @@ private:
     {
         bool                             infinite_bounces          = true;
         float                            infinite_bounce_intensity = 1.7f;
-        int32_t                          rays_per_probe            = 64;
+        int32_t                          rays_per_probe            = 256;
         dw::vk::DescriptorSet::Ptr       write_ds;
         dw::vk::DescriptorSet::Ptr       read_ds;
         dw::vk::DescriptorSetLayout::Ptr write_ds_layout;
