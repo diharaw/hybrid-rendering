@@ -61,6 +61,7 @@ layout(push_constant) uniform PushConstants
     int   approximate_with_ddgi;
     float gi_intensity;
     float rough_ddgi_intensity;
+    float ibl_indirect_specular_intensity;
 }
 u_PushConstants;
 
