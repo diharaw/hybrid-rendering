@@ -2,7 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-#include "common.glsl"
+#include "brdf.glsl"
 
 // ------------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------------
@@ -158,60 +158,6 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
     return world_pos.xyz;
 }
 
-// ------------------------------------------------------------------
-
-float distribution_ggx(vec3 N, vec3 H, float roughness)
-{
-    float a      = roughness * roughness;
-    float a2     = a * a;
-    float NdotH  = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float nom   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom       = Pi * denom * denom;
-
-    return nom / max(EPSILON, denom);
-}
-
-// ------------------------------------------------------------------
-
-float geometry_schlick_ggx(float NdotV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-
-    float nom   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return nom / max(EPSILON, denom);
-}
-
-// ------------------------------------------------------------------
-
-float geometry_smith(vec3 N, vec3 V, vec3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2  = geometry_schlick_ggx(NdotV, roughness);
-    float ggx1  = geometry_schlick_ggx(NdotL, roughness);
-
-    return ggx1 * ggx2;
-}
-// ----------------------------------------------------------------------------
-
-vec3 fresnel_schlick(float cosTheta, vec3 F0)
-{
-    return F0 + (1.0 - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
-}
-
-// ----------------------------------------------------------------------------
-
-vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
-{
-    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
-}
-
 // ------------------------------------------------------------------------
 
 vec3 octohedral_to_direction(vec2 e)
@@ -224,10 +170,12 @@ vec3 octohedral_to_direction(vec2 e)
 
 // ------------------------------------------------------------------------
 
-vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 world_pos, vec3 Wo, vec3 F0, float visibility)
+vec3 direct_lighting(vec3 N, vec3 diffuse_color, float roughness, float metallic, vec3 world_pos, vec3 Wo, vec3 F0, float visibility)
 {
     const Light light = ubo.light;
     const int   type  = light_type(light);
+
+    vec3 L = vec3(0.0f);
 
     if (type == LIGHT_TYPE_DIRECTIONAL)
     {
@@ -235,25 +183,12 @@ vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 
         vec3 Wi = light_direction(light);
         vec3 Wh = normalize(Wo + Wi);
 
-        // Cook-Torrance BRDF
-        float NDF = distribution_ggx(N, Wh, roughness);
-        float G   = geometry_smith(N, Wo, Wi, roughness);
-        vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
+        Li *= visibility;
 
-        vec3  nominator   = NDF * G * F;
-        float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
-        vec3  specular    = nominator / max(EPSILON, denominator);
+        vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
+        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
 
-        // kS is equal to Fresnel
-        vec3 kS = F;
-        vec3 kD = vec3(1.0) - kS;
-        kD *= 1.0 - metallic;
-
-        // scale light by NdotL
-        float NdotL = max(dot(N, Wi), 0.0);
-
-        // add to outgoing radiance Lo
-        return (kD * albedo / M_PI + specular) * Li * NdotL * visibility; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+        L += brdf * cos_theta * Li;
     }
     else if (type == LIGHT_TYPE_POINT)
     {
@@ -265,25 +200,12 @@ vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 
         vec3 Wi = normalize(to_light);
         vec3 Wh = normalize(Wo + Wi);
 
-        // Cook-Torrance BRDF
-        float NDF = distribution_ggx(N, Wh, roughness);
-        float G   = geometry_smith(N, Wo, Wi, roughness);
-        vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
+        Li *= visibility;
 
-        vec3  nominator   = NDF * G * F;
-        float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
-        vec3  specular    = nominator / max(EPSILON, denominator);
+        vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
+        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
 
-        // kS is equal to Fresnel
-        vec3 kS = F;
-        vec3 kD = vec3(1.0) - kS;
-        kD *= 1.0 - metallic;
-
-        // scale light by NdotL
-        float NdotL = max(dot(N, Wi), 0.0);
-
-        // add to outgoing radiance Lo
-        return (kD * albedo / M_PI + specular) * Li * NdotL * visibility * attenuation; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+        L += brdf * cos_theta * Li * attenuation;
     }
     else
     {
@@ -299,31 +221,27 @@ vec3 direct_lighting(vec3 N, vec3 albedo, float roughness, float metallic, vec3 
 
         float attenuation = (angle_attenuation / (light_distance * light_distance));
 
-        // Cook-Torrance BRDF
-        float NDF = distribution_ggx(N, Wh, roughness);
-        float G   = geometry_smith(N, Wo, Wi, roughness);
-        vec3  F   = fresnel_schlick(max(dot(Wh, Wo), 0.0), F0);
+        Li *= visibility;
 
-        vec3  nominator   = NDF * G * F;
-        float denominator = 4 * max(dot(N, Wo), 0.0) * max(dot(N, Wi), 0.0); // 0.001 to prevent divide by zero.
-        vec3  specular    = nominator / max(EPSILON, denominator);
+        vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
+        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
 
-        // kS is equal to Fresnel
-        vec3 kS = F;
-        vec3 kD = vec3(1.0) - kS;
-        kD *= 1.0 - metallic;
-
-        // scale light by NdotL
-        float NdotL = max(dot(N, Wi), 0.0);
-
-        // add to outgoing radiance Lo
-        return (kD * albedo / M_PI + specular) * Li * NdotL * visibility * attenuation; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+        L += brdf * cos_theta * Li * attenuation;
     }
+
+    return L;
+}
+
+// ----------------------------------------------------------------------------
+
+vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
+{
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
 // ------------------------------------------------------------------------
 
-vec3 indirect_lighting(vec3 N, vec3 albedo, float roughness, float metallic, float ao, vec3 Wo, vec3 F0)
+vec3 indirect_lighting(vec3 N, vec3 diffuse_color, float roughness, float metallic, float ao, vec3 Wo, vec3 F0)
 {
     const vec3 R = reflect(-Wo, N);
 
@@ -334,7 +252,7 @@ vec3 indirect_lighting(vec3 N, vec3 albedo, float roughness, float metallic, flo
     kD *= 1.0 - metallic;
 
     vec3 irradiance = u_PushConstants.gi == 1 ? textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb : evaluate_sh9_irradiance(N);
-    vec3 diffuse    = irradiance * albedo;
+    vec3 diffuse    = irradiance * diffuse_color;
 
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
     const float MAX_REFLECTION_LOD = 4.0;
@@ -365,15 +283,16 @@ void main()
     const vec3 N  = octohedral_to_direction(g_buffer_data_2.rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
 
-    vec3 F0 = mix(vec3(0.04f), albedo, metallic);
+    const vec3 F0 = mix(vec3(0.04f), albedo, metallic);
+    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0),  vec3(0.0f), metallic);
 
     vec3 Lo = vec3(0.0f);
 
     // Direct Lighting
-    Lo += direct_lighting(N, albedo, roughness, metallic, world_pos, Wo, F0, visibility);
+    Lo += direct_lighting(N, c_diffuse, roughness, metallic, world_pos, Wo, F0, visibility);
 
     // Indirect lighting
-    Lo += indirect_lighting(N, albedo, roughness, metallic, ao, Wo, F0);
+    Lo += indirect_lighting(N, c_diffuse, roughness, metallic, ao, Wo, F0);
 
     FS_OUT_Color = vec4(Lo, 1.0);
 }
