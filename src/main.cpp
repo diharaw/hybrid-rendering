@@ -69,7 +69,7 @@ const std::vector<std::vector<glm::vec3>> fixed_camera_forward_vectors = {
       glm::vec3(0.003158f, -0.457108f, -0.889406f),
       glm::vec3(-0.593590f, -0.287377f, -0.751709f) },
 
-      { glm::vec3(-0.747366f, -0.139174f, -0.649672f),
+    { glm::vec3(-0.747366f, -0.139174f, -0.649672f),
       glm::vec3(0.361111f, -0.127066f, -0.923825f),
       glm::vec3(-0.994886f, -0.098450f, -0.022578f),
       glm::vec3(-0.760210f, -0.417866f, 0.497463f) },
@@ -99,7 +99,7 @@ const std::vector<std::vector<glm::vec3>> fixed_camera_right_vectors = {
       glm::vec3(0.931375f, -0.000000f, 0.364062f),
       glm::vec3(0.022688f, 0.000000f, -0.999743f),
       glm::vec3(-0.547560f, 0.000000f, -0.836766f) },
-    
+
     { glm::vec3(0.999982f, 0.000000f, -0.006047f),
       glm::vec3(0.680037f, -0.000000f, 0.733178f),
       glm::vec3(0.640146f, 0.000000f, -0.768253f),
@@ -227,10 +227,10 @@ protected:
         m_deferred_shading         = std::unique_ptr<DeferredShading>(new DeferredShading(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_temporal_aa              = std::unique_ptr<TemporalAA>(new TemporalAA(m_vk_backend, m_common_resources.get(), m_g_buffer.get()));
         m_tone_map                 = std::unique_ptr<ToneMap>(new ToneMap(m_vk_backend, m_common_resources.get()));
-        
+
         create_camera();
         set_active_scene();
-        
+
         return true;
     }
 
@@ -933,7 +933,7 @@ private:
 
             dw::RayTracedScene::Instance gi_test_instance;
 
-            gi_test_instance.mesh               = gi_test;
+            gi_test_instance.mesh      = gi_test;
             gi_test_instance.transform = glm::mat4(1.0f);
 
             instances.push_back(gi_test_instance);
@@ -1740,7 +1740,7 @@ private:
 
                 m_light_transform = T * R;
             }
-            else if(m_light_type == LIGHT_TYPE_DIRECTIONAL)
+            else if (m_light_type == LIGHT_TYPE_DIRECTIONAL)
             {
                 double time = glfwGetTime() * 0.5f;
 
@@ -1839,7 +1839,7 @@ private:
             m_ddgi->set_infinite_bounce_intensity(0.8f);
             m_ddgi->restart_accumulation();
             m_deferred_shading->set_probe_visualization_scale(0.5f);
-            m_light_type = LIGHT_TYPE_SPOT;
+            m_light_type   = LIGHT_TYPE_SPOT;
             m_camera_speed = 0.1f;
             m_main_camera->set_position(glm::vec3(1.628197f, 4.763937f, 4.361343f));
         }

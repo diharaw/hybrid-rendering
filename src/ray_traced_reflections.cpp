@@ -1045,14 +1045,14 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* d
 
     RayTracePushConstants push_constants;
 
-    push_constants.bias                  = m_ray_trace.bias;
-    push_constants.trim                  = m_ray_trace.trim;
-    push_constants.num_frames            = m_common_resources->num_frames;
-    push_constants.g_buffer_mip          = m_g_buffer_mip;
-    push_constants.sample_gi             = m_ray_trace.sample_gi && !m_first_frame ? 1 : 0;
-    push_constants.approximate_with_ddgi = m_ray_trace.approximate_with_ddgi && !m_first_frame ? 1 : 0;
-    push_constants.gi_intensity          = m_ray_trace.gi_intensity;
-    push_constants.rough_ddgi_intensity  = m_ray_trace.rough_ddgi_intensity;
+    push_constants.bias                            = m_ray_trace.bias;
+    push_constants.trim                            = m_ray_trace.trim;
+    push_constants.num_frames                      = m_common_resources->num_frames;
+    push_constants.g_buffer_mip                    = m_g_buffer_mip;
+    push_constants.sample_gi                       = m_ray_trace.sample_gi && !m_first_frame ? 1 : 0;
+    push_constants.approximate_with_ddgi           = m_ray_trace.approximate_with_ddgi && !m_first_frame ? 1 : 0;
+    push_constants.gi_intensity                    = m_ray_trace.gi_intensity;
+    push_constants.rough_ddgi_intensity            = m_ray_trace.rough_ddgi_intensity;
     push_constants.ibl_indirect_specular_intensity = m_ray_trace.ibl_indirect_specular_intensity;
 
     vkCmdPushConstants(cmd_buf->handle(), m_ray_trace.pipeline_layout->handle(), VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);

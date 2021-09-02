@@ -258,8 +258,8 @@ void main()
     const vec3 Wo = -gl_WorldRayDirectionEXT;
     const vec3 R  = reflect(-Wo, N);
 
-    const vec3 F0 = mix(vec3(0.04f), albedo, metallic);
-    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0),  vec3(0.0f), metallic);
+    const vec3 F0        = mix(vec3(0.04f), albedo, metallic);
+    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0), vec3(0.0f), metallic);
 
     vec3 Li = direct_lighting(Wo, N, vertex.position.xyz, F0, c_diffuse, roughness);
 

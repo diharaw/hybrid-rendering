@@ -305,13 +305,13 @@ void main()
     const vec3  albedo    = fetch_albedo(material, vertex.tex_coord.xy).rgb;
     const float roughness = fetch_roughness(material, vertex.tex_coord.xy) * u_PushConstants.roughness_multiplier;
     const float metallic  = fetch_metallic(material, vertex.tex_coord.xy);
-    
+
     const vec3 N  = normalize(fetch_normal(material, vertex.tangent.xyz, vertex.tangent.xyz, vertex.normal.xyz, vertex.tex_coord.xy));
     const vec3 Wo = -gl_WorldRayDirectionEXT;
     const vec3 R  = reflect(-Wo, N);
 
-    const vec3 F0 = mix(vec3(0.04f), albedo, metallic);
-    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0),  vec3(0.0f), metallic);
+    const vec3 F0        = mix(vec3(0.04f), albedo, metallic);
+    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0), vec3(0.0f), metallic);
 
     p_Payload.L += direct_lighting(Wo, N, vertex.position.xyz, F0, c_diffuse, roughness);
 

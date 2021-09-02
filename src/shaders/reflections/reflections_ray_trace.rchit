@@ -227,9 +227,9 @@ vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 diffuse_color, flo
 #if defined(IBL_INDIRECT_SPECULAR)
     const float MAX_REFLECTION_LOD = 4.0;
 
-    vec3 prefiltered_color  = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
-    
+    vec3 prefiltered_color = textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec2 brdf              = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
+
     vec3 specular = prefiltered_color * (F * brdf.x + brdf.y) * u_PushConstants.ibl_indirect_specular_intensity;
 #else
     vec3 specular = vec3(0.0f);
@@ -265,8 +265,8 @@ void main()
     const vec3 Wo = -gl_WorldRayDirectionEXT;
     const vec3 R  = reflect(-Wo, N);
 
-    const vec3 F0 = mix(vec3(0.04f), albedo, metallic);
-    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0),  vec3(0.0f), metallic);
+    const vec3 F0        = mix(vec3(0.04f), albedo, metallic);
+    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0), vec3(0.0f), metallic);
 
     vec3 Li = direct_lighting(Wo, N, vertex.position.xyz, F0, c_diffuse, roughness);
 

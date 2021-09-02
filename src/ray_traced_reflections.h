@@ -50,13 +50,13 @@ private:
 private:
     struct RayTrace
     {
-        bool                            sample_gi             = true;
-        bool                            approximate_with_ddgi = true;
-        float                           gi_intensity          = 0.5f;
-        float                           rough_ddgi_intensity  = 0.5f;
+        bool                            sample_gi                       = true;
+        bool                            approximate_with_ddgi           = true;
+        float                           gi_intensity                    = 0.5f;
+        float                           rough_ddgi_intensity            = 0.5f;
         float                           ibl_indirect_specular_intensity = 0.05f;
-        float                           bias                  = 0.5f;
-        float                           trim                  = 0.8f;
+        float                           bias                            = 0.5f;
+        float                           trim                            = 0.8f;
         dw::vk::DescriptorSet::Ptr      write_ds;
         dw::vk::DescriptorSet::Ptr      read_ds;
         dw::vk::RayTracingPipeline::Ptr pipeline;

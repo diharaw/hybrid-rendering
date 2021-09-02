@@ -254,7 +254,6 @@ vec3 indirect_lighting(vec3 N, vec3 diffuse_color, float roughness, float metall
     vec3 irradiance = u_PushConstants.gi == 1 ? textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb : evaluate_sh9_irradiance(N);
     vec3 diffuse    = irradiance * diffuse_color;
 
-    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
     const float MAX_REFLECTION_LOD = 4.0;
     vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2        brdf               = texture(s_BRDF, vec2(max(dot(N, Wo), 0.0), roughness)).rg;
@@ -283,8 +282,8 @@ void main()
     const vec3 N  = octohedral_to_direction(g_buffer_data_2.rg);
     const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
 
-    const vec3 F0 = mix(vec3(0.04f), albedo, metallic);
-    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0),  vec3(0.0f), metallic);
+    const vec3 F0        = mix(vec3(0.04f), albedo, metallic);
+    const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0), vec3(0.0f), metallic);
 
     vec3 Lo = vec3(0.0f);
 
