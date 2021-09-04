@@ -10,6 +10,7 @@
 #define RAY_TRACING
 #include "../brdf.glsl"
 #include "../scene_descriptor_set.glsl"
+#include "../ray_query.glsl"
 #include "../gi/gi_common.glsl"
 
 // ------------------------------------------------------------------------
@@ -75,65 +76,6 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-float query_visibility(vec3 world_pos, vec3 direction)
-{
-    float t_min     = 0.01f;
-    float t_max     = 100000.0f;
-    uint  ray_flags = gl_RayFlagsOpaqueEXT;
-
-    // Initializes a ray query object but does not start traversal
-    rayQueryEXT ray_query;
-
-    rayQueryInitializeEXT(ray_query,
-                          u_TopLevelAS,
-                          ray_flags,
-                          0xFF,
-                          world_pos,
-                          t_min,
-                          direction,
-                          t_max);
-
-    // Start traversal: return false if traversal is complete
-    while (rayQueryProceedEXT(ray_query)) {}
-
-    // Returns type of committed (true) intersection
-    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-        return 0.0f;
-
-    return 1.0f;
-}
-
-// ------------------------------------------------------------------------
-
-float query_distance(vec3 world_pos, vec3 direction, float t_max)
-{
-    float t_min     = 0.01f;
-    uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
-
-    // Initializes a ray query object but does not start traversal
-    rayQueryEXT ray_query;
-
-    rayQueryInitializeEXT(ray_query,
-                          u_TopLevelAS,
-                          ray_flags,
-                          0xFF,
-                          world_pos,
-                          t_min,
-                          direction,
-                          t_max);
-
-    // Start traversal: return false if traversal is complete
-    while (rayQueryProceedEXT(ray_query)) {}
-
-    // Returns type of committed (true) intersection
-    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-        return rayQueryGetIntersectionTEXT(ray_query, true) < t_max ? 0.0f : 1.0f;
-
-    return 1.0f;
-}
-
-// ------------------------------------------------------------------------
-
 vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 diffuse_color, float roughness)
 {
     vec3 L = vec3(0.0f);
@@ -155,7 +97,7 @@ vec3 direct_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 diffuse_color, float
             vec3 Wi = light_direction(light);
             vec3 Wh = normalize(Wo + Wi);
 
-            Li *= query_visibility(ray_origin, Wi);
+            Li *= query_visibility(ray_origin, Wi, tmax, ray_flags);
 
             vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
             float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);

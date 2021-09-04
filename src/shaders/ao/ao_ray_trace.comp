@@ -8,6 +8,8 @@
 #define RAY_TRACING
 #include "../common.glsl"
 #include "../scene_descriptor_set.glsl"
+#include "../ray_query.glsl"
+#include "../brdf.glsl"
 #include "../bnd_sampler.glsl"
 
 // ------------------------------------------------------------------
@@ -88,64 +90,6 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
 
 // ------------------------------------------------------------------------
 
-mat3 make_rotation_matrix(vec3 z)
-{
-    const vec3 ref = abs(dot(z, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
-
-    const vec3 x = normalize(cross(ref, z));
-    const vec3 y = cross(z, x);
-
-    return mat3(x, y, z);
-}
-
-// ------------------------------------------------------------------------
-
-vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
-{
-    vec2 rand_sample = max(vec2(0.00001f), r);
-
-    const float phi = 2.0f * M_PI * rand_sample.y;
-
-    const float cos_theta = sqrt(rand_sample.x);
-    const float sin_theta = sqrt(1 - rand_sample.x);
-
-    vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
-
-    return normalize(make_rotation_matrix(n) * t);
-}
-
-// ------------------------------------------------------------------------
-
-uint query_visibility(vec3 world_pos, vec3 direction)
-{
-    float t_min     = 0.01f;
-    float t_max     = u_PushConstants.ray_length;
-    uint  ray_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
-
-    // Initializes a ray query object but does not start traversal
-    rayQueryEXT ray_query;
-
-    rayQueryInitializeEXT(ray_query,
-                          u_TopLevelAS,
-                          ray_flags,
-                          0xFF,
-                          world_pos,
-                          t_min,
-                          direction,
-                          t_max);
-
-    // Start traversal: return false if traversal is complete
-    while (rayQueryProceedEXT(ray_query)) {}
-
-    // Returns type of committed (true) intersection
-    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-        return 0;
-
-    return 1;
-}
-
-// ------------------------------------------------------------------------
-
 vec2 random_sample(ivec2 coord)
 {
     return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), 0, s_SobolSequence, s_ScramblingRankingTile),
@@ -199,7 +143,7 @@ void main()
 
         vec3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
 
-        result = query_visibility(ray_origin, sample_direction);
+        result = uint(query_visibility(ray_origin, sample_direction, u_PushConstants.ray_length, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT));
     }
 
     atomicOr(g_ao, result << gl_LocalInvocationIndex);
