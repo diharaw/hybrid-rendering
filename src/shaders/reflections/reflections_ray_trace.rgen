@@ -28,7 +28,7 @@ layout(set = 2, binding = 0) uniform PerFrameUBO
     vec4  current_prev_jitter;
     Light light;
 }
-ubo;
+u_GlobalUBO;
 
 layout(set = 2, binding = 1) uniform sampler2D s_BlueNoise1;
 
@@ -106,39 +106,10 @@ vec4 importance_sample_ggx(vec2 E, vec3 N, float Roughness)
 
 // ------------------------------------------------------------------------
 
-vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
-{
-    // Take texture coordinate and remap to [-1.0, 1.0] range.
-    vec2 screen_pos = tex_coords * 2.0 - 1.0;
-
-    // // Create NDC position.
-    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
-
-    // Transform back into world position.
-    vec4 world_pos = ubo.view_proj_inverse * ndc_pos;
-
-    // Undo projection.
-    world_pos = world_pos / world_pos.w;
-
-    return world_pos.xyz;
-}
-
-// ------------------------------------------------------------------------
-
 vec2 next_sample(ivec2 coord)
 {
     return vec2(sample_blue_noise(coord, int(u_PushConstants.num_frames), 0, s_SobolSequence, s_ScramblingRankingTile),
                 sample_blue_noise(coord, int(u_PushConstants.num_frames), 1, s_SobolSequence, s_ScramblingRankingTile));
-}
-
-// ------------------------------------------------------------------------
-
-vec3 octohedral_to_direction(vec2 e)
-{
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0)
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-    return normalize(v);
 }
 
 // ------------------------------------------------------------------------
@@ -161,9 +132,9 @@ void main()
     }
 
     float roughness = texelFetch(s_GBuffer3, current_coord, u_PushConstants.g_buffer_mip).r;
-    vec3  P         = world_position_from_depth(tex_coord, depth);
+    vec3  P         = world_position_from_depth(tex_coord, depth, u_GlobalUBO.view_proj_inverse);
     vec3  N         = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
-    vec3  Wo        = normalize(ubo.cam_pos.xyz - P.xyz);
+    vec3  Wo        = normalize(u_GlobalUBO.cam_pos.xyz - P.xyz);
 
     uint  ray_flags  = gl_RayFlagsOpaqueEXT;
     uint  cull_mask  = 0xff;

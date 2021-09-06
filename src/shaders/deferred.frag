@@ -55,7 +55,7 @@ layout(set = 5, binding = 0) uniform PerFrameUBO
     vec4  current_prev_jitter;
     Light light;
 }
-ubo;
+u_GlobalUBO;
 
 layout(set = 6, binding = 1) uniform sampler2D s_IrradianceSH;
 layout(set = 6, binding = 2) uniform samplerCube s_Prefiltered;
@@ -140,35 +140,6 @@ vec3 evaluate_sh9_irradiance(in vec3 direction)
     return color / Pi;
 }
 
-// ------------------------------------------------------------------
-
-vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
-{
-    // Take texture coordinate and remap to [-1.0, 1.0] range.
-    vec2 screen_pos = tex_coords * 2.0 - 1.0;
-
-    // // Create NDC position.
-    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
-
-    // Transform back into world position.
-    vec4 world_pos = ubo.view_proj_inverse * ndc_pos;
-
-    // Undo projection.
-    world_pos = world_pos / world_pos.w;
-
-    return world_pos.xyz;
-}
-
-// ------------------------------------------------------------------------
-
-vec3 octohedral_to_direction(vec2 e)
-{
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0)
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-    return normalize(v);
-}
-
 // ------------------------------------------------------------------------
 
 vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
@@ -209,7 +180,7 @@ void main()
     vec4 g_buffer_data_2 = texture(s_GBuffer2, FS_IN_TexCoord);
     vec4 g_buffer_data_3 = texture(s_GBuffer3, FS_IN_TexCoord);
 
-    const vec3  world_pos  = world_position_from_depth(FS_IN_TexCoord, texture(s_GBufferDepth, FS_IN_TexCoord).r);
+    const vec3  world_pos  = world_position_from_depth(FS_IN_TexCoord, texture(s_GBufferDepth, FS_IN_TexCoord).r, u_GlobalUBO.view_proj_inverse);
     const vec3  albedo     = g_buffer_data_1.rgb;
     const float metallic   = g_buffer_data_1.a;
     const float roughness  = g_buffer_data_3.r;
@@ -217,7 +188,7 @@ void main()
     const float ao         = u_PushConstants.ao == 1 ? texture(s_AO, FS_IN_TexCoord).r : 1.0f;
 
     const vec3 N  = octohedral_to_direction(g_buffer_data_2.rg);
-    const vec3 Wo = normalize(ubo.cam_pos.xyz - world_pos);
+    const vec3 Wo = normalize(u_GlobalUBO.cam_pos.xyz - world_pos);
 
     const vec3 F0        = mix(vec3(0.04f), albedo, metallic);
     const vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0), vec3(0.0f), metallic);
@@ -225,7 +196,7 @@ void main()
     vec3 Lo = vec3(0.0f);
 
     // Direct Lighting
-    Lo += direct_lighting(ubo.light, Wo, N, world_pos, F0, c_diffuse, roughness) * visibility;
+    Lo += direct_lighting(u_GlobalUBO.light, Wo, N, world_pos, F0, c_diffuse, roughness) * visibility;
 
     // Indirect lighting
     Lo += indirect_lighting(N, c_diffuse, roughness, metallic, ao, Wo, F0);

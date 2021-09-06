@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 
+#include "common.glsl"
 #include "scene_descriptor_set.glsl"
 
 // ------------------------------------------------------------------------
@@ -43,6 +44,15 @@ u_PushConstants;
 // FUNCTIONS --------------------------------------------------------------
 // ------------------------------------------------------------------------
 
+// A simple utility to convert a float to a 2-component octohedral representation
+vec2 direction_to_octohedral(vec3 normal)
+{
+    vec2 p = normal.xy * (1.0f / dot(abs(normal), vec3(1.0f)));
+    return normal.z > 0.0f ? p : (1.0f - abs(p.yx)) * (step(0.0f, p) * 2.0f - vec2(1.0f));
+}
+
+// ------------------------------------------------------------------------
+
 vec2 compute_motion_vector(vec4 prev_pos, vec4 current_pos)
 {
     // Perspective division, covert clip space positions to NDC.
@@ -68,15 +78,6 @@ float compute_curvature(float depth)
     float y = dot(dy, dy);
 
     return pow(max(x, y), 0.5f);
-}
-
-// ------------------------------------------------------------------------
-
-// A simple utility to convert a float to a 2-component octohedral representation
-vec2 direction_to_octohedral(vec3 normal)
-{
-    vec2 p = normal.xy * (1.0f / dot(abs(normal), vec3(1.0f)));
-    return normal.z > 0.0f ? p : (1.0f - abs(p.yx)) * (step(0.0f, p) * 2.0f - vec2(1.0f));
 }
 
 // ------------------------------------------------------------------------

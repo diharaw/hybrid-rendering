@@ -1,5 +1,9 @@
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
+
+#include "../common.glsl"
+
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
@@ -67,16 +71,6 @@ float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
     float depth_diff = abs(hi_res_depth - coarse_depth);
     float d_factor   = depth_diff * DEPTH_FACTOR;
     return exp(-(d_factor * d_factor));
-}
-
-// ------------------------------------------------------------------------
-
-vec3 octohedral_to_direction(vec2 e)
-{
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0)
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-    return normalize(v);
 }
 
 // ------------------------------------------------------------------

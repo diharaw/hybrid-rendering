@@ -213,16 +213,6 @@ bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3
     return true;
 }
 
-// ------------------------------------------------------------------------
-
-vec3 octohedral_to_direction(vec2 e)
-{
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0)
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-    return normalize(v);
-}
-
 // ------------------------------------------------------------------
 
 float horizontal_neighborhood_mean(ivec2 coord)
@@ -260,25 +250,6 @@ float neighborhood_mean(ivec2 coord)
     return mean / weight;
 }
 
-// ------------------------------------------------------------------------
-
-vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth)
-{
-    // Take texture coordinate and remap to [-1.0, 1.0] range.
-    vec2 screen_pos = tex_coords * 2.0 - 1.0;
-
-    // // Create NDC position.
-    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
-
-    // Transform back into world position.
-    vec4 world_pos = u_GlobalUBO.view_proj_inverse * ndc_pos;
-
-    // Undo projection.
-    world_pos = world_pos / world_pos.w;
-
-    return world_pos.xyz;
-}
-
 // ------------------------------------------------------------------
 
 bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility, out vec2 history_moments, out float history_length)
@@ -294,7 +265,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility,
     vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
     vec2  current_motion  = center_g_buffer_2.zw;
     float current_mesh_id = center_g_buffer_3.z;
-    vec3  current_pos     = world_position_from_depth(tex_coord, depth);
+    vec3  current_pos     = world_position_from_depth(tex_coord, depth, u_GlobalUBO.view_proj_inverse);
 
     // +0.5 to account for texel center offset
     const ivec2 ipos_prev = ivec2(vec2(ipos) + current_motion.xy * imageDim + vec2(0.5, 0.5));
@@ -319,7 +290,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility,
 
         vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
         float history_mesh_id = sample_g_buffer_3.z;
-        vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth);
+        vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth, u_GlobalUBO.view_proj_inverse);
 
         v[sampleIdx] = is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id);
 
@@ -377,7 +348,7 @@ bool load_prev_data(ivec2 frag_coord, float depth, out float history_visibility,
 
                 vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
                 float history_mesh_id = sample_g_buffer_3.z;
-                vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth);
+                vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth, u_GlobalUBO.view_proj_inverse);
 
                 if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id))
                 {

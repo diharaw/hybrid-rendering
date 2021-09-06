@@ -2,6 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : require
 
+#include "../common.glsl"
+
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
 // ------------------------------------------------------------------
@@ -75,16 +77,6 @@ shared uint  g_cached_normal_z_ao[CACHE_SIZE_X][CACHE_SIZE_Y];
 float linear_eye_depth(float z)
 {
     return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
-}
-
-// ------------------------------------------------------------------------
-
-vec3 octohedral_to_direction(vec2 e)
-{
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0)
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-    return normalize(v);
 }
 
 // ------------------------------------------------------------------

@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "noise.glsl"
+#include "common.glsl"
 
 // GLSL port of the Temporal Anti-Aliasing implementation from Playdead
 // https://github.com/playdeadgames/temporal/
@@ -61,13 +62,6 @@ const float FLT_EPS = 0.00000001;
 
 // ------------------------------------------------------------------
 // FUNCTIONS  -------------------------------------------------------
-// ------------------------------------------------------------------
-
-float luminance(vec3 color)
-{
-    return max(dot(color, vec3(0.299, 0.587, 0.114)), 0.0001);
-}
-
 // ------------------------------------------------------------------
 
 // https://software.intel.com/en-us/node/503873

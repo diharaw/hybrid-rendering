@@ -46,7 +46,7 @@ layout(set = 1, binding = 0) uniform PerFrameUBO
     vec4  current_prev_jitter;
     Light light;
 }
-ubo;
+u_GlobalUBO;
 
 // ------------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------------
@@ -72,14 +72,14 @@ void main()
     vec4 prev_world_pos = u_PushConstants.prev_model * vec4(VS_IN_Position, 1.0);
 
     // Transform world position into clip space
-    gl_Position = ubo.view_proj * world_pos;
+    gl_Position = u_GlobalUBO.view_proj * world_pos;
 
     // Pass world position into Fragment shader
     FS_IN_FragPos = world_pos.xyz;
 
     // Pass clip space positions for motion vectors
     FS_IN_CSPos     = gl_Position;
-    FS_IN_PrevCSPos = ubo.prev_view_proj * prev_world_pos;
+    FS_IN_PrevCSPos = u_GlobalUBO.prev_view_proj * prev_world_pos;
 
     // Pass texture coordinate
     FS_IN_Texcoord = VS_IN_Texcoord;
