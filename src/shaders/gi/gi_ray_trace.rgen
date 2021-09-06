@@ -52,7 +52,7 @@ u_PushConstants;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadEXT GIPayload p_GIPayload;
+layout(location = 0) rayPayloadEXT GIPayload p_Payload;
 
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
@@ -88,15 +88,15 @@ void main()
     vec3  ray_origin = probe_location(ddgi, probe_id);
     vec3  direction  = normalize(mat3(u_PushConstants.random_orientation) * spherical_fibonacci(ray_id, ddgi.rays_per_probe));
 
-    p_GIPayload.rng          = rng_init(pixel_coord, u_PushConstants.num_frames);
-    p_GIPayload.L            = vec3(0.0f);
-    p_GIPayload.T            = vec3(1.0f);
-    p_GIPayload.hit_distance = tmax;
+    p_Payload.rng          = rng_init(pixel_coord, u_PushConstants.num_frames);
+    p_Payload.L            = vec3(0.0f);
+    p_Payload.T            = vec3(1.0f);
+    p_Payload.hit_distance = tmax;
 
     traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, direction, tmax, 0);
 
-    imageStore(i_Radiance, pixel_coord, vec4(p_GIPayload.L, 0.0f));
-    imageStore(i_DirectionDistance, pixel_coord, vec4(direction, p_GIPayload.hit_distance));
+    imageStore(i_Radiance, pixel_coord, vec4(p_Payload.L, 0.0f));
+    imageStore(i_DirectionDistance, pixel_coord, vec4(direction, p_Payload.hit_distance));
 }
 
 // ------------------------------------------------------------------------

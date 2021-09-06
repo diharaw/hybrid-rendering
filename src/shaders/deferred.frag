@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "brdf.glsl"
+#include "lighting.glsl"
 
 // ------------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------------
@@ -170,70 +171,6 @@ vec3 octohedral_to_direction(vec2 e)
 
 // ------------------------------------------------------------------------
 
-vec3 direct_lighting(vec3 N, vec3 diffuse_color, float roughness, float metallic, vec3 world_pos, vec3 Wo, vec3 F0, float visibility)
-{
-    const Light light = ubo.light;
-    const int   type  = light_type(light);
-
-    vec3 L = vec3(0.0f);
-
-    if (type == LIGHT_TYPE_DIRECTIONAL)
-    {
-        vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = light_direction(light);
-        vec3 Wh = normalize(Wo + Wi);
-
-        Li *= visibility;
-
-        vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
-        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
-
-        L += brdf * cos_theta * Li;
-    }
-    else if (type == LIGHT_TYPE_POINT)
-    {
-        vec3  to_light       = light_position(light) - world_pos;
-        float light_distance = length(to_light);
-        float attenuation    = (1.0f / (light_distance * light_distance));
-
-        vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = normalize(to_light);
-        vec3 Wh = normalize(Wo + Wi);
-
-        Li *= visibility;
-
-        vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
-        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
-
-        L += brdf * cos_theta * Li * attenuation;
-    }
-    else
-    {
-        vec3  to_light       = light_position(light) - world_pos;
-        float light_distance = length(to_light);
-
-        vec3 Li = light_color(light) * light_intensity(light);
-        vec3 Wi = normalize(to_light);
-        vec3 Wh = normalize(Wo + Wi);
-
-        float angle_attenuation = dot(Wi, light_direction(light));
-        angle_attenuation       = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
-
-        float attenuation = (angle_attenuation / (light_distance * light_distance));
-
-        Li *= visibility;
-
-        vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
-        float cos_theta = clamp(dot(N, Wi), 0.0, 1.0);
-
-        L += brdf * cos_theta * Li * attenuation;
-    }
-
-    return L;
-}
-
-// ----------------------------------------------------------------------------
-
 vec3 fresnel_schlick_roughness(float cosTheta, vec3 F0, float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
@@ -288,7 +225,7 @@ void main()
     vec3 Lo = vec3(0.0f);
 
     // Direct Lighting
-    Lo += direct_lighting(N, c_diffuse, roughness, metallic, world_pos, Wo, F0, visibility);
+    Lo += direct_lighting(ubo.light, Wo, N, world_pos, F0, c_diffuse, roughness) * visibility;
 
     // Indirect lighting
     Lo += indirect_lighting(N, c_diffuse, roughness, metallic, ao, Wo, F0);

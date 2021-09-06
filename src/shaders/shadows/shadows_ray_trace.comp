@@ -141,10 +141,10 @@ void main()
         vec2 rnd_sample = next_sample(current_coord);
 
         // Fetch the jittered shadow ray direction, ray length and attenuation value.
-        vec3 Wi;
+        vec3  Wi;
         float t_max;
-        float attenuation;            
-        
+        float attenuation;
+
         fetch_light_properties(u_GlobalUBO.light, world_pos, normal, rnd_sample, Wi, t_max, attenuation);
 
         // Only fire a shadow ray if the attenuation is above zero.

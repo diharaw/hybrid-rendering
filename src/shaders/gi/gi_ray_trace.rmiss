@@ -15,7 +15,7 @@ layout(set = 3, binding = 0) uniform samplerCube s_Cubemap;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadInEXT GIPayload p_GIPayload;
+layout(location = 0) rayPayloadInEXT GIPayload p_Payload;
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -23,7 +23,7 @@ layout(location = 0) rayPayloadInEXT GIPayload p_GIPayload;
 
 void main()
 {
-    p_GIPayload.L = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
+    p_Payload.L = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
 }
 
 // ------------------------------------------------------------------------

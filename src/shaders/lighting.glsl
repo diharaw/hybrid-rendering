@@ -152,10 +152,25 @@ vec3 direct_lighting(
     #endif    
         float attenuation; 
 
-        fetch_light_properties(light, Wo, P, N, rng1, Li, Wi, Wh, t_max, attenuation);
+        fetch_light_properties(light, 
+                               Wo, 
+                               P, 
+                               N, 
+                            #if defined(SOFT_SHADOWS)
+                               rng1,
+                            #endif 
+                               Li, 
+                               Wi, 
+                               Wh, 
+                            #if defined(RAY_TRACING)
+                               t_max, 
+                            #endif
+                               attenuation);
 
+#if defined(RAY_TRACING)
         if (attenuation > 0.0f)
             attenuation *= query_distance(ray_origin, Wi, t_max);
+#endif 
 
         vec3  brdf      = evaluate_uber_brdf(diffuse_color, roughness, N, F0, Wo, Wh, Wi);
         Lo += T * brdf * attenuation * Li;  

@@ -69,7 +69,7 @@ u_PushConstants;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadEXT ReflectionPayload p_ReflectionPayload;
+layout(location = 0) rayPayloadEXT ReflectionPayload p_Payload;
 
 // ------------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------------
@@ -171,7 +171,7 @@ void main()
     float tmax       = 10000.0;
     vec3  ray_origin = P + N * u_PushConstants.bias;
 
-    p_ReflectionPayload.ray_length = -1.0f;
+    p_Payload.ray_length = -1.0f;
 
     if (roughness < MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD)
     {
@@ -180,8 +180,8 @@ void main()
     }
     else if (roughness > DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD && u_PushConstants.approximate_with_ddgi == 1)
     {
-        vec3 R                    = reflect(-Wo, N.xyz);
-        p_ReflectionPayload.color = u_PushConstants.rough_ddgi_intensity * sample_irradiance(ddgi, P, R, Wo, s_Irradiance, s_Depth);
+        vec3 R          = reflect(-Wo, N.xyz);
+        p_Payload.color = u_PushConstants.rough_ddgi_intensity * sample_irradiance(ddgi, P, R, Wo, s_Irradiance, s_Depth);
     }
     else
     {
@@ -194,9 +194,9 @@ void main()
         traceRayEXT(u_TopLevelAS, ray_flags, cull_mask, 0, 0, 0, ray_origin, tmin, Wi, tmax, 0);
     }
 
-    vec3 clamped_color = min(p_ReflectionPayload.color, vec3(0.7f));
+    vec3 clamped_color = min(p_Payload.color, vec3(0.7f));
 
-    imageStore(i_Color, current_coord, vec4(clamped_color, p_ReflectionPayload.ray_length));
+    imageStore(i_Color, current_coord, vec4(clamped_color, p_Payload.ray_length));
 }
 
 // ------------------------------------------------------------------------

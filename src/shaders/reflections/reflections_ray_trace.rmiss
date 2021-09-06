@@ -17,7 +17,7 @@ layout(set = 4, binding = 3) uniform sampler2D s_BRDF;
 // PAYLOADS ---------------------------------------------------------------
 // ------------------------------------------------------------------------
 
-layout(location = 0) rayPayloadInEXT ReflectionPayload p_ReflectionPayload;
+layout(location = 0) rayPayloadInEXT ReflectionPayload p_Payload;
 
 // ------------------------------------------------------------------------
 // MAIN -------------------------------------------------------------------
@@ -25,8 +25,8 @@ layout(location = 0) rayPayloadInEXT ReflectionPayload p_ReflectionPayload;
 
 void main()
 {
-    p_ReflectionPayload.color      = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
-    p_ReflectionPayload.ray_length = -1.0f;
+    p_Payload.color      = textureLod(s_Cubemap, gl_WorldRayDirectionEXT, 0.0f).rgb;
+    p_Payload.ray_length = -1.0f;
 }
 
 // ------------------------------------------------------------------------
