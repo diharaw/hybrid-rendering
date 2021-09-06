@@ -10,6 +10,9 @@
 #include "../scene_descriptor_set.glsl"
 #include "../ray_query.glsl"
 #include "../bnd_sampler.glsl"
+#define SOFT_SHADOWS
+#define SHADOW_RAY_ONLY
+#include "../lighting.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -134,75 +137,19 @@ void main()
         vec3 normal     = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
         vec3 ray_origin = world_pos + normal * u_PushConstants.bias;
 
-        // Trace ray
+        // Fetch a blue noise value for this frame.
         vec2 rnd_sample = next_sample(current_coord);
 
-        const Light light = u_GlobalUBO.light;
-        const int   type  = light_type(light);
+        // Fetch the jittered shadow ray direction, ray length and attenuation value.
+        vec3 Wi;
+        float t_max;
+        float attenuation;            
+        
+        fetch_light_properties(u_GlobalUBO.light, world_pos, normal, rnd_sample, Wi, t_max, attenuation);
 
-        if (type == LIGHT_TYPE_DIRECTIONAL)
-        {
-            vec3 light_dir       = light_direction(light);
-            vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-            vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-
-            // calculate disk point
-            float point_radius   = light_radius(light) * sqrt(rnd_sample.x);
-            float point_angle    = rnd_sample.y * 2.0f * M_PI;
-            vec2  disk_point     = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-            vec3  shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-
-            float attenuation = max(dot(normal, shadow_ray_dir), 0.0f);
-
-            if (attenuation > 0.0f)
-                result = uint(query_visibility(ray_origin, shadow_ray_dir, 10000.0, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT));
-        }
-        else if (type == LIGHT_TYPE_POINT)
-        {
-            vec3  to_light       = light_position(light) - world_pos;
-            vec3  light_dir      = normalize(to_light);
-            float light_distance = length(to_light);
-            float light_radius   = light_radius(light) / light_distance;
-
-            vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-            vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-
-            // calculate disk point
-            float point_radius   = light_radius * sqrt(rnd_sample.x);
-            float point_angle    = rnd_sample.y * 2.0f * M_PI;
-            vec2  disk_point     = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-            vec3  shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-
-            float attenuation = (1.0f / (light_distance * light_distance)) * max(dot(normal, shadow_ray_dir), 0.0f);
-
-            if (attenuation > 0.0f)
-                result = uint(query_distance(ray_origin, shadow_ray_dir, light_distance));
-        }
-        else if (type == LIGHT_TYPE_SPOT)
-        {
-            vec3  to_light       = light_position(light) - world_pos;
-            vec3  light_dir      = normalize(to_light);
-            float light_distance = length(to_light);
-            float light_radius   = light_radius(light) / light_distance;
-
-            float angle_attenuation = dot(light_dir, light_direction(light));
-            angle_attenuation       = smoothstep(light_cos_theta_outer(light), light_cos_theta_inner(light), angle_attenuation);
-
-            vec3 light_tangent   = normalize(cross(light_dir, vec3(0.0f, 1.0f, 0.0f)));
-            vec3 light_bitangent = normalize(cross(light_tangent, light_dir));
-
-            // calculate disk point
-            float point_radius = light_radius * sqrt(rnd_sample.x);
-            float point_angle  = rnd_sample.y * 2.0f * M_PI;
-            vec2  disk_point   = vec2(point_radius * cos(point_angle), point_radius * sin(point_angle));
-
-            vec3 shadow_ray_dir = normalize(light_dir + disk_point.x * light_tangent + disk_point.y * light_bitangent);
-
-            float attenuation = (angle_attenuation / (light_distance * light_distance)) * max(dot(normal, shadow_ray_dir), 0.0f);
-
-            if (attenuation > 0.0f)
-                result = uint(query_distance(ray_origin, shadow_ray_dir, light_distance));
-        }
+        // Only fire a shadow ray if the attenuation is above zero.
+        if (attenuation > 0.0f)
+            result = uint(query_distance(ray_origin, Wi, t_max));
     }
 
     atomicOr(g_visibility, result << gl_LocalInvocationIndex);
