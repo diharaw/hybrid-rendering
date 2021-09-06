@@ -1,6 +1,7 @@
 #  Hybrid Rendering
 
-A simple Raster/Ray-Trace hybrid renderer using the Vulkan KHR ray-tracing extensions.
+A Vulkan sample that demonstrates integrating Ray Traced Shadows, Ambient Occlusion, Reflections and Global Illumination into a Deferred Pipeline.
+
 
 ## Screenshots
 
