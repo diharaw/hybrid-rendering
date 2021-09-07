@@ -155,6 +155,15 @@ vec3 octohedral_to_direction(vec2 e)
     return normalize(v);
 }
 
+// ------------------------------------------------------------------
+
+float gaussian_weight(float offset, float deviation)
+{
+    float weight = 1.0 / sqrt(2.0 * M_PI * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
+}
+
 // ------------------------------------------------------------------------
 
 vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth, mat4 view_proj_inverse)
@@ -172,6 +181,13 @@ vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth, mat4 view_proj_
     world_pos = world_pos / world_pos.w;
 
     return world_pos.xyz;
+}
+
+// ------------------------------------------------------------------
+
+float linear_eye_depth(float z, vec4 z_buffer_params)
+{
+    return 1.0 / (z_buffer_params.z * z + z_buffer_params.w);
 }
 
 // ------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -86,13 +87,6 @@ float compute_variance_center(ivec2 ipos)
 
 // ------------------------------------------------------------------
 
-float normal_distance_cos(vec3 n1, vec3 n2, float power)
-{
-    return pow(clamp(dot(n1, n2), 0.0f, 1.0f), power);
-}
-
-// ------------------------------------------------------------------
-
 float compute_weight(float center_depth,
                      float sample_depth,
                      vec3  center_normal,
@@ -101,8 +95,8 @@ float compute_weight(float center_depth,
                      float sample_visibility,
                      float phi)
 {
-    const float wNormal = normal_distance_cos(center_normal, sample_normal, u_PushConstants.phi_normal);
-    const float wZ      = exp(-abs(center_depth - sample_depth) / u_PushConstants.sigma_depth);
+    const float wNormal = normal_edge_stopping_weight(center_normal, sample_normal, u_PushConstants.phi_normal);
+    const float wZ      = depth_edge_stopping_weight(center_depth, sample_depth);
     const float wL      = abs(center_visibility - sample_visibility) / phi;
 
     const float w = exp(0.0 - max(wL, 0.0) - max(wZ, 0.0)) * wNormal;

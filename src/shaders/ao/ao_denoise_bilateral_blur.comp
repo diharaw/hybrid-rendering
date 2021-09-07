@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -12,9 +13,7 @@
 #define NUM_THREADS_Y 8
 #define CACHE_SIZE_X NUM_THREADS_X * 2
 #define CACHE_SIZE_Y NUM_THREADS_Y * 2
-#define DEPTH_FACTOR 0.5
 #define GAUSS_BLUR_DEVIATION 1.5
-#define PI 3.14159265359
 #define USE_NORMAL_EDGE_STOPPING
 
 // ------------------------------------------------------------------
@@ -74,38 +73,6 @@ shared uint  g_cached_normal_z_ao[CACHE_SIZE_X][CACHE_SIZE_Y];
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-float linear_eye_depth(float z)
-{
-    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
-}
-
-// ------------------------------------------------------------------
-
-float gaussian_weight(float offset, float deviation)
-{
-    float weight = 1.0 / sqrt(2.0 * PI * deviation * deviation);
-    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
-    return weight;
-}
-
-// ------------------------------------------------------------------------
-
-float normal_edge_stopping_weight(vec3 center_normal, vec3 sample_normal)
-{
-    return pow(abs(dot(center_normal, sample_normal)), 32);
-}
-
-// ------------------------------------------------------------------------
-
-float depth_edge_stopping_weight(float center_lin_depth, float sample_lin_depth)
-{
-    float depth_diff = abs(center_lin_depth - sample_lin_depth);
-    float d_factor   = depth_diff * DEPTH_FACTOR;
-    return exp(-(d_factor * d_factor));
-}
-
-// ------------------------------------------------------------------
-
 float bilateral_blur(ivec2 current_coord)
 {
     const float deviation = float(u_PushConstants.radius) / GAUSS_BLUR_DEVIATION;
@@ -113,7 +80,7 @@ float bilateral_blur(ivec2 current_coord)
     float total_ao     = texelFetch(s_Input, current_coord, 0).r;
     float total_weight = 1.0f;
 
-    float center_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r);
+    float center_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, current_coord, u_PushConstants.g_buffer_mip).r, u_PushConstants.z_buffer_params);
     vec3  center_normal = octohedral_to_direction(texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip).rg);
 
     int radius = u_PushConstants.radius;
@@ -124,13 +91,13 @@ float bilateral_blur(ivec2 current_coord)
             continue;
 
         ivec2 sample_coord  = current_coord + u_PushConstants.direction * ivec2(i);
-        float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r);
+        float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r, u_PushConstants.z_buffer_params);
         float sample_ao     = texelFetch(s_Input, sample_coord, 0).r;
         vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
         float weight = gaussian_weight(float(i), deviation);
         weight *= depth_edge_stopping_weight(center_depth, sample_depth);
-        weight *= normal_edge_stopping_weight(center_normal, sample_normal);
+        weight *= normal_edge_stopping_weight(center_normal, sample_normal, 32.0f);
 
         total_ao += weight * sample_ao;
         total_weight += weight;

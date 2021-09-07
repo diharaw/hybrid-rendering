@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -70,28 +71,6 @@ const vec2 g_kernel[4] = vec2[](
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-float linear_eye_depth(float z)
-{
-    return 1.0 / (u_PushConstants.z_buffer_params.z * z + u_PushConstants.z_buffer_params.w);
-}
-
-// ------------------------------------------------------------------------
-
-float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
-{
-    float depth_diff = abs(hi_res_depth - coarse_depth);
-    return 1.0f / (FLT_EPS + depth_diff);
-}
-
-// ------------------------------------------------------------------------
-
-float normal_edge_stopping_weight(vec3 a, vec3 b)
-{
-    return pow(max(dot(a, b), 0.0f), 32);
-}
-
-// ------------------------------------------------------------------------
-
 float disocclusion_blur(ivec2 current_coord, float norm_accumulated_frames, float center_depth, vec3 center_normal)
 {
     int   radius       = u_PushConstants.blur_radius;
@@ -104,7 +83,7 @@ float disocclusion_blur(ivec2 current_coord, float norm_accumulated_frames, floa
         {
             ivec2 sample_coord  = current_coord + ivec2(dx, dy);
             float sample_ao     = texelFetch(s_Input, sample_coord, 0).r;
-            float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r);
+            float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r, u_PushConstants.z_buffer_params);
             vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
             float weight = depth_edge_stopping_weight(center_depth, sample_depth); // * normal_edge_stopping_weight(center_normal, sample_normal);
@@ -148,7 +127,7 @@ void main()
     if (norm_accumulated_frames < 1.0f && u_PushConstants.enabled == 1)
     {
         float blur_strength = 1.0f - norm_accumulated_frames;
-        float blurred_ao    = disocclusion_blur(current_coord, norm_accumulated_frames, linear_eye_depth(center_depth), center_normal);
+        float blurred_ao    = disocclusion_blur(current_coord, norm_accumulated_frames, linear_eye_depth(center_depth, u_PushConstants.z_buffer_params), center_normal);
         ao_value            = mix(ao_value, blurred_ao, blur_strength);
     }
 

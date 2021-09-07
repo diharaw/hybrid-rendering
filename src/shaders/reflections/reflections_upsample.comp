@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -10,7 +11,6 @@
 
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
-#define DEPTH_FACTOR 0.5
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------
@@ -55,24 +55,6 @@ const vec2 g_kernel[4] = vec2[](
     vec2(0.0, -1.0f));
 
 // ------------------------------------------------------------------
-// FUNCTIONS --------------------------------------------------------
-// ------------------------------------------------------------------
-
-float normal_edge_stopping_weight(vec3 hi_res_normal, vec3 coarse_normal)
-{
-    return pow(abs(dot(coarse_normal, hi_res_normal)), 32);
-}
-
-// ------------------------------------------------------------------------
-
-float depth_edge_stopping_weight(float hi_res_depth, float coarse_depth)
-{
-    float depth_diff = abs(hi_res_depth - coarse_depth);
-    float d_factor   = depth_diff * DEPTH_FACTOR;
-    return exp(-(d_factor * d_factor));
-}
-
-// ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
 
@@ -109,7 +91,7 @@ void main()
         vec3 coarse_normal = octohedral_to_direction(textureLod(s_GBuffer2, coarse_tex_coord, u_PushConstants.g_buffer_mip).rg);
 
         float w_depth  = depth_edge_stopping_weight(hi_res_depth, coarse_depth);
-        float w_normal = normal_edge_stopping_weight(hi_res_normal, coarse_normal);
+        float w_normal = normal_edge_stopping_weight(hi_res_normal, coarse_normal, 32.0f);
         float w        = w_depth * w_normal;
 
         upsampled += textureLod(s_Input, coarse_tex_coord, 0) * w;
