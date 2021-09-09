@@ -222,18 +222,18 @@ void main()
         float ao = unpack_ao_hit_value(current_coord);
         float history_ao;
         bool  success = reproject(current_coord,
-                                  depth,
-                                  u_PushConstants.g_buffer_mip,
-                                  u_GlobalUBO.view_proj_inverse,
-                                  s_GBuffer2,
-                                  s_GBuffer3,
-                                  s_PrevGBuffer2,
-                                  s_PrevGBuffer3,
-                                  s_PrevGBufferDepth,
-                                  s_PrevAO,
-                                  s_PrevHistoryLength,
-                                  history_ao,
-                                  history_length);
+                                 depth,
+                                 u_PushConstants.g_buffer_mip,
+                                 u_GlobalUBO.view_proj_inverse,
+                                 s_GBuffer2,
+                                 s_GBuffer3,
+                                 s_PrevGBuffer2,
+                                 s_PrevGBuffer3,
+                                 s_PrevGBufferDepth,
+                                 s_PrevAO,
+                                 s_PrevHistoryLength,
+                                 history_ao,
+                                 history_length);
 
         history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
 

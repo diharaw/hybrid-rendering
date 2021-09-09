@@ -200,26 +200,26 @@ void main()
         vec2  history_moments;
         float history_length;
 
-        bool  success = reproject(current_coord,
-                                  depth,
-                                  u_PushConstants.g_buffer_mip,
-                                  u_GlobalUBO.cam_pos.xyz,
-                                  u_GlobalUBO.view_proj_inverse,
-                                  u_GlobalUBO.prev_view_proj,
-                                  ray_length,
-                                  s_GBuffer2,
-                                  s_GBuffer3,
-                                  s_PrevGBuffer2,
-                                  s_PrevGBuffer3,
-                                  s_PrevGBufferDepth,
-                                  s_HistoryOutput,
-                                  s_HistoryMoments,
-                                  history_color,
-                                  history_moments,
-                                  history_length);                                        
+        bool success = reproject(current_coord,
+                                 depth,
+                                 u_PushConstants.g_buffer_mip,
+                                 u_GlobalUBO.cam_pos.xyz,
+                                 u_GlobalUBO.view_proj_inverse,
+                                 u_GlobalUBO.prev_view_proj,
+                                 ray_length,
+                                 s_GBuffer2,
+                                 s_GBuffer3,
+                                 s_PrevGBuffer2,
+                                 s_PrevGBuffer3,
+                                 s_PrevGBufferDepth,
+                                 s_HistoryOutput,
+                                 s_HistoryMoments,
+                                 history_color,
+                                 history_moments,
+                                 history_length);
 
         history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
-        
+
         if (success)
         {
             vec3 std_dev;
