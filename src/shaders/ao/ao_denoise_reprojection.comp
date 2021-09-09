@@ -3,6 +3,8 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#define REPROJECTION_SINGLE_COLOR_CHANNEL
+#include "../reprojection.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -161,68 +163,6 @@ float unpack_ao_hit_value(ivec2 coord)
     return float((g_ao_hit_masks[packed_cache_coord.x][packed_cache_coord.y] >> hit_index) & 1u);
 }
 
-// ------------------------------------------------------------------------
-
-bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
-{
-    vec3  to_current    = current_pos - history_pos;
-    float dist_to_plane = abs(dot(to_current, current_normal));
-
-    return dist_to_plane > PLANE_DISTANCE;
-}
-
-// ------------------------------------------------------------------------
-
-bool out_of_frame_disocclusion_check(ivec2 coord)
-{
-    const ivec2 imageDim = textureSize(s_PrevAO, 0);
-
-    // check whether reprojected pixel is inside of the screen
-    if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, imageDim - ivec2(1, 1))))
-        return true;
-    else
-        return false;
-}
-
-// ------------------------------------------------------------------------
-
-bool mesh_id_disocclusion_check(float mesh_id, float mesh_id_prev)
-{
-    if (mesh_id == mesh_id_prev)
-        return false;
-    else
-        return true;
-}
-
-// ------------------------------------------------------------------------
-
-bool normals_disocclusion_check(vec3 current_normal, vec3 history_normal)
-{
-    if (pow(abs(dot(current_normal, history_normal)), 2) > NORMAL_DISTANCE)
-        return false;
-    else
-        return true;
-}
-
-// ------------------------------------------------------------------------
-
-bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3 current_normal, vec3 history_normal, float current_mesh_id, float history_mesh_id)
-{
-    // check if the history sample is within the frame
-    if (out_of_frame_disocclusion_check(coord)) return false;
-
-    // check if the history belongs to the same surface
-    if (mesh_id_disocclusion_check(current_mesh_id, history_mesh_id)) return false;
-
-    // check if history sample is on the same plane
-    if (plane_distance_disocclusion_check(current_pos, history_pos, current_normal)) return false;
-
-    // check normals for compatibility
-    if (normals_disocclusion_check(current_normal, history_normal)) return false;
-
-    return true;
-}
-
 // ------------------------------------------------------------------
 
 float horizontal_neighborhood_mean(ivec2 coord)
@@ -261,127 +201,6 @@ float neighborhood_mean(ivec2 coord)
 }
 
 // ------------------------------------------------------------------
-
-bool load_prev_data(ivec2 frag_coord, float depth, out float history_ao, out float history_length)
-{
-    const ivec2 ipos         = frag_coord;
-    const vec2  image_dim    = vec2(textureSize(s_PrevAO, 0));
-    const vec2  pixel_center = vec2(frag_coord) + vec2(0.5);
-    const vec2  tex_coord    = pixel_center / vec2(image_dim);
-
-    vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, ipos, u_PushConstants.g_buffer_mip);
-    vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, ipos, u_PushConstants.g_buffer_mip);
-
-    vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
-    vec2  current_motion  = center_g_buffer_2.zw;
-    float current_mesh_id = center_g_buffer_3.z;
-    vec3  current_pos     = world_position_from_depth(tex_coord, depth, u_GlobalUBO.view_proj_inverse);
-
-    // +0.5 to account for texel center offset
-    const ivec2 ipos_prev = ivec2(vec2(ipos) + current_motion.xy * image_dim + vec2(0.5, 0.5));
-
-    history_ao = 0.0f;
-
-    bool       v[4];
-    const vec2 pos_prev          = floor(frag_coord.xy) + current_motion.xy * image_dim;
-    const vec2 history_tex_coord = tex_coord + current_motion.xy;
-    ivec2      offset[4]         = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
-
-    // check for all 4 taps of the bilinear filter for validity
-    bool valid = false;
-    for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
-    {
-        ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
-
-        vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, loc, u_PushConstants.g_buffer_mip);
-        vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, loc, u_PushConstants.g_buffer_mip);
-        float sample_depth      = texelFetch(s_PrevGBufferDepth, loc, u_PushConstants.g_buffer_mip).r;
-
-        vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
-        float history_mesh_id = sample_g_buffer_3.z;
-        vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth, u_GlobalUBO.view_proj_inverse);
-
-        v[sampleIdx] = is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id);
-
-        valid = valid || v[sampleIdx];
-    }
-
-    if (valid)
-    {
-        float sumw = 0;
-        float x    = fract(pos_prev.x);
-        float y    = fract(pos_prev.y);
-
-        // bilinear weights
-        float w[4] = { (1 - x) * (1 - y),
-                       x * (1 - y),
-                       (1 - x) * y,
-                       x * y };
-
-        history_ao = 0.0f;
-
-        // perform the actual bilinear interpolation
-        for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
-        {
-            ivec2 loc = ivec2(pos_prev) + offset[sampleIdx];
-
-            if (v[sampleIdx])
-            {
-                history_ao += w[sampleIdx] * texelFetch(s_PrevAO, loc, 0).r;
-                sumw += w[sampleIdx];
-            }
-        }
-
-        // redistribute weights in case not all taps were used
-        valid      = (sumw >= 0.01);
-        history_ao = valid ? history_ao / sumw : 0.0f;
-    }
-    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
-    {
-        float cnt = 0.0;
-
-        // this code performs a binary descision for each tap of the cross-bilateral filter
-        const int radius = 1;
-        for (int yy = -radius; yy <= radius; yy++)
-        {
-            for (int xx = -radius; xx <= radius; xx++)
-            {
-                ivec2 p = ipos_prev + ivec2(xx, yy);
-
-                vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, p, u_PushConstants.g_buffer_mip);
-                vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, p, u_PushConstants.g_buffer_mip);
-                float sample_depth      = texelFetch(s_PrevGBufferDepth, p, u_PushConstants.g_buffer_mip).r;
-
-                vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
-                float history_mesh_id = sample_g_buffer_3.z;
-                vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth, u_GlobalUBO.view_proj_inverse);
-
-                if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id))
-                {
-                    history_ao += texelFetch(s_PrevAO, p, 0).r;
-                    cnt += 1.0;
-                }
-            }
-        }
-        if (cnt > 0)
-        {
-            valid = true;
-            history_ao /= cnt;
-        }
-    }
-
-    if (valid)
-        history_length = texelFetch(s_PrevHistoryLength, ipos_prev, 0).r;
-    else
-    {
-        history_ao     = 0.0f;
-        history_length = 0.0f;
-    }
-
-    return valid;
-}
-
-// ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
 
@@ -402,10 +221,19 @@ void main()
     {
         float ao = unpack_ao_hit_value(current_coord);
         float history_ao;
-        bool  success = load_prev_data(current_coord,
-                                      depth,
-                                      history_ao,
-                                      history_length);
+        bool  success = reproject(current_coord,
+                                  depth,
+                                  u_PushConstants.g_buffer_mip,
+                                  u_GlobalUBO.view_proj_inverse,
+                                  s_GBuffer2,
+                                  s_GBuffer3,
+                                  s_PrevGBuffer2,
+                                  s_PrevGBuffer3,
+                                  s_PrevGBufferDepth,
+                                  s_PrevAO,
+                                  s_PrevHistoryLength,
+                                  history_ao,
+                                  history_length);
 
         history_length = min(32.0, success ? history_length + 1.0f : 1.0f);
 

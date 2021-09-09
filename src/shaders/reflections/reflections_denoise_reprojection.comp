@@ -4,6 +4,9 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#define REPROJECTION_REFLECTIONS
+#define REPROJECTION_MOMENTS
+#include "../reprojection.glsl"
 
 // ------------------------------------------------------------------
 // DEFINES ----------------------------------------------------------
@@ -107,115 +110,6 @@ shared uint g_should_denoise;
 // FUNCTIONS --------------------------------------------------------
 // ------------------------------------------------------------------
 
-bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
-{
-    vec3  to_current    = current_pos - history_pos;
-    float dist_to_plane = abs(dot(to_current, current_normal));
-
-    return dist_to_plane > PLANE_DISTANCE;
-}
-
-// ------------------------------------------------------------------------
-
-bool out_of_frame_disocclusion_check(ivec2 coord)
-{
-    const ivec2 imageDim = textureSize(s_HistoryOutput, 0);
-
-    // check whether reprojected pixel is inside of the screen
-    if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, imageDim - ivec2(1, 1))))
-        return true;
-    else
-        return false;
-}
-
-// ------------------------------------------------------------------------
-
-bool mesh_id_disocclusion_check(float mesh_id, float mesh_id_prev)
-{
-    if (mesh_id == mesh_id_prev)
-        return false;
-    else
-        return true;
-}
-
-// ------------------------------------------------------------------------
-
-bool normals_disocclusion_check(vec3 current_normal, vec3 history_normal)
-{
-    if (pow(abs(dot(current_normal, history_normal)), 2) > NORMAL_DISTANCE)
-        return false;
-    else
-        return true;
-}
-
-// ------------------------------------------------------------------------
-
-bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3 current_normal, vec3 history_normal, float current_mesh_id, float history_mesh_id, float depth)
-{
-    // check if the history sample is within the frame
-    if (out_of_frame_disocclusion_check(coord)) return false;
-
-    // check if the history belongs to the same surface
-    if (mesh_id_disocclusion_check(current_mesh_id, history_mesh_id)) return false;
-
-    // check if history sample is on the same plane
-    if (plane_distance_disocclusion_check(current_pos, history_pos, current_normal)) return false;
-
-    // check normals for compatibility
-    if (normals_disocclusion_check(current_normal, history_normal)) return false;
-
-    // check if sample belongs to the skybox
-    if (depth == -1) return false;
-
-    return true;
-}
-
-// ------------------------------------------------------------------
-
-vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
-{
-    return vec2(coord) + motion_vector.xy * vec2(size);
-}
-
-// ------------------------------------------------------------------
-
-vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float depth, float ray_length)
-{
-    const vec2 tex_coord  = current_coord / vec2(size);
-    vec3       ray_origin = world_position_from_depth(tex_coord, depth, u_GlobalUBO.view_proj_inverse);
-
-    vec3 camera_ray = ray_origin - u_GlobalUBO.cam_pos.xyz;
-
-    float camera_ray_length     = length(camera_ray);
-    float reflection_ray_length = ray_length;
-
-    camera_ray = normalize(camera_ray);
-
-    vec3 parallax_hit_point = u_GlobalUBO.cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
-
-    vec4 reprojected_parallax_hit_point = u_GlobalUBO.prev_view_proj * vec4(parallax_hit_point, 1.0f);
-
-    reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
-
-    return (reprojected_parallax_hit_point.xy * 0.5f + 0.5f) * vec2(size);
-}
-
-// ------------------------------------------------------------------------
-
-vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 motion, float curvature, float ray_length)
-{
-    const vec2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
-
-    vec2 history_coord = surface_history_coord;
-
-    if (ray_length > 0.0f && curvature == 0.0f)
-        history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length);
-
-    return history_coord;
-}
-
-// ------------------------------------------------------------------
-
 vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
 {
     // Note: only clips towards aabb center
@@ -266,129 +160,6 @@ void neighborhood_standard_deviation(ivec2 coord, out vec3 mean, out vec3 std_de
 
 // ------------------------------------------------------------------
 
-bool load_prev_data(ivec2 frag_coord, vec2 history_coord, vec2 history_tex_coord, float depth, vec4 center_g_buffer_2, vec4 center_g_buffer_3, out vec3 history_color, out vec2 history_moments, out float history_length)
-{
-    const ivec2 ipos         = frag_coord;
-    const vec2  imageDim     = vec2(textureSize(s_HistoryOutput, 0));
-    const vec2  pixel_center = vec2(frag_coord) + vec2(0.5);
-    const vec2  tex_coord    = pixel_center / vec2(imageDim);
-
-    vec3  current_normal  = octohedral_to_direction(center_g_buffer_2.xy);
-    float current_mesh_id = center_g_buffer_3.z;
-    vec3  current_pos     = world_position_from_depth(tex_coord, depth, u_GlobalUBO.view_proj_inverse);
-
-    // +0.5 to account for texel center offset
-    const ivec2 ipos_prev = ivec2(history_coord + vec2(0.5, 0.5));
-
-    history_color   = vec3(0.0f);
-    history_moments = vec2(0.0f);
-
-    bool       v[4];
-    const vec2 posPrev   = history_coord;
-    ivec2      offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
-
-    // check for all 4 taps of the bilinear filter for validity
-    bool valid = false;
-    for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
-    {
-        ivec2 loc = ivec2(posPrev) + offset[sampleIdx];
-
-        vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, loc, u_PushConstants.g_buffer_mip);
-        vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, loc, u_PushConstants.g_buffer_mip);
-        float sample_depth      = texelFetch(s_PrevGBufferDepth, loc, u_PushConstants.g_buffer_mip).r;
-
-        vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
-        float history_mesh_id = sample_g_buffer_3.z;
-        vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth, u_GlobalUBO.view_proj_inverse);
-
-        v[sampleIdx] = is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, sample_depth);
-
-        valid = valid || v[sampleIdx];
-    }
-
-    if (valid)
-    {
-        float sumw = 0;
-        float x    = fract(posPrev.x);
-        float y    = fract(posPrev.y);
-
-        // bilinear weights
-        float w[4] = { (1 - x) * (1 - y),
-                       x * (1 - y),
-                       (1 - x) * y,
-                       x * y };
-
-        history_color   = vec3(0.0f);
-        history_moments = vec2(0.0f);
-
-        // perform the actual bilinear interpolation
-        for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
-        {
-            ivec2 loc = ivec2(posPrev) + offset[sampleIdx];
-
-            if (v[sampleIdx])
-            {
-                history_color += w[sampleIdx] * texelFetch(s_HistoryOutput, loc, 0).rgb;
-                history_moments += w[sampleIdx] * texelFetch(s_HistoryMoments, loc, 0).rg;
-                sumw += w[sampleIdx];
-            }
-        }
-
-        // redistribute weights in case not all taps were used
-        valid           = (sumw >= 0.01);
-        history_color   = valid ? history_color / sumw : vec3(0.0f);
-        history_moments = valid ? history_moments / sumw : vec2(0.0f);
-    }
-    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
-    {
-        float cnt = 0.0;
-
-        // this code performs a binary descision for each tap of the cross-bilateral filter
-        const int radius = 1;
-        for (int yy = -radius; yy <= radius; yy++)
-        {
-            for (int xx = -radius; xx <= radius; xx++)
-            {
-                ivec2 p = ipos_prev + ivec2(xx, yy);
-
-                vec4  sample_g_buffer_2 = texelFetch(s_PrevGBuffer2, p, u_PushConstants.g_buffer_mip);
-                vec4  sample_g_buffer_3 = texelFetch(s_PrevGBuffer3, p, u_PushConstants.g_buffer_mip);
-                float sample_depth      = texelFetch(s_PrevGBufferDepth, p, u_PushConstants.g_buffer_mip).r;
-
-                vec3  history_normal  = octohedral_to_direction(sample_g_buffer_2.xy);
-                float history_mesh_id = sample_g_buffer_3.z;
-                vec3  history_pos     = world_position_from_depth(history_tex_coord, sample_depth, u_GlobalUBO.view_proj_inverse);
-
-                if (is_reprojection_valid(ipos_prev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, sample_depth))
-                {
-                    history_color += texelFetch(s_HistoryOutput, p, 0).rgb;
-                    history_moments += texelFetch(s_HistoryMoments, p, 0).rg;
-                    cnt += 1.0;
-                }
-            }
-        }
-        if (cnt > 0)
-        {
-            valid = true;
-            history_color /= cnt;
-            history_moments /= cnt;
-        }
-    }
-
-    if (valid)
-        history_length = texelFetch(s_HistoryMoments, ipos_prev, 0).b;
-    else
-    {
-        history_color   = vec3(0.0f);
-        history_moments = vec2(0.0f);
-        history_length  = 0.0f;
-    }
-
-    return valid;
-}
-
-// ------------------------------------------------------------------
-
 // TODO: Implement proper accumulation speed adjustment
 float compute_max_accumulated_frame(float history_length)
 {
@@ -425,27 +196,30 @@ void main()
         vec3        color            = color_ray_length.rgb;
         const float ray_length       = color_ray_length.a;
 
-        const vec4 center_g_buffer_2 = texelFetch(s_GBuffer2, current_coord, u_PushConstants.g_buffer_mip);
-        const vec4 center_g_buffer_3 = texelFetch(s_GBuffer3, current_coord, u_PushConstants.g_buffer_mip);
-
-        const vec2 history_tex_coord = tex_coord + center_g_buffer_2.zw;
-        const vec2 history_coord     = compute_history_coord(current_coord, size, depth, center_g_buffer_2.zw, center_g_buffer_3.g, ray_length);
-
-        float history_length;
         vec3  history_color;
         vec2  history_moments;
-        bool  success = load_prev_data(current_coord,
-                                      history_coord,
-                                      history_tex_coord,
-                                      depth,
-                                      center_g_buffer_2,
-                                      center_g_buffer_3,
-                                      history_color,
-                                      history_moments,
-                                      history_length);
+        float history_length;
+
+        bool  success = reproject(current_coord,
+                                  depth,
+                                  u_PushConstants.g_buffer_mip,
+                                  u_GlobalUBO.cam_pos.xyz,
+                                  u_GlobalUBO.view_proj_inverse,
+                                  u_GlobalUBO.prev_view_proj,
+                                  ray_length,
+                                  s_GBuffer2,
+                                  s_GBuffer3,
+                                  s_PrevGBuffer2,
+                                  s_PrevGBuffer3,
+                                  s_PrevGBufferDepth,
+                                  s_HistoryOutput,
+                                  s_HistoryMoments,
+                                  history_color,
+                                  history_moments,
+                                  history_length);                                        
 
         history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
-
+        
         if (success)
         {
             vec3 std_dev;
