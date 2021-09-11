@@ -1,6 +1,6 @@
 #  Hybrid Rendering
 
-A Vulkan sample that demonstrates integrating Ray Traced Shadows, Ambient Occlusion, Reflections and Global Illumination into a Deferred Pipeline.
+A Vulkan sample that demonstrates integrating Ray Traced Shadows, Ambient Occlusion, Reflections and Global Illumination into a Deferred Rendering Pipeline.
 
 
 ## Screenshots
