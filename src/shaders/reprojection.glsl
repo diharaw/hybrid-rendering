@@ -169,7 +169,7 @@ bool reproject(in ivec2 frag_coord,
                                                          view_proj_inverse, 
                                                          prev_view_proj);   
     const ivec2 history_coord = ivec2(reprojected_coord);                                                      
-    const vec2  history_coord_floor = floor(reprojected_coord);                                                                                                         
+    const vec2  history_coord_floor = reprojected_coord;                                                                                                         
 #else 
     // +0.5 to account for texel center offset
     const ivec2 history_coord = ivec2(vec2(frag_coord) + current_motion.xy * image_dim + vec2(0.5f));

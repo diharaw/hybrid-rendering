@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#define USE_EDGE_STOPPING_NORMAL_WEIGHT
 #include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
@@ -90,9 +91,12 @@ void main()
 
         vec3 coarse_normal = octohedral_to_direction(textureLod(s_GBuffer2, coarse_tex_coord, u_PushConstants.g_buffer_mip).rg);
 
-        float w_depth  = depth_edge_stopping_weight(hi_res_depth, coarse_depth);
-        float w_normal = normal_edge_stopping_weight(hi_res_normal, coarse_normal, 32.0f);
-        float w        = w_depth * w_normal;
+        float w = compute_edge_stopping_weight(hi_res_depth, 
+                                               coarse_depth,
+                                               1.0f,
+                                               hi_res_normal, 
+                                               coarse_normal, 
+                                               32.0f);
 
         upsampled += textureLod(s_Input, coarse_tex_coord, 0).r * w;
         total_w += w;

@@ -3,6 +3,8 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#define USE_EDGE_STOPPING_NORMAL_WEIGHT
+#define USE_EDGE_STOPPING_LUMA_WEIGHT
 #include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
@@ -86,25 +88,6 @@ float compute_variance_center(ivec2 ipos)
 }
 
 // ------------------------------------------------------------------
-
-float compute_weight(float center_depth,
-                     float sample_depth,
-                     vec3  center_normal,
-                     vec3  sample_normal,
-                     float center_visibility,
-                     float sample_visibility,
-                     float phi)
-{
-    const float wNormal = normal_edge_stopping_weight(center_normal, sample_normal, u_PushConstants.phi_normal);
-    const float wZ      = depth_edge_stopping_weight(center_depth, sample_depth);
-    const float wL      = abs(center_visibility - sample_visibility) / phi;
-
-    const float w = exp(0.0 - max(wL, 0.0) - max(wZ, 0.0)) * wNormal;
-
-    return w;
-}
-
-// ------------------------------------------------------------------
 // MAIN -------------------------------------------------------------
 // ------------------------------------------------------------------
 
@@ -161,10 +144,12 @@ void main()
                 float sample_depth  = sample_g_buffer_3.w;
 
                 // compute the edge-stopping functions
-                const float w = compute_weight(center_depth,
+                const float w = compute_edge_stopping_weight(center_depth,
                                                sample_depth,
+                                               u_PushConstants.sigma_depth,
                                                current_normal,
                                                sample_normal,
+                                               u_PushConstants.phi_normal,
                                                center_visibility.r,
                                                sample_visibility.r,
                                                phi_visibility);

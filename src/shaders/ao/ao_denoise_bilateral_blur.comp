@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
+#define USE_EDGE_STOPPING_NORMAL_WEIGHT
 #include "../edge_stopping.glsl"
 
 // ------------------------------------------------------------------
@@ -96,9 +97,14 @@ float bilateral_blur(ivec2 current_coord)
         vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
         float weight = gaussian_weight(float(i), deviation);
-        weight *= depth_edge_stopping_weight(center_depth, sample_depth);
-        weight *= normal_edge_stopping_weight(center_normal, sample_normal, 32.0f);
-
+ 
+        weight *= compute_edge_stopping_weight(center_depth, 
+                                               sample_depth,
+                                               1.0f,
+                                               center_normal, 
+                                               sample_normal, 
+                                               32.0f);
+ 
         total_ao += weight * sample_ao;
         total_weight += weight;
     }

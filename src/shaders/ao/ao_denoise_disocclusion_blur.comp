@@ -86,7 +86,7 @@ float disocclusion_blur(ivec2 current_coord, float norm_accumulated_frames, floa
             float sample_depth  = linear_eye_depth(texelFetch(s_GBufferDepth, sample_coord, u_PushConstants.g_buffer_mip).r, u_PushConstants.z_buffer_params);
             vec3  sample_normal = octohedral_to_direction(texelFetch(s_GBuffer2, sample_coord, u_PushConstants.g_buffer_mip).rg);
 
-            float weight = depth_edge_stopping_weight(center_depth, sample_depth); // * normal_edge_stopping_weight(center_normal, sample_normal);
+            float weight = depth_edge_stopping_weight(center_depth, sample_depth, 1.0f);
 
             total_ao += weight * sample_ao;
             total_weight += weight;
