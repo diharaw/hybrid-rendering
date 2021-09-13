@@ -155,14 +155,14 @@ void main()
 
                 // compute the edge-stopping functions
                 const float w = compute_edge_stopping_weight(center_depth,
-                                               sample_depth,
-                                               u_PushConstants.sigma_depth,
-                                               current_normal,
-                                               sample_normal,
-                                               u_PushConstants.phi_normal,
-                                               center_color_luma,
-                                               sample_color_luma,
-                                               phi_color);
+                                                             sample_depth,
+                                                             u_PushConstants.sigma_depth,
+                                                             current_normal,
+                                                             sample_normal,
+                                                             u_PushConstants.phi_normal,
+                                                             center_color_luma,
+                                                             sample_color_luma,
+                                                             phi_color);
 
                 const float w_color = w * kernel;
 

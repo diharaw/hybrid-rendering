@@ -91,11 +91,11 @@ void main()
 
         vec3 coarse_normal = octohedral_to_direction(textureLod(s_GBuffer2, coarse_tex_coord, u_PushConstants.g_buffer_mip).rg);
 
-        float w = compute_edge_stopping_weight(hi_res_depth, 
+        float w = compute_edge_stopping_weight(hi_res_depth,
                                                coarse_depth,
                                                1.0f,
-                                               hi_res_normal, 
-                                               coarse_normal, 
+                                               hi_res_normal,
+                                               coarse_normal,
                                                32.0f);
 
         upsampled += textureLod(s_Input, coarse_tex_coord, 0).r * w;

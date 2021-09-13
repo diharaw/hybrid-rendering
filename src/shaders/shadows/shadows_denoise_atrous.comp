@@ -145,14 +145,14 @@ void main()
 
                 // compute the edge-stopping functions
                 const float w = compute_edge_stopping_weight(center_depth,
-                                               sample_depth,
-                                               u_PushConstants.sigma_depth,
-                                               current_normal,
-                                               sample_normal,
-                                               u_PushConstants.phi_normal,
-                                               center_visibility.r,
-                                               sample_visibility.r,
-                                               phi_visibility);
+                                                             sample_depth,
+                                                             u_PushConstants.sigma_depth,
+                                                             current_normal,
+                                                             sample_normal,
+                                                             u_PushConstants.phi_normal,
+                                                             center_visibility.r,
+                                                             sample_visibility.r,
+                                                             phi_visibility);
 
                 const float w_visibility = w * kernel;
 
