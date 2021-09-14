@@ -116,7 +116,7 @@ void RayTracedAO::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void RayTracedAO::gui()
 {
-    ImGui::Checkbox("Denoise", &m_denoise);                      
+    ImGui::Checkbox("Denoise", &m_denoise);
     ImGui::SliderFloat("Ray Length", &m_ray_trace.ray_length, 1.0f, 100.0f);
     ImGui::SliderFloat("Power", &m_upsample.power, 1.0f, 5.0f);
     ImGui::InputFloat("Bias", &m_ray_trace.bias);
@@ -600,16 +600,64 @@ void RayTracedAO::write_descriptor_sets()
         vkUpdateDescriptorSets(backend->device(), write_datas.size(), write_datas.data(), 0, nullptr);
     }
 
-// Bilateral Blur
-{
-    for (int i = 0; i < 2; i++)
+    // Bilateral Blur
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            // write
+            {
+                VkDescriptorImageInfo storage_image_info;
+
+                storage_image_info.sampler     = VK_NULL_HANDLE;
+                storage_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+                storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+                VkWriteDescriptorSet write_data;
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write_data.pImageInfo      = &storage_image_info;
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_bilateral_blur.write_ds[i]->handle();
+
+                vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+            }
+
+            // read
+            {
+                VkDescriptorImageInfo sampler_image_info;
+
+                sampler_image_info.sampler     = backend->nearest_sampler()->handle();
+                sampler_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+                sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write_data;
+
+                DW_ZERO_MEMORY(write_data);
+
+                write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write_data.descriptorCount = 1;
+                write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write_data.pImageInfo      = &sampler_image_info;
+                write_data.dstBinding      = 0;
+                write_data.dstSet          = m_bilateral_blur.read_ds[i]->handle();
+
+                vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
+            }
+        }
+    }
+
+    // Upsample
     {
         // write
         {
             VkDescriptorImageInfo storage_image_info;
 
             storage_image_info.sampler     = VK_NULL_HANDLE;
-            storage_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+            storage_image_info.imageView   = m_upsample.image_view->handle();
             storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
             VkWriteDescriptorSet write_data;
@@ -621,7 +669,7 @@ void RayTracedAO::write_descriptor_sets()
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             write_data.pImageInfo      = &storage_image_info;
             write_data.dstBinding      = 0;
-            write_data.dstSet          = m_bilateral_blur.write_ds[i]->handle();
+            write_data.dstSet          = m_upsample.write_ds->handle();
 
             vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
         }
@@ -631,7 +679,7 @@ void RayTracedAO::write_descriptor_sets()
             VkDescriptorImageInfo sampler_image_info;
 
             sampler_image_info.sampler     = backend->nearest_sampler()->handle();
-            sampler_image_info.imageView   = m_bilateral_blur.image_view[i]->handle();
+            sampler_image_info.imageView   = m_upsample.image_view->handle();
             sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkWriteDescriptorSet write_data;
@@ -643,59 +691,11 @@ void RayTracedAO::write_descriptor_sets()
             write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write_data.pImageInfo      = &sampler_image_info;
             write_data.dstBinding      = 0;
-            write_data.dstSet          = m_bilateral_blur.read_ds[i]->handle();
+            write_data.dstSet          = m_upsample.read_ds->handle();
 
             vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
         }
     }
-}
-
-// Upsample
-{
-    // write
-    {
-        VkDescriptorImageInfo storage_image_info;
-
-        storage_image_info.sampler     = VK_NULL_HANDLE;
-        storage_image_info.imageView   = m_upsample.image_view->handle();
-        storage_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write_data;
-
-        DW_ZERO_MEMORY(write_data);
-
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write_data.pImageInfo      = &storage_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_upsample.write_ds->handle();
-
-        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
-    }
-
-    // read
-    {
-        VkDescriptorImageInfo sampler_image_info;
-
-        sampler_image_info.sampler     = backend->nearest_sampler()->handle();
-        sampler_image_info.imageView   = m_upsample.image_view->handle();
-        sampler_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write_data;
-
-        DW_ZERO_MEMORY(write_data);
-
-        write_data.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_data.descriptorCount = 1;
-        write_data.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_data.pImageInfo      = &sampler_image_info;
-        write_data.dstBinding      = 0;
-        write_data.dstSet          = m_upsample.read_ds->handle();
-
-        vkUpdateDescriptorSets(backend->device(), 1, &write_data, 0, nullptr);
-    }
-}
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -1018,7 +1018,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     auto backend = m_backend.lock();
 
-    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange subresource_range   = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     VkImageSubresourceRange subresource_range_2 = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 4, 0, 1 };
 
     {

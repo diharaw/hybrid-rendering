@@ -102,7 +102,7 @@ shared uint  g_should_denoise;
 
 void populate_cache()
 {
-    g_should_denoise   = 0;
+    g_should_denoise = 0;
 
     if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
     {
