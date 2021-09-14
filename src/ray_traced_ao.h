@@ -12,11 +12,10 @@ public:
         OUTPUT_RAY_TRACE,
         OUTPUT_TEMPORAL_ACCUMULATION,
         OUTPUT_BILATERAL_BLUR,
-        OUTPUT_DISOCCLUSION_BLUR,
         OUTPUT_UPSAMPLE
     };
 
-    const static int         kNumOutputTypes = 5;
+    const static int         kNumOutputTypes = 4;
     const static OutputType  kOutputTypeEnums[];
     const static std::string kOutputTypeNames[];
 
@@ -46,7 +45,6 @@ private:
     void upsample(dw::vk::CommandBuffer::Ptr cmd_buf);
     void reset_args(dw::vk::CommandBuffer::Ptr cmd_buf);
     void temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf);
-    void disocclusion_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
     void bilateral_blur(dw::vk::CommandBuffer::Ptr cmd_buf);
 
 private:
@@ -74,8 +72,6 @@ private:
         float                            alpha = 0.01f;
         dw::vk::Buffer::Ptr              denoise_tile_coords_buffer;
         dw::vk::Buffer::Ptr              denoise_dispatch_args_buffer;
-        dw::vk::Buffer::Ptr              disocclusion_tile_coords_buffer;
-        dw::vk::Buffer::Ptr              disocclusion_dispatch_args_buffer;
         dw::vk::ComputePipeline::Ptr     pipeline;
         dw::vk::PipelineLayout::Ptr      pipeline_layout;
         dw::vk::DescriptorSetLayout::Ptr read_ds_layout;
@@ -89,19 +85,6 @@ private:
         dw::vk::DescriptorSet::Ptr       read_ds[2];
         dw::vk::DescriptorSet::Ptr       output_read_ds[2];
         dw::vk::DescriptorSet::Ptr       indirect_buffer_ds;
-    };
-
-    struct DisocclusionBlur
-    {
-        bool                         enabled     = true;
-        int32_t                      blur_radius = 2;
-        int32_t                      threshold   = 15;
-        dw::vk::PipelineLayout::Ptr  layout;
-        dw::vk::ComputePipeline::Ptr pipeline;
-        dw::vk::Image::Ptr           image;
-        dw::vk::ImageView::Ptr       image_view;
-        dw::vk::DescriptorSet::Ptr   read_ds;
-        dw::vk::DescriptorSet::Ptr   write_ds;
     };
 
     struct BilateralBlur
@@ -139,7 +122,6 @@ private:
     RayTrace                       m_ray_trace;
     ResetArgs                      m_reset_args;
     TemporalAccumulation           m_temporal_accumulation;
-    DisocclusionBlur               m_disocclusion_blur;
     BilateralBlur                  m_bilateral_blur;
     Upsample                       m_upsample;
 };

@@ -76,18 +76,6 @@ layout(set = 7, binding = 1, std430) buffer DenoiseTileDispatchArgs_t
     uint num_groups_z;
 }
 DenoiseTileDispatchArgs;
-layout(set = 7, binding = 2, std430) buffer DisocclusionTileData_t
-{
-    ivec2 coord[];
-}
-DisocclusionTileData;
-layout(set = 7, binding = 3, std430) buffer DisocclusionTileDispatchArgs_t
-{
-    uint num_groups_x;
-    uint num_groups_y;
-    uint num_groups_z;
-}
-DisocclusionTileDispatchArgs;
 
 // ------------------------------------------------------------------
 // PUSH CONSTANTS ---------------------------------------------------
@@ -107,7 +95,6 @@ u_PushConstants;
 shared uint  g_ao_hit_masks[3][6];
 shared float g_mean_accumulation[8][24];
 shared uint  g_should_denoise;
-shared uint  g_has_disocclusion;
 
 // ------------------------------------------------------------------
 // FUNCTIONS --------------------------------------------------------
@@ -116,7 +103,6 @@ shared uint  g_has_disocclusion;
 void populate_cache()
 {
     g_should_denoise   = 0;
-    g_has_disocclusion = 0;
 
     if (gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
     {
@@ -266,22 +252,12 @@ void main()
     if (out_ao < 1.0f)
         g_should_denoise = 1;
 
-    // If at least one thread has disoccluded samples, perform the disocclusion blur.
-    if (history_length == 1.0f)
-        g_has_disocclusion = 1;
-
     barrier();
 
     if (g_should_denoise == 1 && gl_LocalInvocationIndex == 0)
     {
         uint idx                   = atomicAdd(DenoiseTileDispatchArgs.num_groups_x, 1);
         DenoiseTileData.coord[idx] = current_coord;
-    }
-
-    if (g_has_disocclusion == 1 && gl_LocalInvocationIndex == 0)
-    {
-        uint idx                        = atomicAdd(DisocclusionTileDispatchArgs.num_groups_x, 1);
-        DisocclusionTileData.coord[idx] = current_coord;
     }
 }
 
