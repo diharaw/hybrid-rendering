@@ -14,8 +14,6 @@
 
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
-#define NORMAL_DISTANCE 0.1f
-#define PLANE_DISTANCE 5.0f
 
 // ------------------------------------------------------------------
 // INPUTS -----------------------------------------------------------

@@ -27,7 +27,8 @@ set(HYBRID_RENDERING_SOURCES ${PROJECT_SOURCE_DIR}/src/main.cpp
                              ${PROJECT_SOURCE_DIR}/src/tone_map.cpp
                              ${PROJECT_SOURCE_DIR}/src/utilities.cpp
                              ${PROJECT_SOURCE_DIR}/src/blue_noise.cpp
-                             ${PROJECT_SOURCE_DIR}/src/common_resources.h
+                             ${PROJECT_SOURCE_DIR}/src/common.cpp
+                             ${PROJECT_SOURCE_DIR}/src/common.h
                              ${PROJECT_SOURCE_DIR}/src/ddgi.h
                              ${PROJECT_SOURCE_DIR}/src/ground_truth_path_tracer.h
                              ${PROJECT_SOURCE_DIR}/src/ray_traced_ao.h

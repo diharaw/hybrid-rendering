@@ -1,5 +1,6 @@
 #pragma once
 
+#include <macros.h>
 #include <material.h>
 #include <mesh.h>
 #include <vk.h>
@@ -11,6 +12,12 @@
 #include <cubemap_prefilter.h>
 #include <stdexcept>
 #include "blue_noise.h"
+
+#define EPSILON 0.0001f
+#define NUM_PILLARS 6
+#define CAMERA_NEAR_PLANE 1.0f
+#define CAMERA_FAR_PLANE 1000.0f
+#define CAMERA_SPEED_MULTIPLIER 0.1f
 
 class SVGFDenoiser;
 
@@ -79,6 +86,81 @@ struct HDREnvironment
     dw::vk::ImageView::Ptr                   image_view;
     std::unique_ptr<dw::CubemapSHProjection> cubemap_sh_projection;
     std::unique_ptr<dw::CubemapPrefiler>     cubemap_prefilter;
+};
+
+struct Light
+{
+    glm::vec4 data0;
+    glm::vec4 data1;
+    glm::vec4 data2;
+    glm::vec4 data3;
+};
+
+void inline set_light_direction(Light& light, glm::vec3 value)
+{
+    light.data0.x = value.x;
+    light.data0.y = value.y;
+    light.data0.z = value.z;
+}
+
+void inline set_light_position(Light& light, glm::vec3 value)
+{
+    light.data1.x = value.x;
+    light.data1.y = value.y;
+    light.data1.z = value.z;
+}
+
+void inline set_light_color(Light& light, glm::vec3 value)
+{
+    light.data2.x = value.x;
+    light.data2.y = value.y;
+    light.data2.z = value.z;
+}
+
+void inline set_light_intensity(Light& light, float value)
+{
+    light.data0.w = value;
+}
+
+void inline set_light_radius(Light& light, float value)
+{
+    light.data1.w = value;
+}
+
+void inline set_light_type(Light& light, LightType value)
+{
+    light.data3.x = value;
+}
+
+void inline set_light_cos_theta_outer(Light& light, float value)
+{
+    light.data3.y = value;
+}
+
+void inline set_light_cos_theta_inner(Light& light, float value)
+{
+    light.data3.z = value;
+}
+
+// Uniform buffer data structure.
+struct UBO
+{
+    DW_ALIGNED(16)
+    glm::mat4 view_inverse;
+    DW_ALIGNED(16)
+    glm::mat4 proj_inverse;
+    DW_ALIGNED(16)
+    glm::mat4 view_proj_inverse;
+    DW_ALIGNED(16)
+    glm::mat4 prev_view_proj;
+    DW_ALIGNED(16)
+    glm::mat4 view_proj;
+    DW_ALIGNED(16)
+    glm::vec4 cam_pos;
+    DW_ALIGNED(16)
+    glm::vec4 current_prev_jitter;
+    DW_ALIGNED(16)
+    Light light;
 };
 
 struct CommonResources

@@ -1,5 +1,5 @@
 #include "g_buffer.h"
-#include "common_resources.h"
+#include "common.h"
 #include <profiler.h>
 #include <macros.h>
 #include <imgui.h>

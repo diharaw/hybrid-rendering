@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common_resources.h"
+#include "common.h"
 
 class GBuffer;
 class DDGI;
