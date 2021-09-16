@@ -21,6 +21,20 @@
 
 class SVGFDenoiser;
 
+namespace constants
+{
+extern const std::vector<std::string>            environment_map_images;
+extern const std::vector<std::string>            environment_types;
+extern const std::vector<std::string>            visualization_types;
+extern const std::vector<std::string>            scene_types;
+extern const std::vector<std::string>            ray_trace_scales;
+extern const std::vector<std::string>            light_types;
+extern const std::vector<std::string>            camera_types;
+extern const std::vector<std::vector<glm::vec3>> fixed_camera_position_vectors;
+extern const std::vector<std::vector<glm::vec3>> fixed_camera_forward_vectors;
+extern const std::vector<std::vector<glm::vec3>> fixed_camera_right_vectors;
+} // namespace constants
+
 enum RayTraceScale
 {
     RAY_TRACE_SCALE_FULL_RES,
@@ -94,53 +108,53 @@ struct Light
     glm::vec4 data1;
     glm::vec4 data2;
     glm::vec4 data3;
+
+    inline void set_light_direction(glm::vec3 value)
+    {
+        data0.x = value.x;
+        data0.y = value.y;
+        data0.z = value.z;
+    }
+
+    inline void set_light_position(glm::vec3 value)
+    {
+        data1.x = value.x;
+        data1.y = value.y;
+        data1.z = value.z;
+    }
+
+    inline void set_light_color(glm::vec3 value)
+    {
+        data2.x = value.x;
+        data2.y = value.y;
+        data2.z = value.z;
+    }
+
+    inline void set_light_intensity(float value)
+    {
+        data0.w = value;
+    }
+
+    inline void set_light_radius(float value)
+    {
+        data1.w = value;
+    }
+
+    inline void set_light_type(LightType value)
+    {
+        data3.x = value;
+    }
+
+    inline void set_light_cos_theta_outer(float value)
+    {
+        data3.y = value;
+    }
+
+    inline void set_light_cos_theta_inner(float value)
+    {
+        data3.z = value;
+    }
 };
-
-void inline set_light_direction(Light& light, glm::vec3 value)
-{
-    light.data0.x = value.x;
-    light.data0.y = value.y;
-    light.data0.z = value.z;
-}
-
-void inline set_light_position(Light& light, glm::vec3 value)
-{
-    light.data1.x = value.x;
-    light.data1.y = value.y;
-    light.data1.z = value.z;
-}
-
-void inline set_light_color(Light& light, glm::vec3 value)
-{
-    light.data2.x = value.x;
-    light.data2.y = value.y;
-    light.data2.z = value.z;
-}
-
-void inline set_light_intensity(Light& light, float value)
-{
-    light.data0.w = value;
-}
-
-void inline set_light_radius(Light& light, float value)
-{
-    light.data1.w = value;
-}
-
-void inline set_light_type(Light& light, LightType value)
-{
-    light.data3.x = value;
-}
-
-void inline set_light_cos_theta_outer(Light& light, float value)
-{
-    light.data3.y = value;
-}
-
-void inline set_light_cos_theta_inner(Light& light, float value)
-{
-    light.data3.z = value;
-}
 
 // Uniform buffer data structure.
 struct UBO
@@ -214,5 +228,17 @@ struct CommonResources
     std::vector<std::shared_ptr<HDREnvironment>> hdr_environments;
     std::unique_ptr<dw::BRDFIntegrateLUT>        brdf_preintegrate_lut;
 
+    CommonResources(dw::vk::Backend::Ptr backend);
+    ~CommonResources();
+
+    void write_descriptor_sets(dw::vk::Backend::Ptr backend);
+
     inline dw::RayTracedScene::Ptr current_scene() { return scenes[current_scene_type]; }
+
+private:
+    void create_uniform_buffer(dw::vk::Backend::Ptr backend);
+    void load_mesh(dw::vk::Backend::Ptr backend);
+    void create_environment_resources(dw::vk::Backend::Ptr backend);
+    void create_descriptor_set_layouts(dw::vk::Backend::Ptr backend);
+    void create_descriptor_sets(dw::vk::Backend::Ptr backend);
 };
