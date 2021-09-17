@@ -792,17 +792,15 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
             subresource_range);
     }
 
-    std::vector<VkMemoryBarrier> memory_barriers = {
-        memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-    };
+    {
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_ray_trace.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_ray_trace.direction_depth_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
 
-    std::vector<VkImageMemoryBarrier> image_barriers = {
-        image_memory_barrier(m_ray_trace.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
-        image_memory_barrier(m_ray_trace.direction_depth_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-    };
-
-    pipeline_barrier(cmd_buf, memory_barriers, image_barriers, {}, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-
+        pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+    }
+    
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline->handle());
 
     RayTracePushConstants push_constants;
@@ -843,19 +841,14 @@ void DDGI::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_ray_trace.rays_per_probe, num_total_probes, 1);
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_ray_trace.radiance_image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+    {
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_ray_trace.radiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_ray_trace.direction_depth_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_ray_trace.direction_depth_image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+        pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -868,37 +861,36 @@ void DDGI::probe_update(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     uint32_t write_idx = static_cast<uint32_t>(m_ping_pong);
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_probe_grid.irradiance_image[write_idx]->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
+    {
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_probe_grid.irradiance_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_probe_grid.depth_image[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_probe_grid.depth_image[write_idx]->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
-
+        pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+    
     probe_update(cmd_buf, true);
     probe_update(cmd_buf, false);
+
+    {
+        std::vector<VkMemoryBarrier> memory_barriers = {
+            memory_barrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, memory_barriers, {}, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
+
     border_update(cmd_buf);
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_probe_grid.irradiance_image[write_idx]->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+    {
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_probe_grid.irradiance_image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_probe_grid.depth_image[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_probe_grid.depth_image[write_idx]->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+        pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -992,12 +984,13 @@ void DDGI::sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_sample_probe_grid.image->handle(),
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        subresource_range);
+    {
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+            image_memory_barrier(m_sample_probe_grid.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
 
     vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_sample_probe_grid.pipeline->handle());
 
@@ -1027,12 +1020,13 @@ void DDGI::sample_probe_grid(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdDispatch(cmd_buf->handle(), static_cast<uint32_t>(ceil(float(m_sample_probe_grid.image->width()) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_sample_probe_grid.image->height()) / float(NUM_THREADS_Y))), 1);
 
-    dw::vk::utilities::set_image_layout(
-        cmd_buf->handle(),
-        m_sample_probe_grid.image->handle(),
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        subresource_range);
+    {
+        std::vector<VkImageMemoryBarrier> image_barriers = {
+                image_memory_barrier(m_sample_probe_grid.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+
+        pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    }
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
