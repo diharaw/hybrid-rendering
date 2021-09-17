@@ -344,7 +344,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
     {
         std::vector<dw::RayTracedScene::Instance> instances;
 
-        dw::Mesh::Ptr pillar = dw::Mesh::load(backend, "mesh/pillar.gltf");
+        dw::Mesh::Ptr pillar = dw::Mesh::load(backend, "meshes/pillar.gltf");
 
         if (!pillar)
         {
@@ -356,7 +356,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
 
         meshes.push_back(pillar);
 
-        dw::Mesh::Ptr bunny = dw::Mesh::load(backend, "mesh/bunny.gltf");
+        dw::Mesh::Ptr bunny = dw::Mesh::load(backend, "meshes/bunny.gltf");
 
         if (!bunny)
         {
@@ -368,7 +368,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
 
         meshes.push_back(bunny);
 
-        dw::Mesh::Ptr ground = dw::Mesh::load(backend, "mesh/ground.gltf");
+        dw::Mesh::Ptr ground = dw::Mesh::load(backend, "meshes/ground.gltf");
 
         if (!ground)
         {
@@ -435,7 +435,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
     {
         std::vector<dw::RayTracedScene::Instance> instances;
 
-        dw::Mesh::Ptr reflections_test = dw::Mesh::load(backend, "mesh/reflections_test.gltf");
+        dw::Mesh::Ptr reflections_test = dw::Mesh::load(backend, "meshes/reflections_test.gltf");
 
         if (!reflections_test)
         {
@@ -460,7 +460,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
     {
         std::vector<dw::RayTracedScene::Instance> instances;
 
-        dw::Mesh::Ptr gi_test = dw::Mesh::load(backend, "mesh/global_illumination_test.gltf");
+        dw::Mesh::Ptr gi_test = dw::Mesh::load(backend, "meshes/global_illumination_test.gltf");
 
         if (!gi_test)
         {
@@ -485,7 +485,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
     {
         std::vector<dw::RayTracedScene::Instance> instances;
 
-        dw::Mesh::Ptr pica_pica = dw::Mesh::load(backend, "scene.gltf");
+        dw::Mesh::Ptr pica_pica = dw::Mesh::load(backend, "meshes/scene.gltf");
 
         if (!pica_pica)
         {
@@ -510,7 +510,7 @@ void CommonResources::load_mesh(dw::vk::Backend::Ptr backend)
     {
         std::vector<dw::RayTracedScene::Instance> instances;
 
-        dw::Mesh::Ptr sponza = dw::Mesh::load(backend, "mesh/sponza.obj");
+        dw::Mesh::Ptr sponza = dw::Mesh::load(backend, "meshes/sponza.obj");
 
         if (!sponza)
         {

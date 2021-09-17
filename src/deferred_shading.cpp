@@ -90,7 +90,7 @@ void DeferredShading::load_sphere_mesh()
 {
     auto vk_backend = m_backend.lock();
 
-    m_visualize_probe_grid.sphere_mesh = dw::Mesh::load(vk_backend, "mesh/sphere.obj");
+    m_visualize_probe_grid.sphere_mesh = dw::Mesh::load(vk_backend, "meshes/sphere.obj");
 
     if (!m_visualize_probe_grid.sphere_mesh)
     {
@@ -123,7 +123,7 @@ void DeferredShading::create_cube()
         // top-right
         -1.0f,
         -1.0f,
-        -1.0f, 
+        -1.0f,
         // bottom-left
         -1.0f,
         1.0f,
@@ -161,7 +161,7 @@ void DeferredShading::create_cube()
         // top-right
         -1.0f,
         1.0f,
-        -1.0f, 
+        -1.0f,
         // top-left
         -1.0f,
         -1.0f,
@@ -169,15 +169,15 @@ void DeferredShading::create_cube()
         // bottom-left
         -1.0f,
         -1.0f,
-        -1.0f, 
+        -1.0f,
         // bottom-left
         -1.0f,
         -1.0f,
-        1.0f, 
+        1.0f,
         // bottom-right
         -1.0f,
         1.0f,
-        1.0f,   
+        1.0f,
         // top-right
         // right face
         1.0f,
@@ -232,7 +232,7 @@ void DeferredShading::create_cube()
         // top face
         -1.0f,
         1.0f,
-        -1.0f, 
+        -1.0f,
         // top-left
         1.0f,
         1.0f,
@@ -248,7 +248,7 @@ void DeferredShading::create_cube()
         // bottom-right
         -1.0f,
         1.0f,
-        -1.0f, 
+        -1.0f,
         // top-left
         -1.0f,
         1.0f,

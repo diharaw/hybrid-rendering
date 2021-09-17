@@ -2,20 +2,20 @@
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-static const char* kSOBOL_TEXTURE = "texture/blue_noise/sobol_256_4d.png";
+static const char* kSOBOL_TEXTURE = "textures/blue_noise/sobol_256_4d.png";
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 static const char* kSCRAMBLING_RANKING_TEXTURES[] = {
-    "texture/blue_noise/scrambling_ranking_128x128_2d_1spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_2spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_4spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_8spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_16spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_32spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_64spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_128spp.png",
-    "texture/blue_noise/scrambling_ranking_128x128_2d_256spp.png"
+    "textures/blue_noise/scrambling_ranking_128x128_2d_1spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_2spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_4spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_8spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_16spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_32spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_64spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_128spp.png",
+    "textures/blue_noise/scrambling_ranking_128x128_2d_256spp.png"
 };
 
 // -----------------------------------------------------------------------------------------------------------------------------------

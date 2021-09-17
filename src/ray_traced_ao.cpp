@@ -1018,7 +1018,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     auto backend = m_backend.lock();
 
-    VkImageSubresourceRange subresource_range   = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
     {
         std::vector<VkImageMemoryBarrier> image_barriers = {
