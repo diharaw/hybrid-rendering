@@ -6,9 +6,11 @@ add_definitions(-DDWSF_VULKAN)
 add_definitions(-DDWSF_IMGUI)
 add_definitions(-DDWSF_VULKAN_RAY_TRACING)
 
-if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "AMD64")
+if(CMAKE_SIZEOF_VOID_P EQUAL 8) 
+    message("Using 64-bit glslangValidator")
     set(GLSL_VALIDATOR "$ENV{VULKAN_SDK}/Bin/glslangValidator.exe")
-else()
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    message("Using 32-bit glslangValidator")
     set(GLSL_VALIDATOR "$ENV{VULKAN_SDK}/Bin32/glslangValidator.exe")
 endif()
 
