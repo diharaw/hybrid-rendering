@@ -6,6 +6,7 @@
 #include <vk.h>
 #include <ray_traced_scene.h>
 #include <vk_mem_alloc.h>
+#include <demo_player.h>
 #include <brdf_preintegrate_lut.h>
 #include <hosek_wilkie_sky_model.h>
 #include <cubemap_sh_projection.h>
@@ -179,22 +180,23 @@ struct UBO
 
 struct CommonResources
 {
-    SceneType         current_scene_type         = SCENE_TYPE_SHADOWS_TEST;
-    VisualizationType current_visualization_type = VISUALIZATION_TYPE_FINAL;
-    EnvironmentType   current_environment_type   = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
-    bool              first_frame                = true;
-    bool              ping_pong                  = false;
-    int32_t           num_frames                 = 0;
-    size_t            ubo_size                   = 0;
-    glm::vec4         z_buffer_params;
-    glm::vec3         camera_delta         = glm::vec3(0.0f);
-    float             frame_time           = 0.0f;
-    float             roughness_multiplier = 1.0f;
-    glm::vec3         position;
-    glm::vec3         prev_position;
-    glm::mat4         view;
-    glm::mat4         projection;
-    glm::mat4         prev_view_projection;
+    SceneType                                    current_scene_type         = SCENE_TYPE_SHADOWS_TEST;
+    VisualizationType                            current_visualization_type = VISUALIZATION_TYPE_FINAL;
+    EnvironmentType                              current_environment_type   = ENVIRONMENT_TYPE_PROCEDURAL_SKY;
+    bool                                         first_frame                = true;
+    bool                                         ping_pong                  = false;
+    int32_t                                      num_frames                 = 0;
+    size_t                                       ubo_size                   = 0;
+    glm::vec4                                    z_buffer_params;
+    glm::vec3                                    camera_delta         = glm::vec3(0.0f);
+    float                                        frame_time           = 0.0f;
+    float                                        roughness_multiplier = 1.0f;
+    glm::vec3                                    position;
+    glm::vec3                                    prev_position;
+    glm::mat4                                    view;
+    glm::mat4                                    projection;
+    glm::mat4                                    prev_view_projection;
+    std::vector<std::unique_ptr<dw::DemoPlayer>> demo_players;
 
     // Assets.
     std::vector<dw::Mesh::Ptr>           meshes;
@@ -208,10 +210,6 @@ struct CommonResources
     dw::vk::DescriptorSetLayout::Ptr             storage_image_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr             blue_noise_ds_layout;
     dw::vk::Buffer::Ptr                          ubo;
-    dw::vk::Image::Ptr                           blue_noise_image_1;
-    dw::vk::ImageView::Ptr                       blue_noise_view_1;
-    dw::vk::Image::Ptr                           blue_noise_image_2;
-    dw::vk::ImageView::Ptr                       blue_noise_view_2;
     dw::vk::Buffer::Ptr                          bnd_sobol_buffer;
     dw::vk::Buffer::Ptr                          bnd_scrambling_tile_buffer;
     dw::vk::Buffer::Ptr                          bnd_ranking_tile_buffer;

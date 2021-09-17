@@ -484,19 +484,34 @@ private:
 
                             m_current_fixed_camera_angle = current_angle;
                         }
-
-                        ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
-
-                        if (ImGui::Checkbox("Side to Side motion", &m_side_to_side_motion))
+                        else if (m_camera_type == CAMERA_TYPE_ANIMATED)
                         {
-                            if (m_side_to_side_motion)
-                                m_side_to_side_motion_time = 0.0f;
+                            bool is_playing = m_common_resources->demo_players[m_common_resources->current_scene_type]->is_playing();
 
-                            m_side_to_side_start_pos = m_main_camera->m_position;
+                            if (ImGui::Checkbox("Is Playing?", &is_playing))
+                            {
+                                if (is_playing)
+                                    m_common_resources->demo_players[m_common_resources->current_scene_type]->play();
+                                else
+                                    m_common_resources->demo_players[m_common_resources->current_scene_type]->stop();
+                            }
                         }
 
-                        if (m_side_to_side_motion)
-                            ImGui::SliderFloat("Side to Side distance", &m_side_to_side_motion_distance, 0.1f, 20.0f);
+                        if (m_camera_type != CAMERA_TYPE_ANIMATED)
+                        {
+                            ImGui::SliderFloat("Speed", &m_camera_speed, 0.1f, 10.0f);
+
+                            if (ImGui::Checkbox("Side to Side motion", &m_side_to_side_motion))
+                            {
+                                if (m_side_to_side_motion)
+                                    m_side_to_side_motion_time = 0.0f;
+
+                                m_side_to_side_start_pos = m_main_camera->m_position;
+                            }
+
+                            if (m_side_to_side_motion)
+                                ImGui::SliderFloat("Side to Side distance", &m_side_to_side_motion_distance, 0.1f, 20.0f);
+                        }
 
                         ImGui::TreePop();
                         ImGui::Separator();
@@ -1039,6 +1054,8 @@ private:
         }
         else if (m_camera_type == CAMERA_TYPE_FIXED)
             m_main_camera->update_from_frame(constants::fixed_camera_position_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_forward_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_right_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle]);
+        else
+            m_common_resources->demo_players[m_common_resources->current_scene_type]->update(m_delta, m_main_camera.get());
 
         m_common_resources->frame_time    = m_delta_seconds;
         m_common_resources->camera_delta  = m_main_camera->m_position - m_common_resources->prev_position;
@@ -1051,6 +1068,9 @@ private:
     {
         m_current_fixed_camera_angle = 0;
         m_light_animation_time       = 0.0f;
+        m_camera_type                = CAMERA_TYPE_FREE;
+
+        m_common_resources->demo_players[m_common_resources->current_scene_type]->stop();
 
         if (m_common_resources->current_scene_type == SCENE_TYPE_SHADOWS_TEST)
         {
