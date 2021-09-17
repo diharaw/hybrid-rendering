@@ -166,13 +166,13 @@ void RayTracedAO::create_images()
     // Temporal Reprojection
     for (int i = 0; i < 2; i++)
     {
-        m_temporal_accumulation.color_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 4, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_temporal_accumulation.color_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_temporal_accumulation.color_image[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
 
-        m_temporal_accumulation.color_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 4);
+        m_temporal_accumulation.color_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.color_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
         m_temporal_accumulation.color_view[i]->set_name("AO Denoise Reprojection " + std::to_string(i));
 
-        m_temporal_accumulation.history_length_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_SAMPLE_COUNT_1_BIT);
+        m_temporal_accumulation.history_length_image[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT);
         m_temporal_accumulation.history_length_image[i]->set_name("AO Denoise Reprojection History " + std::to_string(i));
 
         m_temporal_accumulation.history_length_view[i] = dw::vk::ImageView::create(backend, m_temporal_accumulation.history_length_image[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1019,11 +1019,10 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
     auto backend = m_backend.lock();
 
     VkImageSubresourceRange subresource_range   = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    VkImageSubresourceRange subresource_range_2 = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 4, 0, 1 };
 
     {
         std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_temporal_accumulation.color_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range_2, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
+            image_memory_barrier(m_temporal_accumulation.color_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
             image_memory_barrier(m_temporal_accumulation.history_length_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
         };
 
@@ -1063,7 +1062,7 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     {
         std::vector<VkImageMemoryBarrier> image_barriers = {
-            image_memory_barrier(m_temporal_accumulation.color_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
+            image_memory_barrier(m_temporal_accumulation.color_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT),
             image_memory_barrier(m_temporal_accumulation.history_length_image[m_common_resources->ping_pong], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
         };
 
@@ -1074,8 +1073,6 @@ void RayTracedAO::temporal_accumulation(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         pipeline_barrier(cmd_buf, {}, image_barriers, buffer_barriers, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT);
     }
-
-    m_temporal_accumulation.color_image[m_common_resources->ping_pong]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_LINEAR);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
