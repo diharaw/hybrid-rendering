@@ -6,6 +6,8 @@
 
 #define GBUFFER_MIP_LEVELS 9
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 struct GBufferPushConstants
 {
     glm::mat4 model;
@@ -14,6 +16,8 @@ struct GBufferPushConstants
     uint32_t  mesh_id;
     float     roughness_multiplier;
 };
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 GBuffer::GBuffer(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common_resources, uint32_t input_width, uint32_t input_height) :
     m_backend(backend), m_common_resources(common_resources), m_input_width(input_width), m_input_height(input_height)
@@ -27,9 +31,13 @@ GBuffer::GBuffer(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common
     create_pipeline();
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 GBuffer::~GBuffer()
 {
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -178,25 +186,35 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     downsample_gbuffer(cmd_buf);
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 dw::vk::DescriptorSetLayout::Ptr GBuffer::ds_layout()
 {
     return m_ds_layout;
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 dw::vk::DescriptorSet::Ptr GBuffer::output_ds()
 {
     return m_ds[static_cast<uint32_t>(m_common_resources->ping_pong)];
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 dw::vk::DescriptorSet::Ptr GBuffer::history_ds()
 {
     return m_ds[static_cast<uint32_t>(!m_common_resources->ping_pong)];
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 dw::vk::ImageView::Ptr GBuffer::depth_fbo_image_view(uint32_t idx)
 {
     return m_depth_fbo_view[idx];
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void GBuffer::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
@@ -207,6 +225,8 @@ void GBuffer::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
     m_image_3[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
     m_depth[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, VK_FILTER_NEAREST);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void GBuffer::create_images()
 {
@@ -252,6 +272,8 @@ void GBuffer::create_images()
     }
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void GBuffer::create_descriptor_set_layouts()
 {
     dw::vk::DescriptorSetLayout::Desc desc;
@@ -266,6 +288,8 @@ void GBuffer::create_descriptor_set_layouts()
     m_ds_layout->set_name("G-Buffer DS Layout");
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void GBuffer::create_descriptor_sets()
 {
     auto vk_backend = m_backend.lock();
@@ -273,6 +297,8 @@ void GBuffer::create_descriptor_sets()
     for (int i = 0; i < 2; i++)
         m_ds[i] = vk_backend->allocate_descriptor_set(m_ds_layout);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void GBuffer::write_descriptor_sets()
 {
@@ -335,6 +361,8 @@ void GBuffer::write_descriptor_sets()
         vkUpdateDescriptorSets(vk_backend->device(), 4, &write_data[0], 0, nullptr);
     }
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void GBuffer::create_render_pass()
 {
@@ -431,6 +459,8 @@ void GBuffer::create_render_pass()
     m_rp = dw::vk::RenderPass::create(vk_backend, attachments, subpass_description, dependencies);
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 void GBuffer::create_framebuffer()
 {
     auto vk_backend = m_backend.lock();
@@ -438,6 +468,8 @@ void GBuffer::create_framebuffer()
     for (int i = 0; i < 2; i++)
         m_fbo[i] = dw::vk::Framebuffer::create(vk_backend, m_rp, { m_image_1_fbo_view[i], m_image_2_fbo_view[i], m_image_3_fbo_view[i], m_depth_fbo_view[i] }, m_input_width, m_input_height, 1);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
 
 void GBuffer::create_pipeline()
 {
@@ -573,3 +605,5 @@ void GBuffer::create_pipeline()
 
     m_pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
 }
+
+// -----------------------------------------------------------------------------------------------------------------------------------
