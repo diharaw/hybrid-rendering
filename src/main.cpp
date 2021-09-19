@@ -216,7 +216,6 @@ protected:
         settings.height      = 1080;
         settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
-        settings.resizable   = false;
 
         return settings;
     }
