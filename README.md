@@ -41,7 +41,7 @@ Prerequisites
 git clone --recursive https://github.com/diharaw/HybridRendering.git
 cd HybridRendering
 mkdir build
-cd HybridRendering
+cd build
 cmake -G "Visual Studio 16 2019" ..
 ```
 Note: To obtain the assets please download the release and copy the *meshes* and *textures* into the folder containing the built executable.
