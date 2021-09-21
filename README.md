@@ -16,7 +16,7 @@ A Vulkan sample that demonstrates an integration of Ray Traced Shadows, Ambient 
 
 ## Usage
 
-1. Download the latest release here.
+1. Download the latest release [here](https://github.com/diharaw/HybridRendering/releases/download/1.0/HybridRendering_v1.0.zip).
 2. Extract archive contents.
 3. Run HybridRendering.exe.
 
