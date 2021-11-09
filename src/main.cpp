@@ -1052,7 +1052,15 @@ private:
             m_main_camera->update();
         }
         else if (m_camera_type == CAMERA_TYPE_FIXED)
-            m_main_camera->update_from_frame(constants::fixed_camera_position_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_forward_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_right_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle]);
+        {
+            if (m_side_to_side_motion)
+            {
+                m_main_camera->update_from_frame(constants::fixed_camera_position_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle] + m_main_camera->m_right * sinf(static_cast<float>(m_side_to_side_motion_time)) * m_side_to_side_motion_distance, constants::fixed_camera_forward_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_right_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle]);
+                m_side_to_side_motion_time += m_delta * 0.005f;
+            }
+            else 
+                m_main_camera->update_from_frame(constants::fixed_camera_position_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_forward_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle], constants::fixed_camera_right_vectors[m_common_resources->current_scene_type][m_current_fixed_camera_angle]);
+        }
         else
             m_common_resources->demo_players[m_common_resources->current_scene_type]->update(m_delta, m_main_camera.get());
 
