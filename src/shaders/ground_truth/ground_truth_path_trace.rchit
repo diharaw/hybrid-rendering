@@ -92,17 +92,17 @@ vec3 indirect_lighting(vec3 Wo, vec3 N, vec3 P, vec3 F0, vec3 diffuse_color, flo
     vec3  origin    = P.xyz;
 
     // Trace Ray
-    traceRayEXT(u_TopLevelAS,
-                ray_flags,
-                cull_mask,
-                0,
-                0,
-                0,
-                origin,
-                tmin,
-                Wi,
-                tmax,
-                1);
+    //traceRayEXT(u_TopLevelAS,
+    //            ray_flags,
+    //            cull_mask,
+    //            0,
+    //            0,
+    //            0,
+    //            origin,
+    //            tmin,
+    //            Wi,
+    //            tmax,
+    //            1);
 
     return p_IndirectPayload.L;
 }

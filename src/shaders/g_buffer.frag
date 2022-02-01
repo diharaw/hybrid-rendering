@@ -33,7 +33,6 @@ layout(location = 2) out vec4 FS_OUT_GBuffer3; // R: Roughness, G: Curvature, B:
 layout(push_constant) uniform PushConstants
 {
     mat4  model;
-    mat4  prev_model;
     uint  material_idx;
     uint  mesh_id;
     float roughness_multiplier;

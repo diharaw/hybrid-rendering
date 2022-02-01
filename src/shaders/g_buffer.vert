@@ -54,10 +54,10 @@ u_GlobalUBO;
 
 layout(push_constant) uniform PushConstants
 {
-    mat4 model;
-    mat4 prev_model;
-    uint material_idx;
-    uint mesh_id;
+    mat4  model;
+    uint  material_idx;
+    uint  mesh_id;
+    float roughness_multiplier;
 }
 u_PushConstants;
 
@@ -69,7 +69,9 @@ void main()
 {
     // Transform position into world space
     vec4 world_pos      = u_PushConstants.model * vec4(VS_IN_Position, 1.0);
-    vec4 prev_world_pos = u_PushConstants.prev_model * vec4(VS_IN_Position, 1.0);
+
+    // Since this demo has static scenes we can use the current Model matrix as the previous one
+    vec4 prev_world_pos = u_PushConstants.model * vec4(VS_IN_Position, 1.0);
 
     // Transform world position into clip space
     gl_Position = u_GlobalUBO.view_proj * world_pos;

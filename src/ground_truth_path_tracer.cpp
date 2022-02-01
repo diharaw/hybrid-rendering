@@ -3,6 +3,7 @@
 #include <profiler.h>
 #include <macros.h>
 #include <imgui.h>
+#include <algorithm>
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
@@ -22,6 +23,8 @@ GroundTruthPathTracer::GroundTruthPathTracer(std::weak_ptr<dw::vk::Backend> back
 
     m_width  = vk_backend->swap_chain_extents().width;
     m_height = vk_backend->swap_chain_extents().height;
+
+    m_path_trace.max_ray_bounces = vk_backend->ray_tracing_pipeline_properties().maxRayRecursionDepth;
 
     create_images();
     create_descriptor_sets();
@@ -117,7 +120,10 @@ void GroundTruthPathTracer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
 void GroundTruthPathTracer::gui()
 {
-    ImGui::SliderInt("Path Trace Bounces", &m_path_trace.max_ray_bounces, 1, 5);
+    auto backend = m_backend.lock();
+    int  max_bounces = backend->ray_tracing_pipeline_properties().maxRayRecursionDepth;
+
+    ImGui::SliderInt("Path Trace Bounces", &m_path_trace.max_ray_bounces, 1, max_bounces);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -255,7 +261,7 @@ void GroundTruthPathTracer::create_pipelines()
 
     dw::vk::RayTracingPipeline::Desc desc;
 
-    desc.set_max_pipeline_ray_recursion_depth(8);
+    desc.set_max_pipeline_ray_recursion_depth(std::min(backend->ray_tracing_pipeline_properties().maxRayRecursionDepth, 8u));
     desc.set_shader_binding_table(m_path_trace.sbt);
 
     // ---------------------------------------------------------------------------
