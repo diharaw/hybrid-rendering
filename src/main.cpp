@@ -3,6 +3,7 @@
 #include <profiler.h>
 #include <assimp/scene.h>
 #include <equirectangular_to_cubemap.h>
+#include <imgui.h>
 #include <ImGuizmo.h>
 #include <math.h>
 #define GLM_ENABLE_EXPERIMENTAL

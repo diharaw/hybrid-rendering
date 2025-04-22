@@ -5,6 +5,9 @@
 #include <imgui.h>
 #include <algorithm>
 
+#undef min
+#undef max
+
 // -----------------------------------------------------------------------------------------------------------------------------------
 
 struct PathTracePushConstants
