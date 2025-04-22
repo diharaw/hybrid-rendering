@@ -21,8 +21,6 @@ private:
     void create_descriptor_set_layouts();
     void create_descriptor_sets();
     void write_descriptor_sets();
-    void create_render_pass();
-    void create_framebuffer();
     void create_pipeline();
     void downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf);
 
@@ -43,8 +41,6 @@ private:
     dw::vk::ImageView::Ptr           m_image_2_fbo_view[2];
     dw::vk::ImageView::Ptr           m_image_3_fbo_view[2];
     dw::vk::ImageView::Ptr           m_depth_fbo_view[2];
-    dw::vk::Framebuffer::Ptr         m_fbo[2];
-    dw::vk::RenderPass::Ptr          m_rp;
     dw::vk::GraphicsPipeline::Ptr    m_pipeline;
     dw::vk::PipelineLayout::Ptr      m_pipeline_layout;
     dw::vk::DescriptorSetLayout::Ptr m_ds_layout;

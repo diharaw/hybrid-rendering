@@ -25,8 +25,6 @@ GBuffer::GBuffer(std::weak_ptr<dw::vk::Backend> backend, CommonResources* common
     create_descriptor_set_layouts();
     create_descriptor_sets();
     write_descriptor_sets();
-    create_render_pass();
-    create_framebuffer();
     create_pipeline();
 }
 
@@ -78,35 +76,87 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
             subresource_range);
     }
 
-    VkClearValue clear_values[4];
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    clear_values[0].color.float32[0] = 0.0f;
-    clear_values[0].color.float32[1] = 0.0f;
-    clear_values[0].color.float32[2] = 0.0f;
-    clear_values[0].color.float32[3] = 0.0f;
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_image_1[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            subresource_range);
 
-    clear_values[1].color.float32[0] = 0.0f;
-    clear_values[1].color.float32[1] = 0.0f;
-    clear_values[1].color.float32[2] = 0.0f;
-    clear_values[1].color.float32[3] = 0.0f;
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_image_2[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            subresource_range);
 
-    clear_values[2].color.float32[0] = 0.0f;
-    clear_values[2].color.float32[1] = 0.0f;
-    clear_values[2].color.float32[2] = 0.0f;
-    clear_values[2].color.float32[3] = -1.0f;
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_image_3[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            subresource_range);
 
-    clear_values[3].depthStencil.depth = 1.0f;
+        subresource_range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
-    VkRenderPassBeginInfo info    = {};
-    info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    info.renderPass               = m_rp->handle();
-    info.framebuffer              = m_fbo[m_common_resources->ping_pong]->handle();
-    info.renderArea.extent.width  = m_input_width;
-    info.renderArea.extent.height = m_input_height;
-    info.clearValueCount          = 4;
-    info.pClearValues             = &clear_values[0];
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_depth[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            subresource_range);
+    }
 
-    vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
+	// New structures are used to define the attachments used in dynamic rendering
+    VkRenderingAttachmentInfoKHR color_attachments[3];
+
+    color_attachments[0]                  = {};
+    color_attachments[0].sType            = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    color_attachments[0].imageView        = m_image_1_fbo_view[m_common_resources->ping_pong]->handle();
+    color_attachments[0].imageLayout      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachments[0].loadOp           = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachments[0].storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachments[0].clearValue.color = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    color_attachments[1]                  = {};
+    color_attachments[1].sType            = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    color_attachments[1].imageView        = m_image_2_fbo_view[m_common_resources->ping_pong]->handle();
+    color_attachments[1].imageLayout      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachments[1].loadOp           = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachments[1].storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachments[1].clearValue.color = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    color_attachments[2]                  = {};
+    color_attachments[2].sType            = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    color_attachments[2].imageView        = m_image_3_fbo_view[m_common_resources->ping_pong]->handle();
+    color_attachments[2].imageLayout      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachments[2].loadOp           = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachments[2].storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachments[2].clearValue.color = { 0.0f, 0.0f, 0.0f, -1.0f };
+
+    // A single depth stencil attachment info can be used, but they can also be specified separately.
+    // When both are specified separately, the only requirement is that the image view is identical.
+    VkRenderingAttachmentInfoKHR depth_stencil_sttachment {};
+    depth_stencil_sttachment.sType                   = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    depth_stencil_sttachment.imageView               = m_depth_fbo_view[m_common_resources->ping_pong]->handle();
+    depth_stencil_sttachment.imageLayout             = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depth_stencil_sttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_stencil_sttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_stencil_sttachment.clearValue.depthStencil = { 1.0f, 0 };
+
+    VkRenderingInfoKHR renderingInfo {};
+    renderingInfo.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    renderingInfo.renderArea           = { 0, 0, m_input_width, m_input_height };
+    renderingInfo.layerCount           = 1;
+    renderingInfo.colorAttachmentCount = 3;
+    renderingInfo.pColorAttachments    = &color_attachments[0];
+    renderingInfo.pDepthAttachment     = &depth_stencil_sttachment;
+
+    // Begin dynamic rendering
+    vkCmdBeginRenderingKHR(cmd_buf->handle(), &renderingInfo);
 
     VkViewport vp;
 
@@ -179,7 +229,41 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
         }
     }
 
-    vkCmdEndRenderPass(cmd_buf->handle());
+    vkCmdEndRenderingKHR(cmd_buf->handle());
+
+    {
+        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_image_1[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_image_2[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            subresource_range);
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_image_3[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            subresource_range);
+
+        subresource_range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+        dw::vk::utilities::set_image_layout(
+            cmd_buf->handle(),
+            m_depth[m_common_resources->ping_pong]->handle(),
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            subresource_range);
+    }
 
     downsample_gbuffer(cmd_buf);
 }
@@ -362,113 +446,6 @@ void GBuffer::write_descriptor_sets()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void GBuffer::create_render_pass()
-{
-    auto vk_backend = m_backend.lock();
-
-    std::vector<VkAttachmentDescription> attachments(4);
-
-    // GBuffer1 attachment
-    attachments[0].format         = VK_FORMAT_R8G8B8A8_UNORM;
-    attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
-    attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-    // GBuffer2 attachment
-    attachments[1].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-    attachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
-    attachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[1].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[1].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[1].finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-    // GBuffer3 attachment
-    attachments[2].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-    attachments[2].samples        = VK_SAMPLE_COUNT_1_BIT;
-    attachments[2].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[2].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[2].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[2].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[2].finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-    // Depth attachment
-    attachments[3].format         = vk_backend->swap_chain_depth_format();
-    attachments[3].samples        = VK_SAMPLE_COUNT_1_BIT;
-    attachments[3].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[3].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[3].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[3].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[3].finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-    VkAttachmentReference gbuffer_references[3];
-
-    gbuffer_references[0].attachment = 0;
-    gbuffer_references[0].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    gbuffer_references[1].attachment = 1;
-    gbuffer_references[1].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    gbuffer_references[2].attachment = 2;
-    gbuffer_references[2].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference depth_reference;
-    depth_reference.attachment = 3;
-    depth_reference.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    std::vector<VkSubpassDescription> subpass_description(1);
-
-    subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass_description[0].colorAttachmentCount    = 3;
-    subpass_description[0].pColorAttachments       = gbuffer_references;
-    subpass_description[0].pDepthStencilAttachment = &depth_reference;
-    subpass_description[0].inputAttachmentCount    = 0;
-    subpass_description[0].pInputAttachments       = nullptr;
-    subpass_description[0].preserveAttachmentCount = 0;
-    subpass_description[0].pPreserveAttachments    = nullptr;
-    subpass_description[0].pResolveAttachments     = nullptr;
-
-    // Subpass dependencies for layout transitions
-    std::vector<VkSubpassDependency> dependencies(2);
-
-    dependencies[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
-    dependencies[0].dstSubpass      = 0;
-    dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-    dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependencies[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT;
-    dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-    dependencies[1].srcSubpass      = 0;
-    dependencies[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-    dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-    dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-    dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-    m_rp = dw::vk::RenderPass::create(vk_backend, attachments, subpass_description, dependencies);
-}
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
-void GBuffer::create_framebuffer()
-{
-    auto vk_backend = m_backend.lock();
-
-    for (int i = 0; i < 2; i++)
-        m_fbo[i] = dw::vk::Framebuffer::create(vk_backend, m_rp, { m_image_1_fbo_view[i], m_image_2_fbo_view[i], m_image_3_fbo_view[i], m_depth_fbo_view[i] }, m_input_width, m_input_height, 1);
-}
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
 void GBuffer::create_pipeline()
 {
     auto vk_backend = m_backend.lock();
@@ -596,10 +573,18 @@ void GBuffer::create_pipeline()
         .add_dynamic_state(VK_DYNAMIC_STATE_SCISSOR);
 
     // ---------------------------------------------------------------------------
-    // Create pipeline
+    // Create rendering state
     // ---------------------------------------------------------------------------
 
-    pso_desc.set_render_pass(m_rp);
+    pso_desc.add_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
+    pso_desc.add_color_attachment_format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    pso_desc.add_color_attachment_format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    pso_desc.set_depth_attachment_format(vk_backend->swap_chain_depth_format());
+    pso_desc.set_stencil_attachment_format(VK_FORMAT_UNDEFINED);
+
+    // ---------------------------------------------------------------------------
+    // Create pipeline
+    // ---------------------------------------------------------------------------
 
     m_pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
 }
