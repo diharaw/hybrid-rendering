@@ -47,8 +47,6 @@ private:
     void create_images();
     void create_descriptor_sets();
     void write_descriptor_sets();
-    void create_render_pass();
-    void create_framebuffer();
     void create_pipeline();
     void render_shading(dw::vk::CommandBuffer::Ptr cmd_buf,
                         RayTracedAO*               ao,
@@ -80,8 +78,6 @@ private:
         bool                          use_ray_traced_shadows     = true;
         bool                          use_ray_traced_reflections = true;
         bool                          use_ddgi                   = true;
-        dw::vk::RenderPass::Ptr       rp;
-        dw::vk::Framebuffer::Ptr      fbo;
         dw::vk::Image::Ptr            image;
         dw::vk::ImageView::Ptr        view;
         dw::vk::GraphicsPipeline::Ptr pipeline;
@@ -94,8 +90,6 @@ private:
         dw::vk::Buffer::Ptr           cube_vbo;
         dw::vk::GraphicsPipeline::Ptr pipeline;
         dw::vk::PipelineLayout::Ptr   pipeline_layout;
-        dw::vk::RenderPass::Ptr       rp;
-        dw::vk::Framebuffer::Ptr      fbo[2];
     };
 
     struct VisualizeProbeGrid

@@ -6,7 +6,6 @@
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
 #include "ground_truth_path_tracer.h"
-#include "utilities.h"
 #include <imgui.h>
 #include <profiler.h>
 #include <macros.h>
@@ -102,20 +101,18 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                            m_image[write_idx]->handle(),
-                                            VK_IMAGE_LAYOUT_UNDEFINED,
-                                            VK_IMAGE_LAYOUT_GENERAL,
-                                            subresource_range);
+        auto backend = m_backend.lock();
+        
+        backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, m_image[write_idx], subresource_range);
 
+        backend->flush_barriers(cmd_buf);
+        
         if (m_reset)
         {
             dw::vk::utilities::blitt_image(cmd_buf,
                                            deferred_shading->output_image(),
                                            m_image[read_idx],
                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                           VK_IMAGE_LAYOUT_UNDEFINED,
                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                            VK_IMAGE_ASPECT_COLOR_BIT,
                                            VK_FILTER_NEAREST);
@@ -168,12 +165,9 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
                       static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS))),
                       1);
 
-        // Prepare ray tracing output image as transfer source
-        dw::vk::utilities::set_image_layout(cmd_buf->handle(),
-                                            m_image[write_idx]->handle(),
-                                            VK_IMAGE_LAYOUT_GENERAL,
-                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                            subresource_range);
+        backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_image[write_idx], subresource_range);
+
+        backend->flush_barriers(cmd_buf);
     }
 }
 

@@ -6,7 +6,6 @@
 #include "ray_traced_reflections.h"
 #include "ddgi.h"
 #include "ground_truth_path_tracer.h"
-#include "utilities.h"
 #include <imgui.h>
 #include <profiler.h>
 #include <macros.h>
@@ -52,30 +51,34 @@ void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
 {
     DW_SCOPED_SAMPLE("Tone Map", cmd_buf);
 
-    auto vk_backend = m_backend.lock();
+    auto backend = m_backend.lock();
 
-    VkClearValue clear_values[2];
+    VkImageSubresourceRange input_subresource_range  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange output_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-    clear_values[0].color.float32[0] = 0.0f;
-    clear_values[0].color.float32[1] = 0.0f;
-    clear_values[0].color.float32[2] = 0.0f;
-    clear_values[0].color.float32[3] = 1.0f;
+    backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, backend->swapchain_image(), output_subresource_range);
 
-    clear_values[1].color.float32[0] = 1.0f;
-    clear_values[1].color.float32[1] = 1.0f;
-    clear_values[1].color.float32[2] = 1.0f;
-    clear_values[1].color.float32[3] = 1.0f;
+    backend->flush_barriers(cmd_buf);
 
-    VkRenderPassBeginInfo info    = {};
-    info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    info.renderPass               = vk_backend->swapchain_render_pass()->handle();
-    info.framebuffer              = vk_backend->swapchain_framebuffer()->handle();
-    info.renderArea.extent.width  = m_width;
-    info.renderArea.extent.height = m_height;
-    info.clearValueCount          = 2;
-    info.pClearValues             = &clear_values[0];
+    VkRenderingAttachmentInfoKHR color_attachment = {};
 
-    vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
+    color_attachment.sType            = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    color_attachment.imageView        = backend->swapchain_image_view()->handle();
+    color_attachment.imageLayout      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachment.loadOp           = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachment.storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachment.clearValue.color = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    VkRenderingInfoKHR rendering_info {};
+
+    rendering_info.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.renderArea           = { 0, 0, m_width, m_height };
+    rendering_info.layerCount           = 1;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachments    = &color_attachment;
+    rendering_info.pDepthAttachment     = nullptr;
+
+    vkCmdBeginRenderingKHR(cmd_buf->handle(), &rendering_info);
 
     VkViewport vp;
 
@@ -137,7 +140,11 @@ void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
     if (gui_callback)
         gui_callback(cmd_buf);
 
-    vkCmdEndRenderPass(cmd_buf->handle());
+    vkCmdEndRenderingKHR(cmd_buf->handle());
+
+    backend->use_resource(VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, backend->swapchain_image(), output_subresource_range);
+
+    backend->flush_barriers(cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -158,8 +165,10 @@ void ToneMap::create_pipeline()
     desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ToneMapPushConstants));
     desc.add_descriptor_set_layout(m_common_resources->combined_sampler_ds_layout);
 
+    VkFormat format = vk_backend->swap_chain_image_format();
+
     m_pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
-    m_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_pipeline_layout, vk_backend->swapchain_render_pass());
+    m_pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(vk_backend, "shaders/triangle.vert.spv", "shaders/tone_map.frag.spv", m_pipeline_layout, 1, &format);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

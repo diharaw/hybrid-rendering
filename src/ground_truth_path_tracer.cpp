@@ -1,5 +1,4 @@
 #include "ground_truth_path_tracer.h"
-#include "utilities.h"
 #include <profiler.h>
 #include <macros.h>
 #include <imgui.h>
@@ -59,15 +58,11 @@ void GroundTruthPathTracer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-        {
-            std::vector<VkImageMemoryBarrier> image_barriers = {
-                image_memory_barrier(m_path_trace.images[write_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT),
-                image_memory_barrier(m_path_trace.images[read_idx], m_frame_idx == 0 ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-            };
+        backend->use_resource(VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, m_path_trace.images[write_idx], subresource_range);
+        backend->use_resource(VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_path_trace.images[read_idx], subresource_range);
 
-            pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-        }
-
+        backend->flush_barriers(cmd_buf);
+        
         vkCmdBindPipeline(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_path_trace.pipeline->handle());
 
         PathTracePushConstants push_constants;
@@ -107,14 +102,10 @@ void GroundTruthPathTracer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
 
-        {
-            std::vector<VkImageMemoryBarrier> image_barriers = {
-                image_memory_barrier(m_path_trace.images[write_idx], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
-            };
-
-            pipeline_barrier(cmd_buf, {}, image_barriers, {}, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-        }
-
+        backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_path_trace.images[write_idx], subresource_range);
+        
+        backend->flush_barriers(cmd_buf);
+        
         m_ping_pong = !m_ping_pong;
     }
 }

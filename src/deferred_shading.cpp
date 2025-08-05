@@ -4,7 +4,6 @@
 #include "ray_traced_reflections.h"
 #include "g_buffer.h"
 #include "ddgi.h"
-#include "utilities.h"
 #include <profiler.h>
 #include <macros.h>
 #include <imgui.h>
@@ -45,8 +44,6 @@ DeferredShading::DeferredShading(std::weak_ptr<dw::vk::Backend> backend, CommonR
     create_images();
     create_descriptor_sets();
     write_descriptor_sets();
-    create_render_pass();
-    create_framebuffer();
     create_pipeline();
 }
 
@@ -66,8 +63,16 @@ void DeferredShading::render(dw::vk::CommandBuffer::Ptr cmd_buf,
 {
     DW_SCOPED_SAMPLE("Deferred Shading", cmd_buf);
 
+    auto backend = m_backend.lock();
+
     render_shading(cmd_buf, ao, shadows, reflections, ddgi);
     render_skybox(cmd_buf, ddgi);
+
+    VkImageSubresourceRange color_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+    backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_shading.image, color_subresource_range);
+
+    backend->flush_barriers(cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -321,153 +326,6 @@ void DeferredShading::write_descriptor_sets()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
-void DeferredShading::create_render_pass()
-{
-    auto vk_backend = m_backend.lock();
-
-    // Shading
-    {
-        std::vector<VkAttachmentDescription> attachments(1);
-
-        // Deferred attachment
-        attachments[0].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-        attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
-        attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachments[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-        attachments[0].finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference deferred_reference;
-
-        deferred_reference.attachment = 0;
-        deferred_reference.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        std::vector<VkSubpassDescription> subpass_description(1);
-
-        subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass_description[0].colorAttachmentCount    = 1;
-        subpass_description[0].pColorAttachments       = &deferred_reference;
-        subpass_description[0].pDepthStencilAttachment = nullptr;
-        subpass_description[0].inputAttachmentCount    = 0;
-        subpass_description[0].pInputAttachments       = nullptr;
-        subpass_description[0].preserveAttachmentCount = 0;
-        subpass_description[0].pPreserveAttachments    = nullptr;
-        subpass_description[0].pResolveAttachments     = nullptr;
-
-        // Subpass dependencies for layout transitions
-        std::vector<VkSubpassDependency> dependencies(2);
-
-        dependencies[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
-        dependencies[0].dstSubpass      = 0;
-        dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependencies[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-        dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-        dependencies[1].srcSubpass      = 0;
-        dependencies[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-        dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-        dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-        m_shading.rp = dw::vk::RenderPass::create(vk_backend, attachments, subpass_description, dependencies);
-    }
-
-    // Skybox
-    {
-        std::vector<VkAttachmentDescription> attachments(2);
-
-        // Deferred attachment
-        attachments[0].format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-        attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
-        attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-        attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachments[0].initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachments[0].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        // Depth attachment
-        attachments[1].format         = vk_backend->swap_chain_depth_format();
-        attachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
-        attachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-        attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[1].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachments[1].initialLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        attachments[1].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkAttachmentReference deferred_reference;
-
-        deferred_reference.attachment = 0;
-        deferred_reference.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference depth_reference;
-        depth_reference.attachment = 1;
-        depth_reference.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-        std::vector<VkSubpassDescription> subpass_description(1);
-
-        subpass_description[0].pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass_description[0].colorAttachmentCount    = 1;
-        subpass_description[0].pColorAttachments       = &deferred_reference;
-        subpass_description[0].pDepthStencilAttachment = &depth_reference;
-        subpass_description[0].inputAttachmentCount    = 0;
-        subpass_description[0].pInputAttachments       = nullptr;
-        subpass_description[0].preserveAttachmentCount = 0;
-        subpass_description[0].pPreserveAttachments    = nullptr;
-        subpass_description[0].pResolveAttachments     = nullptr;
-
-        // Subpass dependencies for layout transitions
-        std::vector<VkSubpassDependency> dependencies(2);
-
-        dependencies[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
-        dependencies[0].dstSubpass      = 0;
-        dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependencies[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-        dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-        dependencies[1].srcSubpass      = 0;
-        dependencies[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-        dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-        dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-        m_skybox.rp = dw::vk::RenderPass::create(vk_backend, attachments, subpass_description, dependencies);
-    }
-}
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
-void DeferredShading::create_framebuffer()
-{
-    auto vk_backend = m_backend.lock();
-
-    // Shading
-    {
-        m_shading.fbo.reset();
-        m_shading.fbo = dw::vk::Framebuffer::create(vk_backend, m_shading.rp, { m_shading.view }, m_width, m_height, 1);
-    }
-
-    // Skybox
-    for (uint32_t i = 0; i < 2; i++)
-    {
-        m_skybox.fbo[i].reset();
-        m_skybox.fbo[i] = dw::vk::Framebuffer::create(vk_backend, m_skybox.rp, { m_shading.view, m_g_buffer->depth_fbo_image_view(i) }, m_width, m_height, 1);
-    }
-}
-
-// -----------------------------------------------------------------------------------------------------------------------------------
-
 void DeferredShading::create_pipeline()
 {
     auto vk_backend = m_backend.lock();
@@ -485,8 +343,10 @@ void DeferredShading::create_pipeline()
         desc.add_descriptor_set_layout(m_common_resources->skybox_ds_layout);
         desc.add_push_constant_range(VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadingPushConstants));
 
+        VkFormat format = m_shading.image->format();
+
         m_shading.pipeline_layout = dw::vk::PipelineLayout::create(vk_backend, desc);
-        m_shading.pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_shading.pipeline_layout, m_shading.rp);
+        m_shading.pipeline        = dw::vk::GraphicsPipeline::create_for_post_process(vk_backend, "shaders/triangle.vert.spv", "shaders/deferred.frag.spv", m_shading.pipeline_layout, 1, &format);
     }
 
     // Skybox
@@ -617,10 +477,16 @@ void DeferredShading::create_pipeline()
             .add_dynamic_state(VK_DYNAMIC_STATE_SCISSOR);
 
         // ---------------------------------------------------------------------------
-        // Create pipeline
+        // Create rendering state
         // ---------------------------------------------------------------------------
 
-        pso_desc.set_render_pass(m_skybox.rp);
+        pso_desc.add_color_attachment_format(m_shading.image->format());
+        pso_desc.set_depth_attachment_format(vk_backend->swap_chain_depth_format());
+        pso_desc.set_stencil_attachment_format(VK_FORMAT_UNDEFINED);
+
+        // ---------------------------------------------------------------------------
+        // Create pipeline
+        // ---------------------------------------------------------------------------
 
         m_skybox.pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
     }
@@ -750,10 +616,16 @@ void DeferredShading::create_pipeline()
             .add_dynamic_state(VK_DYNAMIC_STATE_SCISSOR);
 
         // ---------------------------------------------------------------------------
-        // Create pipeline
+        // Create rendering state
         // ---------------------------------------------------------------------------
 
-        pso_desc.set_render_pass(m_skybox.rp);
+        pso_desc.add_color_attachment_format(m_shading.image->format());
+        pso_desc.set_depth_attachment_format(vk_backend->swap_chain_depth_format());
+        pso_desc.set_stencil_attachment_format(VK_FORMAT_UNDEFINED);
+
+        // ---------------------------------------------------------------------------
+        // Create pipeline
+        // ---------------------------------------------------------------------------
 
         m_visualize_probe_grid.pipeline = dw::vk::GraphicsPipeline::create(vk_backend, pso_desc);
     }
@@ -771,23 +643,31 @@ void DeferredShading::render_shading(dw::vk::CommandBuffer::Ptr cmd_buf,
 
     auto vk_backend = m_backend.lock();
 
-    VkClearValue clear_value;
+    VkImageSubresourceRange color_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    
+    vk_backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, m_shading.image, color_subresource_range);
+    
+    vk_backend->flush_barriers(cmd_buf);
 
-    clear_value.color.float32[0] = 0.0f;
-    clear_value.color.float32[1] = 0.0f;
-    clear_value.color.float32[2] = 0.0f;
-    clear_value.color.float32[3] = 1.0f;
+    VkRenderingAttachmentInfoKHR color_attachment = {};
 
-    VkRenderPassBeginInfo info    = {};
-    info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    info.renderPass               = m_shading.rp->handle();
-    info.framebuffer              = m_shading.fbo->handle();
-    info.renderArea.extent.width  = m_width;
-    info.renderArea.extent.height = m_height;
-    info.clearValueCount          = 1;
-    info.pClearValues             = &clear_value;
+    color_attachment.sType            = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    color_attachment.imageView        = m_shading.view->handle();
+    color_attachment.imageLayout      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachment.loadOp           = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachment.storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachment.clearValue.color = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
+    VkRenderingInfoKHR rendering_info = {};
+
+    rendering_info.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.renderArea           = { 0, 0, m_width, m_height };
+    rendering_info.layerCount           = 1;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachments    = &color_attachment;
+    rendering_info.pDepthAttachment     = nullptr;
+
+    vkCmdBeginRenderingKHR(cmd_buf->handle(), &rendering_info);
 
     VkViewport vp;
 
@@ -836,7 +716,7 @@ void DeferredShading::render_shading(dw::vk::CommandBuffer::Ptr cmd_buf,
 
     vkCmdDraw(cmd_buf->handle(), 3, 1, 0, 0);
 
-    vkCmdEndRenderPass(cmd_buf->handle());
+    vkCmdEndRendering(cmd_buf->handle());
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
@@ -847,16 +727,42 @@ void DeferredShading::render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* dd
 
     auto vk_backend = m_backend.lock();
 
-    VkRenderPassBeginInfo info    = {};
-    info.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    info.renderPass               = m_skybox.rp->handle();
-    info.framebuffer              = m_skybox.fbo[m_common_resources->ping_pong]->handle();
-    info.renderArea.extent.width  = m_width;
-    info.renderArea.extent.height = m_height;
-    info.clearValueCount          = 0;
-    info.pClearValues             = nullptr;
+    VkImageSubresourceRange color_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange depth_subresource_range = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
 
-    vkCmdBeginRenderPass(cmd_buf->handle(), &info, VK_SUBPASS_CONTENTS_INLINE);
+    vk_backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, m_shading.image, color_subresource_range);
+    vk_backend->use_resource(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, vk_backend->swapchain_depth_image(), depth_subresource_range);
+
+    vk_backend->flush_barriers(cmd_buf);
+
+    VkRenderingAttachmentInfoKHR color_attachment = {};
+
+    color_attachment.sType            = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    color_attachment.imageView        = m_shading.view->handle();
+    color_attachment.imageLayout      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachment.loadOp           = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_attachment.storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachment.clearValue.color = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    VkRenderingAttachmentInfoKHR depth_stencil_sttachment {};
+
+    depth_stencil_sttachment.sType                   = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    depth_stencil_sttachment.imageView               = vk_backend->swapchain_depth_image_view()->handle();
+    depth_stencil_sttachment.imageLayout             = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depth_stencil_sttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_stencil_sttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_stencil_sttachment.clearValue.depthStencil = { 1.0f, 0 };
+
+    VkRenderingInfoKHR rendering_info = {};
+
+    rendering_info.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.renderArea           = { 0, 0, m_width, m_height };
+    rendering_info.layerCount           = 1;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachments    = &color_attachment;
+    rendering_info.pDepthAttachment     = &depth_stencil_sttachment;
+
+    vkCmdBeginRenderingKHR(cmd_buf->handle(), &rendering_info);
 
     VkViewport vp;
 
@@ -901,7 +807,7 @@ void DeferredShading::render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* dd
         vkCmdDraw(cmd_buf->handle(), 36, 1, 0, 0);
     }
 
-    vkCmdEndRenderPass(cmd_buf->handle());
+    vkCmdEndRendering(cmd_buf->handle());
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

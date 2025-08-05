@@ -18,7 +18,6 @@
 #include "ground_truth_path_tracer.h"
 #include "tone_map.h"
 #include "temporal_aa.h"
-#include "utilities.h"
 
 class HybridRendering : public dw::Application
 {
@@ -213,10 +212,11 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 1920;
-        settings.height      = 1080;
+        settings.width       = 2560;
+        settings.height      = 1440;
         settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
         settings.ray_tracing = true;
+        settings.vsync       = true;
 
         return settings;
     }

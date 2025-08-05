@@ -39,78 +39,27 @@ GBuffer::~GBuffer()
 void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("G-Buffer", cmd_buf);
+    
+    auto backend = cmd_buf->backend().lock();
+    
+    VkImageSubresourceRange all_color_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS, 0, 1 };
+    VkImageSubresourceRange all_depth_subresource_range = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, GBUFFER_MIP_LEVELS, 0, 1 };
 
-    // Transition history G-Buffer to shader read only during the first frame
-    if (m_common_resources->first_frame)
-    {
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, GBUFFER_MIP_LEVELS, 0, 1 };
+    backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_image_1[!m_common_resources->ping_pong], all_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_image_2[!m_common_resources->ping_pong], all_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_image_3[!m_common_resources->ping_pong], all_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_depth[!m_common_resources->ping_pong], all_depth_subresource_range);
 
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_1[!m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
+    VkImageSubresourceRange single_color_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange single_depth_subresource_range = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
 
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_2[!m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, m_image_1[m_common_resources->ping_pong], single_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, m_image_2[m_common_resources->ping_pong], single_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, m_image_3[m_common_resources->ping_pong], single_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, m_depth[m_common_resources->ping_pong], single_depth_subresource_range);
 
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_3[!m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
+    backend->flush_barriers(cmd_buf);
 
-        subresource_range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_depth[!m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            subresource_range);
-    }
-
-    {
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_1[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_2[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_3[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            subresource_range);
-
-        subresource_range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_depth[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            subresource_range);
-    }
-
-	// New structures are used to define the attachments used in dynamic rendering
     VkRenderingAttachmentInfoKHR color_attachments[3];
 
     color_attachments[0]                  = {};
@@ -137,8 +86,6 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     color_attachments[2].storeOp          = VK_ATTACHMENT_STORE_OP_STORE;
     color_attachments[2].clearValue.color = { 0.0f, 0.0f, 0.0f, -1.0f };
 
-    // A single depth stencil attachment info can be used, but they can also be specified separately.
-    // When both are specified separately, the only requirement is that the image view is identical.
     VkRenderingAttachmentInfoKHR depth_stencil_sttachment {};
     depth_stencil_sttachment.sType                   = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
     depth_stencil_sttachment.imageView               = m_depth_fbo_view[m_common_resources->ping_pong]->handle();
@@ -147,16 +94,16 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
     depth_stencil_sttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
     depth_stencil_sttachment.clearValue.depthStencil = { 1.0f, 0 };
 
-    VkRenderingInfoKHR renderingInfo {};
-    renderingInfo.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
-    renderingInfo.renderArea           = { 0, 0, m_input_width, m_input_height };
-    renderingInfo.layerCount           = 1;
-    renderingInfo.colorAttachmentCount = 3;
-    renderingInfo.pColorAttachments    = &color_attachments[0];
-    renderingInfo.pDepthAttachment     = &depth_stencil_sttachment;
+    VkRenderingInfoKHR rendering_info = {};
 
-    // Begin dynamic rendering
-    vkCmdBeginRenderingKHR(cmd_buf->handle(), &renderingInfo);
+    rendering_info.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.renderArea           = { 0, 0, m_input_width, m_input_height };
+    rendering_info.layerCount           = 1;
+    rendering_info.colorAttachmentCount = 3;
+    rendering_info.pColorAttachments    = &color_attachments[0];
+    rendering_info.pDepthAttachment     = &depth_stencil_sttachment;
+
+    vkCmdBeginRenderingKHR(cmd_buf->handle(), &rendering_info);
 
     VkViewport vp;
 
@@ -231,39 +178,12 @@ void GBuffer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
     vkCmdEndRenderingKHR(cmd_buf->handle());
 
-    {
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    backend->use_resource(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_image_1[m_common_resources->ping_pong], single_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_image_2[m_common_resources->ping_pong], single_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_image_3[m_common_resources->ping_pong], single_color_subresource_range);
+    backend->use_resource(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_depth[m_common_resources->ping_pong], single_depth_subresource_range);
 
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_1[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_2[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            subresource_range);
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_image_3[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            subresource_range);
-
-        subresource_range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-        dw::vk::utilities::set_image_layout(
-            cmd_buf->handle(),
-            m_depth[m_common_resources->ping_pong]->handle(),
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            subresource_range);
-    }
+    backend->flush_barriers(cmd_buf);
 
     downsample_gbuffer(cmd_buf);
 }
@@ -302,10 +222,10 @@ void GBuffer::downsample_gbuffer(dw::vk::CommandBuffer::Ptr cmd_buf)
 {
     DW_SCOPED_SAMPLE("Downsample", cmd_buf);
 
-    m_image_1[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
-    m_image_2[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
-    m_image_3[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
-    m_depth[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, VK_FILTER_NEAREST);
+    m_image_1[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_image_2[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_image_3[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_NEAREST);
+    m_depth[static_cast<uint32_t>(m_common_resources->ping_pong)]->generate_mipmaps(cmd_buf, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, VK_FILTER_NEAREST);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------
