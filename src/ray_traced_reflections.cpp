@@ -109,7 +109,7 @@ void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi
     DW_SCOPED_SAMPLE("Ray Traced Reflections", cmd_buf);
 
     clear_images(cmd_buf);
-    //ray_trace(cmd_buf, ddgi);
+    ray_trace(cmd_buf, ddgi);
 
     if (m_denoise)
     {
@@ -1052,7 +1052,7 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* d
     uint32_t rt_image_width  = m_width;
     uint32_t rt_image_height = m_height;
 
-    vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
+    //vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
 
     backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_ray_trace.image, subresource_range);
 
