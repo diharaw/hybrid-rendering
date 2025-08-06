@@ -106,6 +106,12 @@ protected:
                                [this](dw::vk::CommandBuffer::Ptr cmd_buf) {
                                    render_gui(cmd_buf);
                                });
+
+            VkImageSubresourceRange output_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+            m_vk_backend->use_resource(VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, m_vk_backend->swapchain_image(), output_subresource_range);
+
+            m_vk_backend->flush_barriers(cmd_buf);
         }
 
         vkEndCommandBuffer(cmd_buf->handle());

@@ -141,10 +141,6 @@ void ToneMap::render(dw::vk::CommandBuffer::Ptr                      cmd_buf,
         gui_callback(cmd_buf);
 
     vkCmdEndRenderingKHR(cmd_buf->handle());
-
-    backend->use_resource(VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, backend->swapchain_image(), output_subresource_range);
-
-    backend->flush_barriers(cmd_buf);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------

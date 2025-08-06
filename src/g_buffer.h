@@ -14,6 +14,8 @@ public:
     dw::vk::DescriptorSetLayout::Ptr ds_layout();
     dw::vk::DescriptorSet::Ptr       output_ds();
     dw::vk::DescriptorSet::Ptr       history_ds();
+    dw::vk::Image::Ptr               depth_image();
+    dw::vk::ImageView::Ptr           depth_image_view();
     dw::vk::ImageView::Ptr           depth_fbo_image_view(uint32_t idx);
 
 private:

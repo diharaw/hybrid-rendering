@@ -109,7 +109,7 @@ void RayTracedReflections::render(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* ddgi
     DW_SCOPED_SAMPLE("Ray Traced Reflections", cmd_buf);
 
     clear_images(cmd_buf);
-    ray_trace(cmd_buf, ddgi);
+    //ray_trace(cmd_buf, ddgi);
 
     if (m_denoise)
     {

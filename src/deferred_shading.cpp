@@ -481,7 +481,7 @@ void DeferredShading::create_pipeline()
         // ---------------------------------------------------------------------------
 
         pso_desc.add_color_attachment_format(m_shading.image->format());
-        pso_desc.set_depth_attachment_format(vk_backend->swap_chain_depth_format());
+        pso_desc.set_depth_attachment_format(m_g_buffer->depth_image()->format());
         pso_desc.set_stencil_attachment_format(VK_FORMAT_UNDEFINED);
 
         // ---------------------------------------------------------------------------
@@ -620,7 +620,7 @@ void DeferredShading::create_pipeline()
         // ---------------------------------------------------------------------------
 
         pso_desc.add_color_attachment_format(m_shading.image->format());
-        pso_desc.set_depth_attachment_format(vk_backend->swap_chain_depth_format());
+        pso_desc.set_depth_attachment_format(m_g_buffer->depth_image()->format());
         pso_desc.set_stencil_attachment_format(VK_FORMAT_UNDEFINED);
 
         // ---------------------------------------------------------------------------
@@ -728,10 +728,10 @@ void DeferredShading::render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* dd
     auto vk_backend = m_backend.lock();
 
     VkImageSubresourceRange color_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    VkImageSubresourceRange depth_subresource_range = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+    VkImageSubresourceRange depth_subresource_range = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, m_g_buffer->depth_image()->mip_levels(), 0, 1 };
 
     vk_backend->use_resource(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, m_shading.image, color_subresource_range);
-    vk_backend->use_resource(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, vk_backend->swapchain_depth_image(), depth_subresource_range);
+    vk_backend->use_resource(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, m_g_buffer->depth_image(), depth_subresource_range);
 
     vk_backend->flush_barriers(cmd_buf);
 
@@ -747,7 +747,7 @@ void DeferredShading::render_skybox(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* dd
     VkRenderingAttachmentInfoKHR depth_stencil_sttachment {};
 
     depth_stencil_sttachment.sType                   = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
-    depth_stencil_sttachment.imageView               = vk_backend->swapchain_depth_image_view()->handle();
+    depth_stencil_sttachment.imageView               = m_g_buffer->depth_image_view()->handle();
     depth_stencil_sttachment.imageLayout             = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     depth_stencil_sttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_LOAD;
     depth_stencil_sttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;

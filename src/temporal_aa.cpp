@@ -99,11 +99,13 @@ void TemporalAA::render(dw::vk::CommandBuffer::Ptr cmd_buf,
         const uint32_t write_idx   = (uint32_t)m_common_resources->ping_pong;
         const uint32_t read_idx    = (uint32_t)!m_common_resources->ping_pong;
 
-        VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        VkImageSubresourceRange subresource_range       = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        VkImageSubresourceRange depth_subresource_range = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, m_g_buffer->depth_image()->mip_levels(), 0, 1 };
 
         auto backend = m_backend.lock();
         
         backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, m_image[write_idx], subresource_range);
+        backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_g_buffer->depth_image(), depth_subresource_range);
 
         backend->flush_barriers(cmd_buf);
         

@@ -211,6 +211,20 @@ dw::vk::DescriptorSet::Ptr GBuffer::history_ds()
 
 // -----------------------------------------------------------------------------------------------------------------------------------
 
+dw::vk::Image::Ptr GBuffer::depth_image() 
+{ 
+    return m_depth[m_common_resources->ping_pong]; 
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
+dw::vk::ImageView::Ptr GBuffer::depth_image_view() 
+{ 
+    return m_depth_view[m_common_resources->ping_pong]; 
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+
 dw::vk::ImageView::Ptr GBuffer::depth_fbo_image_view(uint32_t idx)
 {
     return m_depth_fbo_view[idx];
