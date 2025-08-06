@@ -220,7 +220,7 @@ protected:
 
         settings.width       = 2560;
         settings.height      = 1440;
-        settings.title       = "Hybrid Rendering (c) Dihara Wijetunga";
+        settings.title       = "Hybrid Rendering";
         settings.ray_tracing = true;
         settings.vsync       = true;
 
