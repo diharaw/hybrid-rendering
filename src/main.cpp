@@ -218,8 +218,8 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 2560;
-        settings.height      = 1440;
+        settings.width       = 1920;
+        settings.height      = 1080;
         settings.title       = "Hybrid Rendering";
         settings.ray_tracing = true;
         settings.vsync       = true;
