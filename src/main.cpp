@@ -58,54 +58,56 @@ protected:
         vkBeginCommandBuffer(cmd_buf->handle(), &begin_info);
 
         {
-            DW_SCOPED_SAMPLE("Update", cmd_buf);
+             DW_SCOPED_SAMPLE("Update", cmd_buf);
 
-            debug_gui();
+             debug_gui();
 
             // Update camera.
-            update_camera();
+             update_camera();
 
             // Update light.
-            update_light_animation();
+             update_light_animation();
 
             // Update uniforms.
-            update_uniforms(cmd_buf);
+             update_uniforms(cmd_buf);
 
-            m_common_resources->current_scene()->build_tlas(cmd_buf);
+             m_common_resources->current_scene()->build_tlas(cmd_buf);
 
-            update_ibl(cmd_buf);
+             update_ibl(cmd_buf);
 
             // Render.
-            m_g_buffer->render(cmd_buf);
-            m_ray_traced_shadows->render(cmd_buf);
-            m_ray_traced_ao->render(cmd_buf);
-            m_ddgi->render(cmd_buf);
-            m_ray_traced_reflections->render(cmd_buf, m_ddgi.get());
-            m_deferred_shading->render(cmd_buf,
-                                       m_ray_traced_ao.get(),
-                                       m_ray_traced_shadows.get(),
-                                       m_ray_traced_reflections.get(),
-                                       m_ddgi.get());
-            m_ground_truth_path_tracer->render(cmd_buf);
-            m_temporal_aa->render(cmd_buf,
-                                  m_deferred_shading.get(),
-                                  m_ray_traced_ao.get(),
-                                  m_ray_traced_shadows.get(),
-                                  m_ray_traced_reflections.get(),
-                                  m_ddgi.get(),
-                                  m_ground_truth_path_tracer.get(),
-                                  m_delta_seconds);
-            m_tone_map->render(cmd_buf,
-                               m_temporal_aa.get(),
-                               m_deferred_shading.get(),
-                               m_ray_traced_ao.get(),
-                               m_ray_traced_shadows.get(),
-                               m_ray_traced_reflections.get(),
-                               m_ddgi.get(),
-                               m_ground_truth_path_tracer.get(),
-                               [this](dw::vk::CommandBuffer::Ptr cmd_buf) {
-                                   render_gui(cmd_buf);
-                               });
+             m_g_buffer->render(cmd_buf);
+             m_ray_traced_shadows->render(cmd_buf);
+             m_ray_traced_ao->render(cmd_buf);
+             m_ddgi->render(cmd_buf);
+             m_ray_traced_reflections->render(cmd_buf, m_ddgi.get());
+             m_deferred_shading->render(cmd_buf,
+                                        m_ray_traced_ao.get(),
+                                        m_ray_traced_shadows.get(),
+                                        m_ray_traced_reflections.get(),
+                                        m_ddgi.get());
+             m_ground_truth_path_tracer->render(cmd_buf);
+             m_temporal_aa->render(cmd_buf,
+                                   m_deferred_shading.get(),
+                                   m_ray_traced_ao.get(),
+                                   m_ray_traced_shadows.get(),
+                                   m_ray_traced_reflections.get(),
+                                   m_ddgi.get(),
+                                   m_ground_truth_path_tracer.get(),
+                                   m_delta_seconds);
+             m_tone_map->render(cmd_buf,
+                                m_temporal_aa.get(),
+                                m_deferred_shading.get(),
+                                m_ray_traced_ao.get(),
+                                m_ray_traced_shadows.get(),
+                                m_ray_traced_reflections.get(),
+                                m_ddgi.get(),
+                                m_ground_truth_path_tracer.get(),
+                                [this](dw::vk::CommandBuffer::Ptr cmd_buf) {
+                                    render_gui(cmd_buf);
+                                });
+
+            ImGui::Render();
 
             VkImageSubresourceRange output_subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
@@ -218,11 +220,12 @@ protected:
         // Set custom settings here...
         dw::AppSettings settings;
 
-        settings.width       = 1920;
-        settings.height      = 1080;
-        settings.title       = "Hybrid Rendering";
-        settings.ray_tracing = true;
-        settings.vsync       = true;
+        settings.width             = 1920;
+        settings.height            = 1080;
+        settings.title             = "Hybrid Rendering";
+        settings.ray_tracing       = true;
+        settings.vsync             = true;
+        settings.enable_validation = false;
 
         return settings;
     }
