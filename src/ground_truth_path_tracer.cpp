@@ -59,7 +59,7 @@ void GroundTruthPathTracer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
         VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
         backend->use_resource(VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, m_path_trace.images[write_idx], subresource_range);
-        backend->use_resource(VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_path_trace.images[read_idx], subresource_range);
+        backend->use_resource(VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, m_path_trace.images[read_idx], subresource_range);
 
         backend->flush_barriers(cmd_buf);
         
@@ -87,14 +87,11 @@ void GroundTruthPathTracer::render(dw::vk::CommandBuffer::Ptr cmd_buf)
 
         vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_path_trace.pipeline_layout->handle(), 0, 5, descriptor_sets, 1, dynamic_offsets);
 
-        auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
+        auto sbt = m_path_trace.sbt;
 
-        VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-        VkDeviceSize group_stride = group_size;
-
-        const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_path_trace.pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_path_trace.pipeline->shader_binding_table_buffer()->device_address() + m_path_trace.sbt->miss_group_offset(), group_stride, group_size };
-        const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_path_trace.pipeline->shader_binding_table_buffer()->device_address() + m_path_trace.sbt->hit_group_offset(), group_stride, group_size };
+        const VkStridedDeviceAddressRegionKHR raygen_sbt   = m_path_trace.pipeline->ray_gen_region();
+        const VkStridedDeviceAddressRegionKHR miss_sbt     = m_path_trace.pipeline->miss_group_region();
+        const VkStridedDeviceAddressRegionKHR hit_sbt      = m_path_trace.pipeline->hit_group_region();
         const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
         uint32_t rt_image_width  = m_width;
@@ -136,10 +133,10 @@ void GroundTruthPathTracer::create_images()
     for (int i = 0; i < 2; i++)
     {
         m_path_trace.images[i] = dw::vk::Image::create(backend, VK_IMAGE_TYPE_2D, m_width, m_height, 1, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, VMA_MEMORY_USAGE_GPU_ONLY, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT);
-        m_path_trace.images[i]->set_name("Ground Truth Path Trace");
+        m_path_trace.images[i]->set_name("Ground Truth Path Trace " + std::to_string(i));
 
         m_path_trace.image_views[i] = dw::vk::ImageView::create(backend, m_path_trace.images[i], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-        m_path_trace.image_views[i]->set_name("Ground Truth Path Trace");
+        m_path_trace.image_views[i]->set_name("Ground Truth Path Trace " + std::to_string(i));
     }
 }
 
@@ -247,7 +244,7 @@ void GroundTruthPathTracer::create_pipelines()
 
     dw::vk::ShaderBindingTable::Desc sbt_desc;
 
-    sbt_desc.add_ray_gen_group(rgen, "main");
+    sbt_desc.set_ray_gen_stage(rgen, "main");
     sbt_desc.add_hit_group(rchit, "main");
     sbt_desc.add_miss_group(rmiss, "main");
 
@@ -264,7 +261,7 @@ void GroundTruthPathTracer::create_pipelines()
 
     dw::vk::PipelineLayout::Desc pl_desc;
 
-    pl_desc.add_descriptor_set_layout(m_common_resources->current_scene()->descriptor_set_layout());
+    pl_desc.add_descriptor_set_layout(m_common_resources->scene_ds_layout);
     pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
     pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
     pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);

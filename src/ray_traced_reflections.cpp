@@ -807,7 +807,7 @@ void RayTracedReflections::create_pipelines()
 
         dw::vk::ShaderBindingTable::Desc sbt_desc;
 
-        sbt_desc.add_ray_gen_group(rgen, "main");
+        sbt_desc.set_ray_gen_stage(rgen, "main");
         sbt_desc.add_hit_group(rchit, "main");
         sbt_desc.add_miss_group(rmiss, "main");
 
@@ -824,7 +824,7 @@ void RayTracedReflections::create_pipelines()
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_common_resources->current_scene()->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_common_resources->scene_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());
@@ -1039,20 +1039,17 @@ void RayTracedReflections::ray_trace(dw::vk::CommandBuffer::Ptr cmd_buf, DDGI* d
 
     vkCmdBindDescriptorSets(cmd_buf->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_ray_trace.pipeline_layout->handle(), 0, 7, descriptor_sets, 2, dynamic_offsets);
 
-    auto& rt_pipeline_props = backend->ray_tracing_pipeline_properties();
+    auto sbt = m_ray_trace.sbt;
 
-    VkDeviceSize group_size   = dw::vk::utilities::aligned_size(rt_pipeline_props.shaderGroupHandleSize, rt_pipeline_props.shaderGroupBaseAlignment);
-    VkDeviceSize group_stride = group_size;
-
-    const VkStridedDeviceAddressRegionKHR raygen_sbt   = { m_ray_trace.pipeline->shader_binding_table_buffer()->device_address(), group_stride, group_size };
-    const VkStridedDeviceAddressRegionKHR miss_sbt     = { m_ray_trace.pipeline->shader_binding_table_buffer()->device_address() + m_ray_trace.sbt->miss_group_offset(), group_stride, group_size };
-    const VkStridedDeviceAddressRegionKHR hit_sbt      = { m_ray_trace.pipeline->shader_binding_table_buffer()->device_address() + m_ray_trace.sbt->hit_group_offset(), group_stride, group_size };
+    const VkStridedDeviceAddressRegionKHR raygen_sbt   = m_ray_trace.pipeline->ray_gen_region();
+    const VkStridedDeviceAddressRegionKHR miss_sbt     = m_ray_trace.pipeline->miss_group_region();
+    const VkStridedDeviceAddressRegionKHR hit_sbt      = m_ray_trace.pipeline->hit_group_region();
     const VkStridedDeviceAddressRegionKHR callable_sbt = { 0, 0, 0 };
 
     uint32_t rt_image_width  = m_width;
     uint32_t rt_image_height = m_height;
 
-    //vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
+    vkCmdTraceRaysKHR(cmd_buf->handle(), &raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, rt_image_width, rt_image_height, 1);
 
     backend->use_resource(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_ray_trace.image, subresource_range);
 

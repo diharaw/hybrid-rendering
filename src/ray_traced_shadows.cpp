@@ -800,7 +800,7 @@ void RayTracedShadows::create_pipelines()
 
         dw::vk::PipelineLayout::Desc pl_desc;
 
-        pl_desc.add_descriptor_set_layout(m_common_resources->current_scene()->descriptor_set_layout());
+        pl_desc.add_descriptor_set_layout(m_common_resources->scene_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->storage_image_ds_layout);
         pl_desc.add_descriptor_set_layout(m_common_resources->per_frame_ds_layout);
         pl_desc.add_descriptor_set_layout(m_g_buffer->ds_layout());

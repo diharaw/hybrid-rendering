@@ -511,7 +511,17 @@ void DeferredShading::create_pipeline()
         // Create vertex input state
         // ---------------------------------------------------------------------------
 
-        pso_desc.set_vertex_input_state(m_common_resources->meshes[0]->vertex_input_state_desc());
+        dw::vk::VertexInputStateDesc vertex_input_state_desc = {};
+
+        vertex_input_state_desc.add_binding_desc(0, sizeof(dw::Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
+
+        vertex_input_state_desc.add_attribute_desc(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0);
+        vertex_input_state_desc.add_attribute_desc(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(dw::Vertex, tex_coord));
+        vertex_input_state_desc.add_attribute_desc(2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(dw::Vertex, normal));
+        vertex_input_state_desc.add_attribute_desc(3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(dw::Vertex, tangent));
+        vertex_input_state_desc.add_attribute_desc(4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(dw::Vertex, bitangent));
+
+        pso_desc.set_vertex_input_state(vertex_input_state_desc);
 
         // ---------------------------------------------------------------------------
         // Create pipeline input assembly state

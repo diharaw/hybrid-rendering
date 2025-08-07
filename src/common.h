@@ -205,6 +205,7 @@ struct CommonResources
     // Common
     dw::vk::DescriptorSet::Ptr                   per_frame_ds;
     dw::vk::DescriptorSet::Ptr                   blue_noise_ds[9];
+    dw::vk::DescriptorSetLayout::Ptr             scene_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr             per_frame_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr             combined_sampler_ds_layout;
     dw::vk::DescriptorSetLayout::Ptr             storage_image_ds_layout;
